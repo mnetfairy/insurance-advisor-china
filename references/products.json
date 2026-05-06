@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "version": "1.5",
+    "version": "1.8.136",
     "updated_at": "2026-04-30",
     "description": "保险产品库整理版，保留在售及有效产品",
     "total_products": 2536,
@@ -36,7 +36,7 @@
     "new_2025_products_added": 12,
     "enriched_products": 239,
     "cleanup_round2": "removed 8 additional garbage entries",
-    "daily_updated_at": "2026-04-30",
+    "daily_updated_at": "2026-05-07",
     "total_active": 535,
     "total_inactive": 1964,
     "last_updated": "2026-04-18",
