@@ -1,0 +1,4 @@
+references/backups/
+*.log
+logs/
+state.json
