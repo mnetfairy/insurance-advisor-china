@@ -1,7 +1,7 @@
 {
   "_meta": {
-    "version": "1.8.345",
-    "updated_at": "2026-07-03T17:39:19.499789+00:00",
+    "version": "1.8.354",
+    "updated_at": "2026-07-07T17:32:00.275020+00:00",
     "description": "保险产品库整理版，保留在售及有效产品",
     "total_products": 2612,
     "active_products": 237,
@@ -36,7 +36,7 @@
     "new_2025_products_added": 12,
     "enriched_products": 239,
     "cleanup_round2": "removed 8 additional garbage entries",
-    "daily_updated_at": "2026-07-04",
+    "daily_updated_at": "2026-07-08",
     "total_active": 535,
     "total_inactive": 1964,
     "last_updated": "2026-04-18",
@@ -56,7 +56,7 @@
       "终身寿险": 40
     },
     "active_count": 648,
-    "lastUpdated": "2026-07-03T17:39:19.499079+00:00"
+    "lastUpdated": "2026-07-07T17:32:00.273940+00:00"
   },
   "products": [
     {
@@ -84098,7 +84098,7 @@
       "is_duplicate": false,
       "enriched_source": "2025_hot_products",
       "source": "comprehensive_scraper",
-      "addedAt": "2026-07-03T17:39:19.327446+00:00"
+      "addedAt": "2026-07-07T17:32:00.103006+00:00"
     },
     {
       "id": "new_crx_2025_002",
@@ -92125,7 +92125,7 @@
       "company": "中国人保",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327489+00:00"
+      "addedAt": "2026-07-07T17:32:00.103048+00:00"
     },
     {
       "name": "小青龙5号",
@@ -92133,7 +92133,7 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327416+00:00"
+      "addedAt": "2026-07-07T17:32:00.102995+00:00"
     },
     {
       "name": "i无忧3.0",
@@ -92141,7 +92141,7 @@
       "company": "中国人保寿险",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327400+00:00"
+      "addedAt": "2026-07-07T17:32:00.103032+00:00"
     },
     {
       "name": "阿基米德",
@@ -92149,7 +92149,7 @@
       "company": "太平洋人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327357+00:00"
+      "addedAt": "2026-07-07T17:32:00.103078+00:00"
     },
     {
       "name": "大黄蜂15号",
@@ -92157,7 +92157,7 @@
       "company": "北京人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327642+00:00"
+      "addedAt": "2026-07-07T17:32:00.103016+00:00"
     },
     {
       "name": "守卫者7号",
@@ -92165,7 +92165,7 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327389+00:00"
+      "addedAt": "2026-07-07T17:32:00.102920+00:00"
     },
     {
       "name": "星相守",
@@ -92173,7 +92173,7 @@
       "company": "复星联合健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327625+00:00"
+      "addedAt": "2026-07-07T17:32:00.102947+00:00"
     },
     {
       "name": "小淘气6号",
@@ -92181,7 +92181,7 @@
       "company": "招商信诺",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327615+00:00"
+      "addedAt": "2026-07-07T17:32:00.103083+00:00"
     },
     {
       "name": "完美人生8号",
@@ -92189,7 +92189,7 @@
       "company": "复星联合健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327352+00:00"
+      "addedAt": "2026-07-07T17:32:00.103108+00:00"
     },
     {
       "name": "长相安2号",
@@ -92197,7 +92197,7 @@
       "company": "平安健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327620+00:00"
+      "addedAt": "2026-07-07T17:32:00.103043+00:00"
     },
     {
       "name": "达尔文超越版",
@@ -92213,7 +92213,7 @@
       "company": "陆家嘴国泰",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327599+00:00"
+      "addedAt": "2026-07-07T17:32:00.102967+00:00"
     },
     {
       "name": "小蜜蜂",
@@ -92229,7 +92229,7 @@
       "company": "招商信诺",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327605+00:00"
+      "addedAt": "2026-07-07T17:32:00.103162+00:00"
     },
     {
       "name": "星海慧选",
@@ -92237,7 +92237,7 @@
       "company": "复星保德信",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327462+00:00"
+      "addedAt": "2026-07-07T17:32:00.102838+00:00"
     },
     {
       "name": "一生中意福享版",
@@ -92245,7 +92245,7 @@
       "company": "中意人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327516+00:00"
+      "addedAt": "2026-07-07T17:32:00.103000+00:00"
     },
     {
       "name": "阿基米德2025",
@@ -92261,7 +92261,7 @@
       "company": "中国平安",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327335+00:00"
+      "addedAt": "2026-07-07T17:32:00.102904+00:00"
     },
     {
       "name": "大黄蜂14号",
@@ -92277,7 +92277,7 @@
       "company": "中意人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327306+00:00"
+      "addedAt": "2026-07-07T17:32:00.103194+00:00"
     },
     {
       "name": "养多多7号",
@@ -92285,7 +92285,7 @@
       "company": "招商仁和",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327630+00:00"
+      "addedAt": "2026-07-07T17:32:00.103117+00:00"
     },
     {
       "name": "小红花2025",
@@ -92293,7 +92293,7 @@
       "company": "国富人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327346+00:00"
+      "addedAt": "2026-07-07T17:32:00.103073+00:00"
     },
     {
       "name": "长相安3号",
@@ -92301,7 +92301,7 @@
       "company": "平安健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327318+00:00"
+      "addedAt": "2026-07-07T17:32:00.103113+00:00"
     },
     {
       "name": "大黄蜂16号",
@@ -92309,7 +92309,7 @@
       "company": "北京人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327362+00:00"
+      "addedAt": "2026-07-07T17:32:00.103176+00:00"
     },
     {
       "name": "希望之星5号",
@@ -92317,7 +92317,7 @@
       "company": "中国人保",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327297+00:00"
+      "addedAt": "2026-07-07T17:32:00.103199+00:00"
     },
     {
       "name": "一生中意尊享版",
@@ -92325,7 +92325,7 @@
       "company": "中意人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327394+00:00"
+      "addedAt": "2026-07-07T17:32:00.102978+00:00"
     },
     {
       "name": "达尔文8号",
@@ -92341,7 +92341,7 @@
       "company": "复星联合健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327267+00:00"
+      "addedAt": "2026-07-07T17:32:00.103011+00:00"
     },
     {
       "name": "超级玛丽10号",
@@ -92357,7 +92357,7 @@
       "company": "中国人保",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327500+00:00"
+      "addedAt": "2026-07-07T17:32:00.102989+00:00"
     },
     {
       "name": "超级玛丽16号",
@@ -92365,7 +92365,7 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327538+00:00"
+      "addedAt": "2026-07-07T17:32:00.102958+00:00"
     },
     {
       "name": "小青龙6号",
@@ -92373,7 +92373,7 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327662+00:00"
+      "addedAt": "2026-07-07T17:32:00.103138+00:00"
     },
     {
       "name": "青云卫4号",
@@ -92389,7 +92389,7 @@
       "company": "招商仁和",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327368+00:00"
+      "addedAt": "2026-07-07T17:32:00.102882+00:00"
     },
     {
       "name": "小顽童8号",
@@ -92397,7 +92397,7 @@
       "company": "中国平安",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327428+00:00"
+      "addedAt": "2026-07-07T17:32:00.103189+00:00"
     },
     {
       "name": "i无忧2.0",
@@ -92405,7 +92405,7 @@
       "company": "中国人保寿险",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327593+00:00"
+      "addedAt": "2026-07-07T17:32:00.102931+00:00"
     },
     {
       "name": "守卫者6号",
@@ -92413,7 +92413,7 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327672+00:00"
+      "addedAt": "2026-07-07T17:32:00.103064+00:00"
     },
     {
       "name": "哪吒1号",
@@ -92429,7 +92429,7 @@
       "company": "中英人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327406+00:00"
+      "addedAt": "2026-07-07T17:32:00.103171+00:00"
     },
     {
       "name": "大黄蜂13号",
@@ -92445,7 +92445,7 @@
       "company": "太平洋健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327452+00:00"
+      "addedAt": "2026-07-07T17:32:00.102962+00:00"
     },
     {
       "name": "超越保",
@@ -92453,7 +92453,7 @@
       "company": "复星联合健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327324+00:00"
+      "addedAt": "2026-07-07T17:32:00.102910+00:00"
     },
     {
       "name": "达尔文11号",
@@ -92461,7 +92461,7 @@
       "company": "复星联合健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327636+00:00"
+      "addedAt": "2026-07-07T17:32:00.103053+00:00"
     },
     {
       "name": "青云卫5号",
@@ -92469,7 +92469,7 @@
       "company": "招商仁和",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327656+00:00"
+      "addedAt": "2026-07-07T17:32:00.103166+00:00"
     },
     {
       "name": "大护甲",
@@ -92493,7 +92493,7 @@
       "company": "太平洋健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327533+00:00"
+      "addedAt": "2026-07-07T17:32:00.102875+00:00"
     },
     {
       "name": "达尔文10号",
@@ -92501,7 +92501,7 @@
       "company": "瑞华健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327478+00:00"
+      "addedAt": "2026-07-07T17:32:00.103184+00:00"
     },
     {
       "name": "青云卫6号",
@@ -92509,7 +92509,7 @@
       "company": "招商仁和",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327646+00:00"
+      "addedAt": "2026-07-07T17:32:00.102937+00:00"
     },
     {
       "name": "小青龙4号",
@@ -92533,7 +92533,7 @@
       "company": "复星联合健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327472+00:00"
+      "addedAt": "2026-07-07T17:32:00.102888+00:00"
     },
     {
       "name": "哪吒2号",
@@ -92541,7 +92541,7 @@
       "company": "海保人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327456+00:00"
+      "addedAt": "2026-07-07T17:32:00.103132+00:00"
     },
     {
       "name": "金医保",
@@ -92549,7 +92549,7 @@
       "company": "中国人保",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327651+00:00"
+      "addedAt": "2026-07-07T17:32:00.102973+00:00"
     },
     {
       "name": "养多多5号",
@@ -92557,7 +92557,7 @@
       "company": "招商仁和",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327610+00:00"
+      "addedAt": "2026-07-07T17:32:00.103157+00:00"
     },
     {
       "name": "达尔文9号",
@@ -92565,7 +92565,7 @@
       "company": "瑞华健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327484+00:00"
+      "addedAt": "2026-07-07T17:32:00.102952+00:00"
     },
     {
       "name": "青鸾版",
@@ -92581,7 +92581,7 @@
       "company": "中国人保",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327330+00:00"
+      "addedAt": "2026-07-07T17:32:00.103068+00:00"
     },
     {
       "name": "超级玛丽12号",
@@ -92589,7 +92589,7 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327373+00:00"
+      "addedAt": "2026-07-07T17:32:00.102942+00:00"
     },
     {
       "name": "小福娃2号",
@@ -92597,7 +92597,7 @@
       "company": "北京人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327522+00:00"
+      "addedAt": "2026-07-07T17:32:00.102899+00:00"
     },
     {
       "name": "长相安",
@@ -92605,7 +92605,7 @@
       "company": "平安健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327312+00:00"
+      "addedAt": "2026-07-07T17:32:00.103093+00:00"
     },
     {
       "name": "大护甲8号",
@@ -92613,7 +92613,7 @@
       "company": "中国人保",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327667+00:00"
+      "addedAt": "2026-07-07T17:32:00.103098+00:00"
     },
     {
       "name": "青鸾版",
@@ -92621,7 +92621,7 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327378+00:00"
+      "addedAt": "2026-07-07T17:32:00.102893+00:00"
     },
     {
       "name": "光明慧选",
@@ -92629,7 +92629,7 @@
       "company": "光大永明",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327340+00:00"
+      "addedAt": "2026-07-07T17:32:00.103022+00:00"
     },
     {
       "name": "小蜜蜂5号",
@@ -92637,7 +92637,7 @@
       "company": "太平财产",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327411+00:00"
+      "addedAt": "2026-07-07T17:32:00.102915+00:00"
     },
     {
       "name": "坦然保",
@@ -92645,7 +92645,7 @@
       "company": "太平财产",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327468+00:00"
+      "addedAt": "2026-07-07T17:32:00.103103+00:00"
     },
     {
       "name": "火凤版",
@@ -92653,7 +92653,7 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327682+00:00"
+      "addedAt": "2026-07-07T17:32:00.103058+00:00"
     },
     {
       "name": "小青龙7号",
@@ -92661,7 +92661,7 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327511+00:00"
+      "addedAt": "2026-07-07T17:32:00.102984+00:00"
     },
     {
       "name": "龙抬头",
@@ -92669,7 +92669,7 @@
       "company": "大家保险",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327495+00:00"
+      "addedAt": "2026-07-07T17:32:00.103143+00:00"
     },
     {
       "name": "安欣保",
@@ -92677,7 +92677,7 @@
       "company": "平安健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327676+00:00"
+      "addedAt": "2026-07-07T17:32:00.103037+00:00"
     },
     {
       "name": "好医保长期医疗",
@@ -92685,7 +92685,7 @@
       "company": "中国人保",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327505+00:00"
+      "addedAt": "2026-07-07T17:32:00.103153+00:00"
     },
     {
       "name": "大护甲7号",
@@ -92693,7 +92693,7 @@
       "company": "中国人保",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327440+00:00"
+      "addedAt": "2026-07-07T17:32:00.102926+00:00"
     },
     {
       "name": "小顽童7号",
@@ -92701,7 +92701,7 @@
       "company": "中国平安",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327434+00:00"
+      "addedAt": "2026-07-07T17:32:00.102866+00:00"
     },
     {
       "name": "锦绣满堂",
@@ -92709,7 +92709,7 @@
       "company": "中意人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327384+00:00"
+      "addedAt": "2026-07-07T17:32:00.103088+00:00"
     },
     {
       "name": "鑫禧年年",
@@ -92717,7 +92717,7 @@
       "company": "光大永明",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327422+00:00"
+      "addedAt": "2026-07-07T17:32:00.103027+00:00"
     },
     {
       "name": "超级玛丽11号",
@@ -92725,7 +92725,7 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-03T17:39:19.327528+00:00"
+      "addedAt": "2026-07-07T17:32:00.103147+00:00"
     }
   ]
 }
