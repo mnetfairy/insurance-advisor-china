@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "version": "1.8.362",
+    "version": "1.8.364",
     "updated_at": "2026-07-11T17:33:31.198662+00:00",
     "description": "保险产品库整理版，保留在售及有效产品",
     "total_products": 2612,
@@ -56,7 +56,19 @@
       "终身寿险": 40
     },
     "active_count": 648,
-    "lastUpdated": "2026-07-11T17:33:31.197679+00:00"
+    "lastUpdated": "2026-07-11T17:33:31.197679+00:00",
+    "policy_validity_check_at": "2026-07-12T16:46:48.439387+00:00",
+    "policy_validity_check_summary": {
+      "targets_total": 105,
+      "tier1_count": 102,
+      "tier2_sampled": 3,
+      "discontinued": 75,
+      "modified": 26,
+      "rate_updated": 8,
+      "valid": 4,
+      "needs_review": 0,
+      "errors": 0
+    }
   },
   "products": [
     {
@@ -82267,7 +82279,10 @@
         "健康告知宽松",
         "免责条款少"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 升级/变更/新增",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "2",
@@ -82316,7 +82331,10 @@
         "健康告知宽松",
         "免责条款少"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 退市/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "3",
@@ -82367,7 +82385,10 @@
         "健康告知宽松",
         "免责条款少"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "4",
@@ -82416,7 +82437,10 @@
         "健康告知宽松",
         "免责条款少"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "5",
@@ -82431,7 +82455,7 @@
       "waiting_period": "90天",
       "key_benefits": "线上免体检，保额最高350万，家庭经济支柱首选",
       "premium_type": "混合费率",
-      "notes": "2025-2026年在售主流产品",
+      "notes": "2025-2026年在售主流产品\n【2026-07 政策更新】IRR 3.8% · 收益率 5.12%",
       "category": "重疾险",
       "listing_time": "2024-01-01",
       "delisting_time": null,
@@ -82467,7 +82491,24 @@
         "含身故保障",
         "健康告知宽松"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 调整/变更",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00",
+      "policy_rate_change": {
+        "detected_at": "2026-07-12T16:47:18.115204+00:00",
+        "rates": {
+          "IRR": 3.8,
+          "收益率": 5.12
+        },
+        "sample_query": "\"阳光阳光B款定期寿险\" \"阳光人寿\" 2026 预定利率 OR 收益率 OR IRR OR 复利 OR 万能账户 OR 结算利率 OR 调整",
+        "source_titles": [
+          "阳光人寿增多多6号终身寿险（分红型），千亿公司承保，长期IRR超3.8%_小雨伞保险经纪",
+          "阳光人寿保险股份有限公司阳光人寿臻爱倍致终身寿险条款 ...",
+          "阳光人寿保险股份有限公司2021年跟踪评级报告"
+        ],
+        "source_count": 5
+      }
     },
     {
       "id": "6",
@@ -82516,7 +82557,10 @@
         "含身故保障",
         "健康告知宽松"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "7",
@@ -82565,7 +82609,10 @@
         "健康告知宽松",
         "免责条款少"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "8",
@@ -82614,7 +82661,10 @@
         "健康告知宽松",
         "免责条款少"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "11",
@@ -82629,7 +82679,7 @@
       "waiting_period": "90天",
       "key_benefits": "3.0%递增保额，现金价值高，财富传承+养老规划",
       "premium_type": "混合费率",
-      "notes": "2025-2026年在售主流产品",
+      "notes": "2025-2026年在售主流产品\n【2026-07 政策更新】复利 3.5% · 收益率 3.0% · 结算利率 1.75%",
       "category": "重疾险",
       "listing_time": "2025-01-01",
       "delisting_time": null,
@@ -82663,7 +82713,25 @@
         "等待期短",
         "含身故保障"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 调整/升级/变更",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00",
+      "policy_rate_change": {
+        "detected_at": "2026-07-12T16:47:53.280504+00:00",
+        "rates": {
+          "复利": 3.5,
+          "收益率": 3.0,
+          "结算利率": 1.75
+        },
+        "sample_query": "\"平安盛世金越（尊享版25）终身寿险\" \"平安人寿\" 2026 预定利率 OR 收益率 OR IRR OR 复利 OR 万能账户 OR 结算利率 OR 调整",
+        "source_titles": [
+          "增额终身寿获青睐，平安盛世金越（尊享版）终身寿险上市",
+          "中国平安人寿万能保险结算利率公告|上海证券报",
+          "助力客户对抗财富焦虑平安人寿推出御享金越26系列保险产品计划"
+        ],
+        "source_count": 5
+      }
     },
     {
       "id": "12",
@@ -82712,7 +82780,10 @@
         "等待期短",
         "含身故保障"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "13",
@@ -82761,7 +82832,10 @@
         "等待期短",
         "含身故保障"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 调整",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "14",
@@ -82776,7 +82850,7 @@
       "waiting_period": "90天",
       "key_benefits": "3.2%递增，附加医疗绿通，医养结合",
       "premium_type": "混合费率",
-      "notes": "2025-2026年在售主流产品",
+      "notes": "2025-2026年在售主流产品\n【2026-07 政策更新】IRR 1.84% · 收益率 1.84% · 结算利率 2.0%",
       "category": "重疾险",
       "listing_time": "2024-06-01",
       "delisting_time": null,
@@ -82810,7 +82884,25 @@
         "等待期短",
         "含身故保障"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 调整/变更/新增",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00",
+      "policy_rate_change": {
+        "detected_at": "2026-07-12T16:48:32.976472+00:00",
+        "rates": {
+          "IRR": 1.84,
+          "收益率": 1.84,
+          "结算利率": 2.0
+        },
+        "sample_query": "\"泰康尊享世家（增额版）终身寿险\" \"泰康人寿\" 2026 预定利率 OR 收益率 OR IRR OR 复利 OR 万能账户 OR 结算利率 OR 调整",
+        "source_titles": [
+          "增额寿哪款回本快、收益高？2026年产品对比测评|流动性|寿险|资金|储蓄|泰康_手机新浪网",
+          "鑫享+绿通泰康人寿构建生命“双保障”",
+          "泰康鑫享世家2026(尊享版)终身寿险(分红型)条款"
+        ],
+        "source_count": 5
+      }
     },
     {
       "id": "15",
@@ -82860,7 +82952,10 @@
         "等待期短",
         "含身故保障"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "16",
@@ -82909,7 +83004,10 @@
         "等待期短",
         "含身故保障"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "17",
@@ -82957,7 +83055,10 @@
         "等待期短",
         "含身故保障"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 变更",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "18",
@@ -82972,7 +83073,7 @@
       "waiting_period": "90天",
       "key_benefits": "3.0%固定+分红，大公司背景，养老社区对接",
       "premium_type": "混合费率",
-      "notes": "2025-2026年在售主流产品",
+      "notes": "2025-2026年在售主流产品\n【2026-07 政策更新】收益率 5.32%",
       "category": "重疾险",
       "listing_time": "2024-01-01",
       "delisting_time": null,
@@ -83005,7 +83106,23 @@
         "等待期短",
         "含身故保障"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 变更",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00",
+      "policy_rate_change": {
+        "detected_at": "2026-07-12T16:48:50.443108+00:00",
+        "rates": {
+          "收益率": 5.32
+        },
+        "sample_query": "\"光大永明光明至尊（2024版）终身寿险（分红型）\" \"光大永明人寿\" 2026 预定利率 OR 收益率 OR IRR OR 复利 OR 万能账户 OR 结算利率 OR 调整",
+        "source_titles": [
+          "[PDF] 光大永明人寿保险有限公司光大永明光明至尊（2024 版）终身寿险 ...",
+          "投保分红险必看！光明至尊2024和一生中意的深度剖析与抉择 - 知乎",
+          "光大永明人寿保险有限公司光大永明光明至尊终身寿险条款"
+        ],
+        "source_count": 5
+      }
     },
     {
       "id": "19",
@@ -83053,7 +83170,10 @@
         "等待期短",
         "含身故保障"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "21",
@@ -83103,7 +83223,10 @@
         "养老专项",
         "IRR表现好"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 调整/变更",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "22",
@@ -83152,7 +83275,10 @@
         "等待期短",
         "IRR表现好"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "23",
@@ -83201,7 +83327,10 @@
         "养老专项",
         "IRR表现好"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "24",
@@ -83216,7 +83345,7 @@
       "waiting_period": "90天",
       "key_benefits": "快返型+分红，第5年开始返还，养老+传承",
       "premium_type": "混合费率",
-      "notes": "2025-2026年在售主流产品",
+      "notes": "2025-2026年在售主流产品\n【2026-07 政策更新】结算利率 3.3%",
       "category": "重疾险",
       "listing_time": "2024-01-01",
       "delisting_time": null,
@@ -83249,7 +83378,23 @@
         "等待期短",
         "IRR表现好"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 调整/升级/新增",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00",
+      "policy_rate_change": {
+        "detected_at": "2026-07-12T16:49:19.938968+00:00",
+        "rates": {
+          "结算利率": 3.3
+        },
+        "sample_query": "\"太保鑫福年年（尊享版）年金保险（分红型）\" \"太平洋人寿\" 2026 预定利率 OR 收益率 OR IRR OR 复利 OR 万能账户 OR 结算利率 OR 调整",
+        "source_titles": [
+          "热门养老年金保险对比！26年太保哪款值得入手？-太平洋保险",
+          "[PDF] 万能险机制功能和定位迎来重构",
+          "产品条款基本信息"
+        ],
+        "source_count": 5
+      }
     },
     {
       "id": "25",
@@ -83296,7 +83441,10 @@
         "等待期短",
         "IRR表现好"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "26",
@@ -83345,7 +83493,10 @@
         "养老专项",
         "IRR表现好"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "31",
@@ -83393,7 +83544,10 @@
         "含费用垫付",
         "含绿通"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/已停止",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "32",
@@ -83441,7 +83595,10 @@
         "含费用垫付",
         "含绿通"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/已停止",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "33",
@@ -83488,7 +83645,10 @@
         "含费用垫付",
         "含绿通"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 升级",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "34",
@@ -83535,7 +83695,10 @@
         "含费用垫付",
         "含绿通"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 调整/升级/更新/新增",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "35",
@@ -83583,7 +83746,10 @@
         "含费用垫付",
         "含绿通"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 调整/升级/新增/预定利率下调",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "36",
@@ -83630,7 +83796,10 @@
         "含费用垫付",
         "含绿通"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "41",
@@ -83676,7 +83845,9 @@
         "不限社保",
         "含住院津贴"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "SKIPPED",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "42",
@@ -83722,7 +83893,9 @@
         "不限社保",
         "含住院津贴"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "SKIPPED",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "43",
@@ -83767,7 +83940,9 @@
         "不限社保",
         "含住院津贴"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "SKIPPED",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "44",
@@ -83812,7 +83987,9 @@
         "不限社保",
         "含住院津贴"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "SKIPPED",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "51",
@@ -83860,7 +84037,10 @@
         "等待期短",
         "含身故保障"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "52",
@@ -83875,7 +84055,7 @@
       "waiting_period": "90天",
       "key_benefits": "邮政渠道销售，银保产品，稳健增值",
       "premium_type": "混合费率",
-      "notes": "2025-2026年在售主流产品",
+      "notes": "2025-2026年在售主流产品\n【2026-07 政策更新】收益率 4.0% · 结算利率 4.0%",
       "category": "重疾险",
       "listing_time": "2025-01-01",
       "delisting_time": null,
@@ -83908,7 +84088,24 @@
         "等待期短",
         "含身故保障"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 调整/修订/更新/变更",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00",
+      "policy_rate_change": {
+        "detected_at": "2026-07-12T16:50:37.180240+00:00",
+        "rates": {
+          "收益率": 4.0,
+          "结算利率": 4.0
+        },
+        "sample_query": "\"中邮挚爱相传2025终身寿险（分红型）\" \"中邮人寿\" 2026 预定利率 OR 收益率 OR IRR OR 复利 OR 万能账户 OR 结算利率 OR 调整",
+        "source_titles": [
+          "[PDF] 中邮人寿保险股份有限公司2026 年无固定期限资本债券信用评级报告",
+          "投诉缠身：中邮人寿千亿保费狂欢下的“分红裂痕”-观察者网",
+          "[PDF] 中邮人寿保险股份有限公司2025 年跟踪评级报告"
+        ],
+        "source_count": 5
+      }
     },
     {
       "id": "53",
@@ -83957,7 +84154,10 @@
         "养老专项",
         "IRR表现好"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "VALID",
+      "validity_reason": "5 clean results",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "54",
@@ -84004,7 +84204,10 @@
         "等待期短",
         "含身故保障"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "55",
@@ -84051,7 +84254,10 @@
         "含费用垫付",
         "含绿通"
       ],
-      "is_enriched": false
+      "is_enriched": false,
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "id": "new_crx_2025_001",
@@ -92125,7 +92331,10 @@
       "company": "中国人保",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055287+00:00"
+      "addedAt": "2026-07-11T17:33:31.055287+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "小青龙5号",
@@ -92133,7 +92342,10 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055247+00:00"
+      "addedAt": "2026-07-11T17:33:31.055247+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/退市/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "i无忧3.0",
@@ -92141,7 +92353,10 @@
       "company": "中国人保寿险",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055291+00:00"
+      "addedAt": "2026-07-11T17:33:31.055291+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "阿基米德",
@@ -92149,7 +92364,10 @@
       "company": "太平洋人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055283+00:00"
+      "addedAt": "2026-07-11T17:33:31.055283+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "大黄蜂15号",
@@ -92157,7 +92375,10 @@
       "company": "北京人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055252+00:00"
+      "addedAt": "2026-07-11T17:33:31.055252+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/退市/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "守卫者7号",
@@ -92165,7 +92386,10 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055297+00:00"
+      "addedAt": "2026-07-11T17:33:31.055297+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "星相守",
@@ -92173,7 +92397,10 @@
       "company": "复星联合健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055280+00:00"
+      "addedAt": "2026-07-11T17:33:31.055280+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "小淘气6号",
@@ -92181,7 +92408,10 @@
       "company": "招商信诺",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055301+00:00"
+      "addedAt": "2026-07-11T17:33:31.055301+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "完美人生8号",
@@ -92189,7 +92419,10 @@
       "company": "复星联合健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055262+00:00"
+      "addedAt": "2026-07-11T17:33:31.055262+00:00",
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 调整",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "长相安2号",
@@ -92197,7 +92430,10 @@
       "company": "平安健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055256+00:00"
+      "addedAt": "2026-07-11T17:33:31.055256+00:00",
+      "validity_status": "VALID",
+      "validity_reason": "5 clean results",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "达尔文超越版",
@@ -92205,7 +92441,10 @@
       "company": "瑞华健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-05-24T01:24:45.465594+00:00"
+      "addedAt": "2026-05-24T01:24:45.465594+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 退市",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "金满意足6号",
@@ -92213,7 +92452,10 @@
       "company": "陆家嘴国泰",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055276+00:00"
+      "addedAt": "2026-07-11T17:33:31.055276+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/退市",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "小蜜蜂",
@@ -92221,7 +92463,10 @@
       "company": "太平财产",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-05-24T01:24:45.465612+00:00"
+      "addedAt": "2026-05-24T01:24:45.465612+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "小淘气5号",
@@ -92229,7 +92474,10 @@
       "company": "招商信诺",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055240+00:00"
+      "addedAt": "2026-07-11T17:33:31.055240+00:00",
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 升级",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "星海慧选",
@@ -92237,7 +92485,10 @@
       "company": "复星保德信",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055274+00:00"
+      "addedAt": "2026-07-11T17:33:31.055274+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "一生中意福享版",
@@ -92245,7 +92496,10 @@
       "company": "中意人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055269+00:00"
+      "addedAt": "2026-07-11T17:33:31.055269+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "阿基米德2025",
@@ -92253,7 +92507,10 @@
       "company": "太平洋人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-05-24T01:24:45.465644+00:00"
+      "addedAt": "2026-05-24T01:24:45.465644+00:00",
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 调整",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "小顽童6号",
@@ -92269,7 +92526,10 @@
       "company": "北京人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-05-24T01:24:45.465660+00:00"
+      "addedAt": "2026-05-24T01:24:45.465660+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "一生中意",
@@ -92277,7 +92537,10 @@
       "company": "中意人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055279+00:00"
+      "addedAt": "2026-07-11T17:33:31.055279+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "养多多7号",
@@ -92285,7 +92548,25 @@
       "company": "招商仁和",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055272+00:00"
+      "addedAt": "2026-07-11T17:33:31.055272+00:00",
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 调整/升级",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00",
+      "policy_rate_change": {
+        "detected_at": "2026-07-12T16:52:41.863070+00:00",
+        "rates": {
+          "预定利率": 3.5,
+          "结算利率": 1.5
+        },
+        "sample_query": "\"养多多7号\" \"招商仁和\" 2026 预定利率 OR 收益率 OR IRR OR 复利 OR 万能账户 OR 结算利率 OR 调整",
+        "source_titles": [
+          "招商仁和养多多7号：养老规划的卓越之选",
+          "深度测评：招商仁和养多多7号养老年金（分红型）",
+          "2026年个人养老年金哪家推荐靠谱？看懂个人养老年金的领取、稳健、灵活三大核心_腾讯新闻"
+        ],
+        "source_count": 5
+      },
+      "notes": "【2026-07 政策更新】预定利率 3.5% · 结算利率 1.5%"
     },
     {
       "name": "小红花2025",
@@ -92293,7 +92574,10 @@
       "company": "国富人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055259+00:00"
+      "addedAt": "2026-07-11T17:33:31.055259+00:00",
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 调整/升级",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "长相安3号",
@@ -92301,7 +92585,10 @@
       "company": "平安健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055251+00:00"
+      "addedAt": "2026-07-11T17:33:31.055251+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "大黄蜂16号",
@@ -92309,7 +92596,10 @@
       "company": "北京人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055258+00:00"
+      "addedAt": "2026-07-11T17:33:31.055258+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "希望之星5号",
@@ -92317,7 +92607,10 @@
       "company": "中国人保",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055261+00:00"
+      "addedAt": "2026-07-11T17:33:31.055261+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "一生中意尊享版",
@@ -92325,7 +92618,10 @@
       "company": "中意人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055267+00:00"
+      "addedAt": "2026-07-11T17:33:31.055267+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/退市",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "达尔文8号",
@@ -92333,7 +92629,10 @@
       "company": "瑞华健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-05-24T01:24:45.465725+00:00"
+      "addedAt": "2026-05-24T01:24:45.465725+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "完美人生7号",
@@ -92341,7 +92640,10 @@
       "company": "复星联合健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055278+00:00"
+      "addedAt": "2026-07-11T17:33:31.055278+00:00",
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 调整",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "超级玛丽10号",
@@ -92349,7 +92651,10 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-05-24T01:24:45.465741+00:00"
+      "addedAt": "2026-05-24T01:24:45.465741+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 退市/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "金医保3号",
@@ -92357,7 +92662,10 @@
       "company": "中国人保",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055281+00:00"
+      "addedAt": "2026-07-11T17:33:31.055281+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "超级玛丽16号",
@@ -92365,7 +92673,10 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055264+00:00"
+      "addedAt": "2026-07-11T17:33:31.055264+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "小青龙6号",
@@ -92373,7 +92684,10 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055286+00:00"
+      "addedAt": "2026-07-11T17:33:31.055286+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 退市/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "青云卫4号",
@@ -92381,7 +92695,10 @@
       "company": "招商仁和",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-05-24T01:24:45.465818+00:00"
+      "addedAt": "2026-05-24T01:24:45.465818+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "养多多6号",
@@ -92389,7 +92706,10 @@
       "company": "招商仁和",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055265+00:00"
+      "addedAt": "2026-07-11T17:33:31.055265+00:00",
+      "validity_status": "VALID",
+      "validity_reason": "5 clean results",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "小顽童8号",
@@ -92405,7 +92725,10 @@
       "company": "中国人保寿险",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055271+00:00"
+      "addedAt": "2026-07-11T17:33:31.055271+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/退市/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "守卫者6号",
@@ -92413,7 +92736,10 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055298+00:00"
+      "addedAt": "2026-07-11T17:33:31.055298+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "哪吒1号",
@@ -92421,7 +92747,10 @@
       "company": "海保人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-05-24T01:24:45.465861+00:00"
+      "addedAt": "2026-05-24T01:24:45.465861+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 退市/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "福满佳",
@@ -92429,7 +92758,27 @@
       "company": "中英人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055300+00:00"
+      "addedAt": "2026-07-11T17:33:31.055300+00:00",
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 调整/调降/预定利率下调",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00",
+      "policy_rate_change": {
+        "detected_at": "2026-07-12T16:53:44.334418+00:00",
+        "rates": {
+          "预定利率": 2.5,
+          "IRR": 2.0,
+          "收益率": 1.8,
+          "结算利率": 2.5
+        },
+        "sample_query": "\"福满佳\" \"中英人寿\" 2026 预定利率 OR 收益率 OR IRR OR 复利 OR 万能账户 OR 结算利率 OR 调整",
+        "source_titles": [
+          "保证收益再降！首款保底1.25%产品问世，2026分红险再现变局！",
+          "人身险业加速切换“低保证+高浮动”新赛道-经济参考网 _ 新华社《经济参考报》官方网站",
+          "[PDF] 中英人寿鑫满意2026 终身寿险（万能型）"
+        ],
+        "source_count": 5
+      },
+      "notes": "【2026-07 政策更新】预定利率 2.5% · IRR 2.0% · 收益率 1.8% · 结算利率 2.5%"
     },
     {
       "name": "大黄蜂13号",
@@ -92437,7 +92786,10 @@
       "company": "北京人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-05-24T01:24:45.465877+00:00"
+      "addedAt": "2026-05-24T01:24:45.465877+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "蓝医保",
@@ -92445,7 +92797,10 @@
       "company": "太平洋健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055294+00:00"
+      "addedAt": "2026-07-11T17:33:31.055294+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "超越保",
@@ -92453,7 +92808,10 @@
       "company": "复星联合健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055266+00:00"
+      "addedAt": "2026-07-11T17:33:31.055266+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "达尔文11号",
@@ -92461,7 +92819,10 @@
       "company": "复星联合健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055285+00:00"
+      "addedAt": "2026-07-11T17:33:31.055285+00:00",
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 调整/变更",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "青云卫5号",
@@ -92469,7 +92830,10 @@
       "company": "招商仁和",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055298+00:00"
+      "addedAt": "2026-07-11T17:33:31.055298+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "大护甲",
@@ -92477,7 +92841,10 @@
       "company": "中国人保",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-05-24T01:24:45.465918+00:00"
+      "addedAt": "2026-05-24T01:24:45.465918+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "火凤版",
@@ -92485,7 +92852,10 @@
       "company": "",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-05-24T01:24:45.465926+00:00"
+      "addedAt": "2026-05-24T01:24:45.465926+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "蓝医保长期医疗",
@@ -92493,7 +92863,10 @@
       "company": "太平洋健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055289+00:00"
+      "addedAt": "2026-07-11T17:33:31.055289+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/已停止",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "达尔文10号",
@@ -92501,7 +92874,10 @@
       "company": "瑞华健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055254+00:00"
+      "addedAt": "2026-07-11T17:33:31.055254+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/退市",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "青云卫6号",
@@ -92509,7 +92885,10 @@
       "company": "招商仁和",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055284+00:00"
+      "addedAt": "2026-07-11T17:33:31.055284+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "小青龙4号",
@@ -92517,7 +92896,10 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-05-24T01:24:45.465980+00:00"
+      "addedAt": "2026-05-24T01:24:45.465980+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/退市/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "超级玛丽13号",
@@ -92525,7 +92907,10 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-05-24T01:24:45.465989+00:00"
+      "addedAt": "2026-05-24T01:24:45.465989+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "达尔文12号",
@@ -92533,7 +92918,10 @@
       "company": "复星联合健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055274+00:00"
+      "addedAt": "2026-07-11T17:33:31.055274+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "哪吒2号",
@@ -92541,7 +92929,10 @@
       "company": "海保人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055245+00:00"
+      "addedAt": "2026-07-11T17:33:31.055245+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 退市/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "金医保",
@@ -92549,7 +92940,10 @@
       "company": "中国人保",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055295+00:00"
+      "addedAt": "2026-07-11T17:33:31.055295+00:00",
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 调整/升级/更新/新增",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "养多多5号",
@@ -92557,7 +92951,10 @@
       "company": "招商仁和",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055299+00:00"
+      "addedAt": "2026-07-11T17:33:31.055299+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "达尔文9号",
@@ -92565,7 +92962,10 @@
       "company": "瑞华健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055273+00:00"
+      "addedAt": "2026-07-11T17:33:31.055273+00:00",
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 预定利率下调",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "青鸾版",
@@ -92573,7 +92973,10 @@
       "company": "",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-05-24T01:24:45.466186+00:00"
+      "addedAt": "2026-05-24T01:24:45.466186+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "金医保2号",
@@ -92581,7 +92984,10 @@
       "company": "中国人保",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055295+00:00"
+      "addedAt": "2026-07-11T17:33:31.055295+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "超级玛丽12号",
@@ -92589,7 +92995,10 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055286+00:00"
+      "addedAt": "2026-07-11T17:33:31.055286+00:00",
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 升级/新增",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "小福娃2号",
@@ -92597,7 +93006,10 @@
       "company": "北京人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055263+00:00"
+      "addedAt": "2026-07-11T17:33:31.055263+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "长相安",
@@ -92605,7 +93017,10 @@
       "company": "平安健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055277+00:00"
+      "addedAt": "2026-07-11T17:33:31.055277+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "大护甲8号",
@@ -92621,7 +93036,10 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055292+00:00"
+      "addedAt": "2026-07-11T17:33:31.055292+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "光明慧选",
@@ -92629,7 +93047,10 @@
       "company": "光大永明",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055270+00:00"
+      "addedAt": "2026-07-11T17:33:31.055270+00:00",
+      "validity_status": "VALID",
+      "validity_reason": "5 clean results",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "小蜜蜂5号",
@@ -92645,7 +93066,10 @@
       "company": "太平财产",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055267+00:00"
+      "addedAt": "2026-07-11T17:33:31.055267+00:00",
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 升级",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "火凤版",
@@ -92653,7 +93077,10 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055282+00:00"
+      "addedAt": "2026-07-11T17:33:31.055282+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "小青龙7号",
@@ -92661,7 +93088,10 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055290+00:00"
+      "addedAt": "2026-07-11T17:33:31.055290+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/退市/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "龙抬头",
@@ -92669,7 +93099,10 @@
       "company": "大家保险",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055253+00:00"
+      "addedAt": "2026-07-11T17:33:31.055253+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "安欣保",
@@ -92677,7 +93110,10 @@
       "company": "平安健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055249+00:00"
+      "addedAt": "2026-07-11T17:33:31.055249+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 已停止",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "好医保长期医疗",
@@ -92685,7 +93121,10 @@
       "company": "中国人保",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055255+00:00"
+      "addedAt": "2026-07-11T17:33:31.055255+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "大护甲7号",
@@ -92693,7 +93132,10 @@
       "company": "中国人保",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055288+00:00"
+      "addedAt": "2026-07-11T17:33:31.055288+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "小顽童7号",
@@ -92709,7 +93151,10 @@
       "company": "中意人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055296+00:00"
+      "addedAt": "2026-07-11T17:33:31.055296+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 停售/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "鑫禧年年",
@@ -92717,7 +93162,10 @@
       "company": "光大永明",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055278+00:00"
+      "addedAt": "2026-07-11T17:33:31.055278+00:00",
+      "validity_status": "MODIFIED",
+      "validity_reason": "keyword hit: 更新",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     },
     {
       "name": "超级玛丽11号",
@@ -92725,7 +93173,10 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-11T17:33:31.055250+00:00"
+      "addedAt": "2026-07-11T17:33:31.055250+00:00",
+      "validity_status": "DISCONTINUED",
+      "validity_reason": "keyword hit: 退市/下架",
+      "validity_checked_at": "2026-07-12T16:46:48.439387+00:00"
     }
   ]
 }
