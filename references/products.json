@@ -1,7 +1,7 @@
 {
   "_meta": {
-    "version": "1.8.376",
-    "updated_at": "2026-07-16T17:38:12.642923+00:00",
+    "version": "1.8.380",
+    "updated_at": "2026-07-17T22:08:52.674494+00:00",
     "description": "保险产品库整理版，保留在售及有效产品",
     "total_products": 2612,
     "active_products": 237,
@@ -36,7 +36,7 @@
     "new_2025_products_added": 12,
     "enriched_products": 239,
     "cleanup_round2": "removed 8 additional garbage entries",
-    "daily_updated_at": "2026-07-17",
+    "daily_updated_at": "2026-07-18",
     "total_active": 535,
     "total_inactive": 1964,
     "last_updated": "2026-04-18",
@@ -56,7 +56,7 @@
       "终身寿险": 40
     },
     "active_count": 648,
-    "lastUpdated": "2026-07-16T17:38:12.641674+00:00",
+    "lastUpdated": "2026-07-17T22:08:52.673876+00:00",
     "policy_validity_check_at": "2026-07-12T17:15:47.479462+00:00",
     "policy_validity_check_summary": {
       "targets_total": 105,
@@ -84332,7 +84332,7 @@
       "is_duplicate": false,
       "enriched_source": "2025_hot_products",
       "source": "comprehensive_scraper",
-      "addedAt": "2026-07-16T17:38:12.498748+00:00"
+      "addedAt": "2026-07-17T22:08:52.498405+00:00"
     },
     {
       "id": "new_crx_2025_002",
@@ -92359,7 +92359,7 @@
       "company": "中国人保",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498715+00:00",
+      "addedAt": "2026-07-17T22:08:52.498532+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92370,7 +92370,7 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498711+00:00",
+      "addedAt": "2026-07-17T22:08:52.498415+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/退市/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92381,7 +92381,7 @@
       "company": "中国人保寿险",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498720+00:00",
+      "addedAt": "2026-07-17T22:08:52.498456+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92392,7 +92392,7 @@
       "company": "太平洋人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498728+00:00",
+      "addedAt": "2026-07-17T22:08:52.498304+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92403,7 +92403,7 @@
       "company": "北京人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498746+00:00",
+      "addedAt": "2026-07-17T22:08:52.498507+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/退市/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92414,7 +92414,7 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498744+00:00",
+      "addedAt": "2026-07-17T22:08:52.498270+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92425,7 +92425,7 @@
       "company": "复星联合健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498710+00:00",
+      "addedAt": "2026-07-17T22:08:52.498563+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92436,7 +92436,7 @@
       "company": "招商信诺",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498741+00:00",
+      "addedAt": "2026-07-17T22:08:52.498320+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92447,7 +92447,7 @@
       "company": "复星联合健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498713+00:00",
+      "addedAt": "2026-07-17T22:08:52.498282+00:00",
       "validity_status": "VALID",
       "validity_reason": "5 clean results",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92458,7 +92458,7 @@
       "company": "平安健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498730+00:00",
+      "addedAt": "2026-07-17T22:08:52.498502+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92480,7 +92480,7 @@
       "company": "陆家嘴国泰",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498705+00:00",
+      "addedAt": "2026-07-17T22:08:52.498309+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92502,7 +92502,7 @@
       "company": "招商信诺",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498700+00:00",
+      "addedAt": "2026-07-17T22:08:52.498383+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92513,7 +92513,7 @@
       "company": "复星保德信",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498724+00:00",
+      "addedAt": "2026-07-17T22:08:52.498575+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92524,7 +92524,7 @@
       "company": "中意人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498712+00:00",
+      "addedAt": "2026-07-17T22:08:52.498479+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92546,7 +92546,7 @@
       "company": "中国平安",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498723+00:00"
+      "addedAt": "2026-07-17T22:08:52.498446+00:00"
     },
     {
       "name": "大黄蜂14号",
@@ -92565,7 +92565,7 @@
       "company": "中意人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498754+00:00",
+      "addedAt": "2026-07-17T22:08:52.498264+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92576,7 +92576,7 @@
       "company": "招商仁和",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498706+00:00",
+      "addedAt": "2026-07-17T22:08:52.498430+00:00",
       "validity_status": "MODIFIED",
       "validity_reason": "keyword hit: 调整/升级/新增",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00",
@@ -92603,7 +92603,7 @@
       "company": "国富人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498719+00:00",
+      "addedAt": "2026-07-17T22:08:52.498552+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92614,7 +92614,7 @@
       "company": "平安健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498701+00:00",
+      "addedAt": "2026-07-17T22:08:52.498341+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92625,7 +92625,7 @@
       "company": "北京人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498738+00:00",
+      "addedAt": "2026-07-17T22:08:52.498255+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/退市/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92636,7 +92636,7 @@
       "company": "中国人保",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498749+00:00",
+      "addedAt": "2026-07-17T22:08:52.498357+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92647,7 +92647,7 @@
       "company": "中意人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498742+00:00",
+      "addedAt": "2026-07-17T22:08:52.498373+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 退市/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92669,7 +92669,7 @@
       "company": "复星联合健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498749+00:00",
+      "addedAt": "2026-07-17T22:08:52.498569+00:00",
       "validity_status": "MODIFIED",
       "validity_reason": "keyword hit: 调整/变更",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92691,7 +92691,7 @@
       "company": "中国人保",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498755+00:00",
+      "addedAt": "2026-07-17T22:08:52.498513+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92702,7 +92702,7 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498750+00:00",
+      "addedAt": "2026-07-17T22:08:52.498546+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92713,7 +92713,7 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498735+00:00",
+      "addedAt": "2026-07-17T22:08:52.498276+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92735,7 +92735,7 @@
       "company": "招商仁和",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498726+00:00",
+      "addedAt": "2026-07-17T22:08:52.498395+00:00",
       "validity_status": "MODIFIED",
       "validity_reason": "keyword hit: 调整/升级/新增",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00",
@@ -92762,7 +92762,7 @@
       "company": "中国平安",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498747+00:00"
+      "addedAt": "2026-07-17T22:08:52.498293+00:00"
     },
     {
       "name": "i无忧2.0",
@@ -92770,7 +92770,7 @@
       "company": "中国人保寿险",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498734+00:00",
+      "addedAt": "2026-07-17T22:08:52.498347+00:00",
       "validity_status": "VALID",
       "validity_reason": "5 clean results",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92781,7 +92781,7 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498717+00:00",
+      "addedAt": "2026-07-17T22:08:52.498451+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92803,7 +92803,7 @@
       "company": "中英人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498708+00:00",
+      "addedAt": "2026-07-17T22:08:52.498461+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00",
@@ -92842,7 +92842,7 @@
       "company": "太平洋健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498745+00:00",
+      "addedAt": "2026-07-17T22:08:52.498527+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92853,7 +92853,7 @@
       "company": "复星联合健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498752+00:00",
+      "addedAt": "2026-07-17T22:08:52.498435+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92864,7 +92864,7 @@
       "company": "复星联合健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498753+00:00",
+      "addedAt": "2026-07-17T22:08:52.498287+00:00",
       "validity_status": "MODIFIED",
       "validity_reason": "keyword hit: 调整/变更",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92875,7 +92875,7 @@
       "company": "招商仁和",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498696+00:00",
+      "addedAt": "2026-07-17T22:08:52.498558+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92908,7 +92908,7 @@
       "company": "太平洋健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498729+00:00",
+      "addedAt": "2026-07-17T22:08:52.498389+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/已停止",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92919,7 +92919,7 @@
       "company": "瑞华健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498702+00:00",
+      "addedAt": "2026-07-17T22:08:52.498595+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 退市",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92930,7 +92930,7 @@
       "company": "招商仁和",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498732+00:00",
+      "addedAt": "2026-07-17T22:08:52.498400+00:00",
       "validity_status": "MODIFIED",
       "validity_reason": "keyword hit: 升级",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92963,7 +92963,7 @@
       "company": "复星联合健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498740+00:00",
+      "addedAt": "2026-07-17T22:08:52.498331+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92974,7 +92974,7 @@
       "company": "海保人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498709+00:00",
+      "addedAt": "2026-07-17T22:08:52.498585+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 退市/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92985,7 +92985,7 @@
       "company": "中国人保",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498698+00:00",
+      "addedAt": "2026-07-17T22:08:52.498411+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -92996,7 +92996,7 @@
       "company": "招商仁和",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498722+00:00",
+      "addedAt": "2026-07-17T22:08:52.498590+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -93007,7 +93007,7 @@
       "company": "瑞华健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498751+00:00",
+      "addedAt": "2026-07-17T22:08:52.498325+00:00",
       "validity_status": "MODIFIED",
       "validity_reason": "keyword hit: 调整/变更/新增/预定利率下调",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -93029,7 +93029,7 @@
       "company": "中国人保",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498725+00:00",
+      "addedAt": "2026-07-17T22:08:52.498579+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -93040,7 +93040,7 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498707+00:00",
+      "addedAt": "2026-07-17T22:08:52.498229+00:00",
       "validity_status": "MODIFIED",
       "validity_reason": "keyword hit: 调整/升级/变更/新增",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -93051,7 +93051,7 @@
       "company": "北京人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498721+00:00",
+      "addedAt": "2026-07-17T22:08:52.498441+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -93062,7 +93062,7 @@
       "company": "平安健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498739+00:00",
+      "addedAt": "2026-07-17T22:08:52.498497+00:00",
       "validity_status": "VALID",
       "validity_reason": "5 clean results",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -93073,7 +93073,7 @@
       "company": "中国人保",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498718+00:00"
+      "addedAt": "2026-07-17T22:08:52.498538+00:00"
     },
     {
       "name": "青鸾版",
@@ -93081,7 +93081,7 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498737+00:00",
+      "addedAt": "2026-07-17T22:08:52.498467+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -93092,7 +93092,7 @@
       "company": "光大永明",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498731+00:00",
+      "addedAt": "2026-07-17T22:08:52.498490+00:00",
       "validity_status": "MODIFIED",
       "validity_reason": "keyword hit: 调整",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00",
@@ -93118,7 +93118,7 @@
       "company": "太平财产",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498727+00:00"
+      "addedAt": "2026-07-17T22:08:52.498315+00:00"
     },
     {
       "name": "坦然保",
@@ -93126,7 +93126,7 @@
       "company": "太平财产",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498736+00:00",
+      "addedAt": "2026-07-17T22:08:52.498484+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -93137,7 +93137,7 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498703+00:00",
+      "addedAt": "2026-07-17T22:08:52.498336+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -93148,7 +93148,7 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498733+00:00",
+      "addedAt": "2026-07-17T22:08:52.498474+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/退市/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -93159,7 +93159,7 @@
       "company": "大家保险",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498704+00:00",
+      "addedAt": "2026-07-17T22:08:52.498519+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -93170,7 +93170,7 @@
       "company": "平安健康",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498743+00:00",
+      "addedAt": "2026-07-17T22:08:52.498425+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/已停止",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -93181,7 +93181,7 @@
       "company": "中国人保",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498714+00:00",
+      "addedAt": "2026-07-17T22:08:52.498363+00:00",
       "validity_status": "VALID",
       "validity_reason": "5 clean results",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -93192,7 +93192,7 @@
       "company": "中国人保",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498730+00:00",
+      "addedAt": "2026-07-17T22:08:52.498352+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -93203,7 +93203,7 @@
       "company": "中国平安",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498688+00:00"
+      "addedAt": "2026-07-17T22:08:52.498420+00:00"
     },
     {
       "name": "锦绣满堂",
@@ -93211,7 +93211,7 @@
       "company": "中意人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498738+00:00",
+      "addedAt": "2026-07-17T22:08:52.498298+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 停售/下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
@@ -93222,7 +93222,7 @@
       "company": "光大永明",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498717+00:00",
+      "addedAt": "2026-07-17T22:08:52.498378+00:00",
       "validity_status": "MODIFIED",
       "validity_reason": "keyword hit: 更新",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00",
@@ -93248,7 +93248,7 @@
       "company": "君龙人寿",
       "source": "comprehensive_scraper",
       "is_active": true,
-      "addedAt": "2026-07-16T17:38:12.498711+00:00",
+      "addedAt": "2026-07-17T22:08:52.498368+00:00",
       "validity_status": "DISCONTINUED",
       "validity_reason": "keyword hit: 下架",
       "validity_checked_at": "2026-07-12T17:15:47.479462+00:00"
