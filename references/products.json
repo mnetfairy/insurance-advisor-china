@@ -1,7 +1,7 @@
 {
   "_meta": {
-    "version": "1.8.387",
-    "updated_at": "2026-07-21T17:33:11.849685+00:00",
+    "version": "1.8.390",
+    "updated_at": "2026-07-21T22:22:19.111491+00:00",
     "description": "保险产品库整理版，保留在售及有效产品",
     "total_products": 2612,
     "active_products": 237,
@@ -56,7 +56,7 @@
       "终身寿险": 40
     },
     "active_count": 648,
-    "lastUpdated": "2026-07-21T17:33:11.848638+00:00",
+    "lastUpdated": "2026-07-21T22:22:19.110855+00:00",
     "policy_validity_check_at": "2026-07-12T17:15:47.479462+00:00",
     "policy_validity_check_summary": {
       "targets_total": 105,
