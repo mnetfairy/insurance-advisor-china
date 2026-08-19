@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "version": "1.8.470",
+    "version": "2.0.0",
     "updated_at": "2026-08-18T17:36:50.949151+00:00",
     "description": "保险产品库整理版，保留在售及有效产品",
     "total_products": 2534,
@@ -69,8 +69,8 @@
       "needs_review": 0,
       "errors": 0
     },
-    "last_refreshed_at": "2026-08-19T17:32:41.537800+00:00",
-    "refresh_count": 38,
+    "last_refreshed_at": "2026-08-19T22:04:33.676825+00:00",
+    "refresh_count": 39,
     "duplicates": [
       {
         "dup_index": 205,
