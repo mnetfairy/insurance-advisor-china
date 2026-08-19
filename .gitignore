@@ -1,5 +1,28 @@
 # 数据库备份目录 — 不进 git，避免 publish 时把大文件推上去
 references/backups/
 **/backups/
-*.backup_*
+references/backups_pre_sync/
+references/backups_pre_fix/
+references/backups_pre_*/
+
+# Python 缓存
+**/__pycache__/
+*.pyc
+*.pyo
+
+# 备份文件
+*.bak
+*.bak.*
+*.orig
+*.orig.*
 *.backup
+*.backup_*
+
+# 临时报告
+references/validation_report_*.md
+references/products_v2.json
+
+# 编辑器临时文件
+*.swp
+*.swo
+.DS_Store
