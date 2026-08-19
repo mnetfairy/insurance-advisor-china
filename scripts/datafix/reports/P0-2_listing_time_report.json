@@ -1,0 +1,15 @@
+{
+  "fix": "P0-2 (listing_time normalize)",
+  "policy": "YYYY→YYYY-01 (estimated) | YYYY-MM-DD→YYYY-MM (estimated) | null→null (missing) | 待核实→null (unknown, raw preserved)",
+  "raw_distribution_before": {},
+  "quality_counter": {
+    "verified": 0,
+    "estimated": 0,
+    "missing": 0,
+    "unknown": 0
+  },
+  "total_products": 0,
+  "changes_count": 0,
+  "samples": [],
+  "dry_run": true
+}

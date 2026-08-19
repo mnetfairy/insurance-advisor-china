@@ -1,0 +1,100 @@
+{
+  "fix": "P0-2 (coverage_period None)",
+  "policy": "None → '未明确' + coverage_period_quality=missing",
+  "before_none_count": 112,
+  "after_none_count": 0,
+  "changed_count": 112,
+  "samples": [
+    {
+      "index": 2422,
+      "id": "tavily-太平-2025",
+      "name": "2025年推出科技保险创新产品",
+      "type": "待分类",
+      "old_coverage_period": "<<MISSING>>",
+      "new_coverage_period": "未明确",
+      "quality": "missing"
+    },
+    {
+      "index": 2423,
+      "id": "tavily-信泰-推出了信",
+      "name": "推出了信泰如意久久守护2025重大疾病保险",
+      "type": "待分类",
+      "old_coverage_period": "<<MISSING>>",
+      "new_coverage_period": "未明确",
+      "quality": "missing"
+    },
+    {
+      "index": 2424,
+      "id": "tavily-华夏-推出了2",
+      "name": "推出了2025年的新产品",
+      "type": "待分类",
+      "old_coverage_period": "<<MISSING>>",
+      "new_coverage_period": "未明确",
+      "quality": "missing"
+    },
+    {
+      "index": 2425,
+      "id": "tavily-中国-在202",
+      "name": "在2025年推出了两款新的年金保险产品",
+      "type": "待分类",
+      "old_coverage_period": "<<MISSING>>",
+      "new_coverage_period": "未明确",
+      "quality": "missing"
+    },
+    {
+      "index": 2426,
+      "id": "tavily-太平-在202",
+      "name": "在2025年推出了新产品",
+      "type": "待分类",
+      "old_coverage_period": "<<MISSING>>",
+      "new_coverage_period": "未明确",
+      "quality": "missing"
+    },
+    {
+      "index": 2427,
+      "id": "tavily-太平-继续推动",
+      "name": "继续推动高质量发展",
+      "type": "待分类",
+      "old_coverage_period": "<<MISSING>>",
+      "new_coverage_period": "未明确",
+      "quality": "missing"
+    },
+    {
+      "index": 2428,
+      "id": "tavily-泰康-推出了2",
+      "name": "推出了2025年新产品泰康鑫享世家",
+      "type": "待分类",
+      "old_coverage_period": "<<MISSING>>",
+      "new_coverage_period": "未明确",
+      "quality": "missing"
+    },
+    {
+      "index": 2429,
+      "id": "tavily-太平-2025",
+      "name": "2025年推出了太平e百分年金保险",
+      "type": "待分类",
+      "old_coverage_period": "<<MISSING>>",
+      "new_coverage_period": "未明确",
+      "quality": "missing"
+    },
+    {
+      "index": 2430,
+      "id": "tavily-友邦-2025",
+      "name": "2025推出了",
+      "type": "待分类",
+      "old_coverage_period": "<<MISSING>>",
+      "new_coverage_period": "未明确",
+      "quality": "missing"
+    },
+    {
+      "index": 2431,
+      "id": "tavily-括分-和万能型",
+      "name": "和万能型终身寿险",
+      "type": "待分类",
+      "old_coverage_period": "<<MISSING>>",
+      "new_coverage_period": "未明确",
+      "quality": "missing"
+    }
+  ],
+  "dry_run": false
+}

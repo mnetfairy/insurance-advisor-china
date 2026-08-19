@@ -1,0 +1,20 @@
+{
+  "fix": "P1-5 (coverage_period split)",
+  "policy": "Add 4 fields: duration_value/unit/is_lifetime/guaranteed_renewable; preserve coverage_period",
+  "counters": {
+    "missing": 0,
+    "parsed": 0,
+    "ambiguous_term": 0,
+    "ambiguous_约定": 0,
+    "parse_failed": 0
+  },
+  "samples": [],
+  "field_names": [
+    "coverage_period_duration_value",
+    "coverage_period_duration_unit",
+    "coverage_period_is_lifetime",
+    "coverage_period_guaranteed_renewable",
+    "coverage_period_parse_quality"
+  ],
+  "dry_run": true
+}

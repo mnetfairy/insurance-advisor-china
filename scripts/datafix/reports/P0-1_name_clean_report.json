@@ -1,0 +1,11 @@
+{
+  "fix": "P0-1 (待分类 name clean)",
+  "policy": "Strategy B (infer from sentence) → Strategy A (fallback <未识别产品-{id}>)",
+  "total_daifen_products": 37,
+  "already_cleaned": 37,
+  "processed": 0,
+  "inferred_count": 0,
+  "fallback_count": 0,
+  "diff": [],
+  "dry_run": true
+}

@@ -1,0 +1,37 @@
+{
+  "fix": "P1-4 (validity consistency)",
+  "policy": "validity_status priority: DISCONTINUED+is_active=true→is_active=false; DISCONTINUED+delisting=仍在售→null/derived; VALID+delisting!=仍在售→仍在售",
+  "before": {
+    "X1": 0,
+    "X2": 0,
+    "X3": 0,
+    "X4": 0
+  },
+  "after": {
+    "X1": 0,
+    "X2": 0,
+    "X3": 0,
+    "X4": 0
+  },
+  "counters": {
+    "X1_DISCONTINUED_active_set_inactive": 0,
+    "X2_DISCONTINUED_still_listed_set_null": 0,
+    "X2_DISCONTINUED_still_listed_set_date": 0,
+    "X3_VALID_not_listing_set_listing": 0,
+    "X4_delisted_active_set_inactive": 0,
+    "untouched": 2534
+  },
+  "total_actions": 0,
+  "samples": [],
+  "inconsistency_flag": {
+    "policy": "is_active=true + (delisting_time is None OR delisting_time NOT IN ('', '仍在售')) + validity_status!=DISCONTINUED → flag inconsistency+needs_human_review",
+    "task_criterion": "WIDENED criterion (Master 2026-08-19 10:56): includes None and 待核实 delisting_time. Expected: 103 products (40 date + 26 None + 37 待核实).",
+    "counters": {
+      "flagged_inconsistency": 0,
+      "already_flagged": 103,
+      "untouched": 2431
+    },
+    "samples": []
+  },
+  "dry_run": true
+}

@@ -1,0 +1,32 @@
+{
+  "fix": "P1-3 (min/max_coverage type unify)",
+  "policy": "All → int (万); ranges 'X-Y万' take lower; 'X万/Y万' take lower; parse_failed → null",
+  "min_coverage_counters": {
+    "verified": 0,
+    "parsed": 0,
+    "parsed_range": 0,
+    "parsed_dual": 0,
+    "parsed_yuan": 0,
+    "parsed_yuan_to_wan": 0,
+    "parsed_digits": 0,
+    "parsed_digits_to_wan": 0,
+    "missing": 0,
+    "parse_failed": 0
+  },
+  "max_coverage_counters": {
+    "verified": 0,
+    "parsed": 0,
+    "parsed_range": 0,
+    "parsed_dual": 0,
+    "parsed_yuan": 0,
+    "parsed_yuan_to_wan": 0,
+    "parsed_digits": 0,
+    "parsed_digits_to_wan": 0,
+    "missing": 0,
+    "parse_failed": 0
+  },
+  "min_coverage_samples": [],
+  "max_coverage_samples": [],
+  "coverage_unit_added": "万元",
+  "dry_run": true
+}

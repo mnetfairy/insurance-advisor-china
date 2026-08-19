@@ -196,7 +196,7 @@ def design_standard_plan(age, gender, annual_income, annual_budget, coverage_nee
 
     # 重疾险 - 推荐平安福或国寿福
     crx_products = [p for p in products if p["type"] == "重疾险"]
-    crx_product = next((p for p in crx_products if "福" in p["name"] and "终身" in (p.get("coverage_period") or "")), crx_products[0])
+    crx_product = next((p for p in crx_products if "福" in p["name"] and "终身" in p["coverage_period"]), crx_products[0])
     crx_coverage = min(coverage_needs.get("critical_illness", annual_income * 3), 500000)
     crx_premium = calculate_product_premium(crx_product, age, gender, crx_coverage, "20年")
     plan["products"].append({
@@ -213,7 +213,7 @@ def design_standard_plan(age, gender, annual_income, annual_budget, coverage_nee
     plan["total_coverage"] += crx_coverage
 
     # 医疗险 - 选保证续保20年的
-    mi_products = [p for p in products if p["type"] == "医疗险" and "20年" in (p.get("coverage_period") or "")]
+    mi_products = [p for p in products if p["type"] == "医疗险" and "20年" in p.get("coverage_period", "")]
     if not mi_products:
         mi_products = [p for p in products if p["type"] == "医疗险"]
     mi_product = mi_products[0]
