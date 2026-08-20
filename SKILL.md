@@ -60,6 +60,8 @@ python3 scripts/needs_analyzer.py
 2. 按险种类型筛选产品
 3. 生成横向对比表格
 
+**🆕 质量过滤（2026-08-20 quality-aware）**：加载产品时自动跳过 `data_quality="garbage"` 的未识别产品（37 款），不进入对比/推荐列表。返回结果中带 `disclaimers` 数组，根据 `coverage_period_quality` 和 `listing_time_quality` 自动生成产品时效提示。
+
 **输出必须包含**：
 - 产品名称、公司名称
 - 保额/保费
