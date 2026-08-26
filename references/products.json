@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "version": "2.0.45",
-    "updated_at": "2026-08-24T15:37:46.476860+00:00",
+    "version": "2.0.52",
+    "updated_at": "2026-08-25T17:30:17.910758+00:00",
     "description": "保险产品库整理版，保留在售及有效产品",
-    "total_products": 2535,
+    "total_products": 2536,
     "active_products": 558,
     "dedup_applied": true,
     "verified_count": 45,
@@ -36,7 +36,7 @@
     "new_2025_products_added": 12,
     "enriched_products": 239,
     "cleanup_round2": "removed 8 additional garbage entries",
-    "daily_updated_at": "2026-08-24",
+    "daily_updated_at": "2026-08-26",
     "total_active": 637,
     "total_inactive": 1897,
     "last_updated": "2026-04-18",
@@ -55,8 +55,8 @@
       "定期寿险": 35,
       "终身寿险": 40
     },
-    "active_count": 602,
-    "lastUpdated": "2026-08-24T15:37:46.475546+00:00",
+    "active_count": 603,
+    "lastUpdated": "2026-08-25T17:30:17.908802+00:00",
     "policy_validity_check_at": "2026-07-12T17:15:47.479462+00:00",
     "policy_validity_check_summary": {
       "targets_total": 105,
@@ -69,8 +69,8 @@
       "needs_review": 0,
       "errors": 0
     },
-    "last_refreshed_at": "2026-08-24T15:44:20.150261+00:00",
-    "refresh_count": 62,
+    "last_refreshed_at": "2026-08-26T01:08:53.107967+00:00",
+    "refresh_count": 63,
     "duplicates": [
       {
         "dup_index": 205,
@@ -3883,7 +3883,9 @@
       "product_ids": [
         "康宁定期寿险-279"
       ]
-    }
+    },
+    "last_extraction_merge": "2026-08-24T16:11:28.064735+00:00",
+    "extraction_merged_count": 116
   },
   "products": [
     {
@@ -4835,7 +4837,8 @@
         "大公司品牌",
         "等待期短",
         "含身故保障",
-        "可附加豁免"
+        "可附加豁免",
+        "终身寿险"
       ],
       "is_enriched": false,
       "source_url": "https://life.pingan.com/gongkaixinxipilu/baoxianchanpinmulujitiaokuan.jsp",
@@ -4911,7 +4914,8 @@
         "大公司品牌",
         "等待期短",
         "含身故保障",
-        "可附加豁免"
+        "可附加豁免",
+        "重疾险"
       ],
       "is_enriched": false,
       "source_url": "https://life.pingan.com/ilife-home/product/getPlanClausePdf?planCode=1776&versionNo=1776-1&attachmentType=7",
@@ -4987,7 +4991,8 @@
         "等待期短",
         "少儿特疾额外赔",
         "少儿专属",
-        "可附加豁免"
+        "可附加豁免",
+        "少儿重疾险"
       ],
       "is_enriched": false,
       "source_url": "https://life.pingan.com/ilife-home/product/getPlanClausePdf?planCode=1777&versionNo=1777-1&attachmentType=7",
@@ -5206,7 +5211,8 @@
         "大公司品牌",
         "等待期短",
         "含身故保障",
-        "可附加豁免"
+        "可附加豁免",
+        "重疾险"
       ],
       "is_enriched": false,
       "source_url": "https://life.pingan.com/ilife-home/product/getPlanClausePdf?planCode=1831&versionNo=1831-1&attachmentType=7",
@@ -15450,7 +15456,9 @@
       },
       "tags": [
         "大公司品牌",
-        "分红"
+        "分红",
+        "终身寿险",
+        "分红型"
       ],
       "is_enriched": false,
       "source_url": "https://www.pingan.com/pacms/chanpin/chanpinjieshao/baoxian/shouxian/91601.jsp",
@@ -68783,7 +68791,8 @@
       "tags": [
         "大公司品牌",
         "等待期短",
-        "IRR表现好"
+        "IRR表现好",
+        "太保寿产品"
       ],
       "is_enriched": false,
       "source_url": "https://www.cpic.com.cn/xrsbx/gkxxpl/hlwbxxx/hlwbxcpxx?subMenu=4&inSub=5",
@@ -128876,7 +128885,9 @@
         "大公司品牌",
         "等待期短",
         "含身故保障",
-        "可附加豁免"
+        "可附加豁免",
+        "团体重疾险",
+        "终身重疾"
       ],
       "is_enriched": false,
       "source_url": "https://yl.pingan.com/app_upload/file/20240902/P3760%20%E5%B9%B3%E5%AE%89%E5%85%B3%E7%88%B1%E4%B8%80%E7%94%9F%EF%BC%882024%EF%BC%89%E5%9B%A2%E4%BD%93%E7%BB%88%E8%BA%AB%E9%87%8D%E5%A4%A7%E7%96%BE%E7%97%85%E4%BF%9D%E9%99%A9%E6%9D%A1%E6%AC%BE-%E5%B9%B3%E4%BF%9D%E5%85%BB%E5%8F%91%E3%80%942024%E3%80%95220%E5%8F%B7_5058.pdf",
@@ -128951,7 +128962,8 @@
         "等待期短",
         "养老专项",
         "IRR表现好",
-        "分红"
+        "分红",
+        "养老年金险"
       ],
       "is_enriched": false,
       "source_url": "https://life.pingan.com/ilife-home/product/getPlanClausePdf?planCode=1840&versionNo=1840-1&attachmentType=7",
@@ -129027,7 +129039,8 @@
         "大公司品牌",
         "等待期短",
         "含身故保障",
-        "可附加豁免"
+        "可附加豁免",
+        "重疾险"
       ],
       "is_enriched": false,
       "source_url": "https://www.cpic.com.cn/upload/resources/file/2024/09/10/82230.pdf",
@@ -129174,7 +129187,8 @@
         "大公司品牌",
         "等待期短",
         "含身故保障",
-        "可附加豁免"
+        "可附加豁免",
+        "重疾险"
       ],
       "is_enriched": false,
       "source_url": "https://www.cpic.com.cn/upload/resources/file/2024/11/11/83431.pdf",
@@ -129441,8 +129455,8 @@
       ],
       "highlights": "20年保证续保写入条款，稳定性极强，无需担心产品停售失去保障",
       "suitable_for": "30-60岁人群，补充社保不足，覆盖高额医疗费用",
-      "weakness": "自然保费随年龄增长，60岁后保费较高需注意续保成本",
-      "competitive_edge": "覆盖靶向药、质子重离子、CAR-T等先进疗法，保障全面",
+      "weakness": "每次门急诊免赔额100元、给付上限500元/次、投保需审核特定疾病核保",
+      "competitive_edge": "10年保证续保、400万年度给付限额、特需医疗覆盖、线上问诊购药、紧急救援20万保额",
       "sales_tip": "适合与重疾险组合销售，向客户说明\"医疗险报销医疗费，重疾险补贴生活费\"",
       "premium_reference": {
         "age_30_male_20y": 320,
@@ -129457,7 +129471,12 @@
         "含院外特药",
         "含质子重离子",
         "含费用垫付",
-        "含绿通"
+        "含绿通",
+        "门诊医疗险",
+        "长期医疗险",
+        "费率可调",
+        "保证续保",
+        "特需医疗"
       ],
       "is_enriched": false,
       "source_url": "https://m.taikanglife.com/mobile/uploader/pubProductFile/2024/07/15/0035b02a-00a9-453a-a492-68cd486d3e2d.pdf",
@@ -129483,7 +129502,9 @@
         "guaranteed_renewable_20年"
       ],
       "coverage_period_split_at": "phase1_P1-5",
-      "validity_status": "在售新品"
+      "validity_status": "在售新品",
+      "delisting_reason": "保证续保期间届满需审核，审核不通过则停售",
+      "policy_rate_change": "2024-11 上市，费率可调"
     },
     {
       "name": "泰康健康相伴2024豁免保费疾病保险",
@@ -130901,8 +130922,8 @@
       ],
       "highlights": "百万保额覆盖高额医疗费用，涵盖靶向药、质子重离子等先进治疗",
       "suitable_for": "30-60岁人群，补充社保不足，覆盖高额医疗费用",
-      "weakness": "不保证续保产品停售后可能无法续保，长期稳定性较弱",
-      "competitive_edge": "覆盖靶向药、质子重离子、CAR-T等先进疗法，保障全面",
+      "weakness": "免健康告知但保障范围相对基础、经典版理赔比例仅80%",
+      "competitive_edge": "带病可投、社保内外扩展外购药品器械、门诊手术纳入保障、家庭共享免赔额、重疾绿通医疗垫付",
       "sales_tip": "适合与重疾险组合销售，向客户说明\"医疗险报销医疗费，重疾险补贴生活费\"",
       "premium_reference": {
         "age_30_male_20y": 300,
@@ -130916,7 +130937,12 @@
         "含院外特药",
         "含质子重离子",
         "含费用垫付",
-        "含绿通"
+        "含绿通",
+        "百万医疗险",
+        "免健康告知",
+        "带病可投",
+        "外购药",
+        "门诊手术"
       ],
       "is_enriched": false,
       "source_url": "https://www.zhongan.com/productlist/36-41",
@@ -130939,7 +130965,8 @@
       "coverage_period_guaranteed_renewable": false,
       "coverage_period_parse_quality": "parsed",
       "coverage_period_split_at": "phase1_P1-5",
-      "validity_status": "在售新品"
+      "validity_status": "在售新品",
+      "delisting_reason": "产品升级和销售策略调整"
     },
     {
       "id": "ext-农银-金穗鑫玺终身寿险",
@@ -132331,7 +132358,7 @@
       "highlights": "0免赔额设计，小额住院费用也可报销，理赔门槛大幅降低",
       "suitable_for": "30-60岁人群，补充社保不足，覆盖高额医疗费用",
       "weakness": "不保证续保产品停售后可能无法续保，长期稳定性较弱",
-      "competitive_edge": "覆盖靶向药、质子重离子、CAR-T等先进疗法，保障全面",
+      "competitive_edge": "0免赔额保障（1万内30%赔付，1万以上100%），120种重疾，质子重离子11家医院，【药+】保障方案覆盖院外自费药品",
       "sales_tip": "适合与重疾险组合销售，向客户说明\"医疗险报销医疗费，重疾险补贴生活费\"",
       "premium_reference": {
         "age_30_male_20y": 300,
@@ -132346,7 +132373,11 @@
         "含院外特药",
         "含质子重离子",
         "含费用垫付",
-        "含绿通"
+        "含绿通",
+        "百万医疗险",
+        "保证续保",
+        "大公司品牌",
+        "特药险"
       ],
       "is_enriched": false,
       "source_url": "https://app.xinhuanet.com/news/article.html?articleId=2026053019b41bbbcff64781ac4759597af6092d",
@@ -139720,7 +139751,7 @@
       "highlights": "终身保障含身故责任，资产传承功能强，现金价值持续增长",
       "suitable_for": "35-55岁人群，子女教育金储备、退休规划或财富传承",
       "weakness": "前期现金价值较低，提前退保可能有损失",
-      "competitive_edge": "平安人寿终身寿险现金价值增速稳健，资产传承安全性高",
+      "competitive_edge": "有效保额年复利2.5%递增，身故保障持续增长至终身，保单贷款最高可贷现金价值80%，最高支持75周岁投保",
       "sales_tip": "面向40岁以上客户主推，强调\"保障+增值+传承\"三位一体功能",
       "premium_reference": {
         "age_30_male_20y": null,
@@ -139733,7 +139764,10 @@
       "tags": [
         "大公司品牌",
         "等待期短",
-        "含身故保障"
+        "含身故保障",
+        "增额终身寿险",
+        "终身寿险",
+        "保单贷款"
       ],
       "is_enriched": false,
       "validity_status": "MODIFIED",
@@ -139775,7 +139809,8 @@
       "coverage_period_split_at": "phase1_P1-5",
       "inconsistency": true,
       "needs_human_review": true,
-      "inconsistency_reason": "X3: is_active=true 与 delisting_time 已停售矛盾（含 None/待核实）"
+      "inconsistency_reason": "X3: is_active=true 与 delisting_time 已停售矛盾（含 None/待核实）",
+      "delisting_reason": "未明示具体停售日期，预定利率持续下行背景下终身寿险面临调整"
     },
     {
       "id": "12",
@@ -140383,7 +140418,7 @@
     },
     {
       "id": "24",
-      "name": "太保鑫福年年（尊享版）年金保险（分红型）",
+      "name": "太平洋鑫福年年(尊享版)年金保险（分红型）2024",
       "company": "太平洋人寿",
       "type": "年金险",
       "subtype": "",
@@ -140412,7 +140447,7 @@
       "highlights": "稳健年金规划，10年缴即享终身现金流，强制储蓄同时锁定收益",
       "suitable_for": "35-55岁人群，10年缴年金稳健规划子女教育或养老",
       "weakness": "年金领取前退保现金价值可能低于已缴保费，流动性一般",
-      "competitive_edge": "年金险收益写在合同，稳健锁定长期收益率，无投资波动风险",
+      "competitive_edge": "固收+分红双收益，保证领取30年养老金，60岁前投保第5年起领祝福金，60岁后投保当年即领，太保连续AA级风险评级",
       "sales_tip": "向40-55岁客户主推养老规划，强调\"现在存钱，未来领钱\"的确定性现金流",
       "premium_reference": {
         "age_30_male_20y": 24000,
@@ -140425,7 +140460,10 @@
       "tags": [
         "大公司品牌",
         "等待期短",
-        "IRR表现好"
+        "IRR表现好",
+        "年金险",
+        "分红险",
+        "养老规划"
       ],
       "is_enriched": false,
       "validity_status": "MODIFIED",
@@ -140466,7 +140504,8 @@
       "coverage_period_split_at": "phase1_P1-5",
       "inconsistency": true,
       "needs_human_review": true,
-      "inconsistency_reason": "X3: is_active=true 与 delisting_time 已停售矛盾（含 None/待核实）"
+      "inconsistency_reason": "X3: is_active=true 与 delisting_time 已停售矛盾（含 None/待核实）",
+      "delisting_reason": "预定利率从3.5%下调至3.0% / 2.5%，太保类似分红型产品2026-6-30集中下架"
     },
     {
       "id": "31",
@@ -141018,7 +141057,9 @@
       "tags": [
         "大公司品牌",
         "不限社保",
-        "含住院津贴"
+        "含住院津贴",
+        "意外险",
+        "成人意外险"
       ],
       "is_enriched": false,
       "validity_status": "SKIPPED",
@@ -141045,7 +141086,9 @@
       "coverage_period_split_at": "phase1_P1-5",
       "inconsistency": true,
       "needs_human_review": true,
-      "inconsistency_reason": "X3: is_active=true 与 delisting_time 已停售矛盾（含 None/待核实）"
+      "inconsistency_reason": "X3: is_active=true 与 delisting_time 已停售矛盾（含 None/待核实）",
+      "delisting_reason": "中国人寿保险股份有限公司2022年至2024年个人短期健康保险产品停售情况公告（行业普遍下架）",
+      "policy_rate_change": "平安互联网少儿长期意外伤害医疗保险（费率可调）：单个费率组别每次费率调整的上限为30%；上一年度赔付率≥85%或≥行业平均赔付率-10%触发调整"
     },
     {
       "id": "43",
@@ -141340,7 +141383,7 @@
     },
     {
       "id": "new_crx_2025_001",
-      "name": "超级玛丽13号",
+      "name": "达尔文11号重大疾病保险",
       "company": "君龙人寿",
       "type": "重疾险",
       "subtype": "终身重疾多次赔付",
@@ -141356,7 +141399,7 @@
         "癌症津贴"
       ],
       "highlights": "60岁前重疾额外赔80%，癌症津贴间隔1年最短，市场顶配",
-      "competitive_edge": "重疾额外赔付比例市场最高，癌症津贴最短间隔1年",
+      "competitive_edge": "重疾赔付130%基本保额（意外导致），恶性肿瘤津贴轻中症豁免，可选特心脑血管多次赔及癌症无限赔",
       "weakness": "分组稍严，轻症有三同限制",
       "suitable_for": "30-45岁家庭经济支柱，追求高赔付比例与癌症保障人群",
       "payment_choices": [
@@ -141409,9 +141452,15 @@
         "疾病保险",
         "健康险",
         "轻症保障",
-        "终身保障"
+        "终身保障",
+        "单次赔付",
+        "互联网产品",
+        "防癌险"
       ],
-      "validity_status": "在售新品"
+      "validity_status": "在售新品",
+      "delisting_reason": "2025-08-31下架（渠道通知停售）",
+      "sales_tip": "适合30-55岁成人，重疾+癌症保障需求人群",
+      "premium_reference": "暂未在文本中给出具体费率，建议参考同类互联网重疾险区间"
     },
     {
       "id": "new_crx_2025_002",
@@ -141697,8 +141746,8 @@
         "亚洲医疗包可选"
       ],
       "highlights": "20年保证续保，最高600万保额，平安健康服务网络完善",
-      "competitive_edge": "平安品牌+最高600万保额，附加亚洲医疗服务优质",
-      "weakness": "保费在同类产品中偏高",
+      "competitive_edge": "20年保证续保，百万保额，800万终身限额，多种方案灵活可选，覆盖特需部及私立医院",
+      "weakness": "55岁最高投保，保证续保期内费率可能调整",
       "suitable_for": "35-55岁高收入人群，追求高保额与大公司服务",
       "payment_choices": [
         "1年"
@@ -141745,9 +141794,15 @@
         "大公司品牌",
         "健康险",
         "百万医疗",
-        "医疗险"
+        "医疗险",
+        "百万医疗险",
+        "保证续保",
+        "特药险"
       ],
-      "validity_status": "在售新品"
+      "validity_status": "在售新品",
+      "policy_rate_change": "费率可调（赔付率≥85%可调）",
+      "sales_tip": "适合年轻健康人群，30岁约300元/年，家庭投保享95折",
+      "premium_reference": "30岁约300元/年"
     },
     {
       "id": "new_dx_2025_001",
@@ -141887,7 +141942,7 @@
     },
     {
       "id": "new_cx_2025_001",
-      "name": "增多多8号增额终身寿险",
+      "name": "增额终身寿险（昆仑健康）",
       "company": "昆仑健康保险",
       "type": "储蓄险",
       "subtype": "增额终身寿险",
@@ -141903,8 +141958,8 @@
         "灵活减保"
       ],
       "highlights": "有效保额年递增3.0%，现金价值高，IRR表现优秀，减保灵活",
-      "competitive_edge": "IRR高，市场同类增额寿现金价值表现最优",
-      "weakness": "趸交回本略慢，需长期持有",
+      "competitive_edge": "增额比例高（待确认），护理保障，税优健康险政策支持",
+      "weakness": "增额比例待确认，收益非保证，受预定利率影响",
       "suitable_for": "35-55岁人群，子女教育金/养老规划/稳健储蓄需求",
       "payment_choices": [
         "趸交",
@@ -141948,9 +142003,17 @@
       "coverage_period_parse_quality": "parsed",
       "coverage_period_split_at": "phase1_P1-5",
       "tags": [
-        "终身保障"
+        "终身保障",
+        "增额终身寿险",
+        "护理险",
+        "税优健康险",
+        "终身寿险"
       ],
-      "validity_status": "在售新品"
+      "validity_status": "在售新品",
+      "delisting_reason": "2025年储蓄型产品下架潮，经代渠道调整",
+      "sales_tip": "适合30-50岁中长期财务规划人群",
+      "policy_rate_change": "预定利率3.5%（参考）",
+      "premium_reference": "10万元保费趸交方案，第7个保单年度现金价值109099元（回本）；70岁时现金价值201619元（翻倍，单利3.2%）"
     },
     {
       "id": "new_cx_2025_002",
@@ -144113,7 +144176,7 @@
     },
     {
       "id": "臻健康重大疾病保险-906",
-      "name": "臻健康重大疾病保险",
+      "name": "君龙臻健康重大疾病保险",
       "company": "君龙人寿",
       "type": "重疾险",
       "subtype": "重大疾病保险",
@@ -144160,12 +144223,18 @@
         "疾病保险",
         "保费豁免",
         "健康险",
-        "重疾险"
+        "重疾险",
+        "多次赔付",
+        "终身重疾",
+        "分组重疾"
       ],
       "competitive_edge": [
         "保费豁免"
       ],
-      "validity_status": "在售新品"
+      "validity_status": "在售新品",
+      "weakness": "分组赔付需间隔180天，轻症/中症豁免需附加",
+      "sales_tip": "适合40-60岁人群，高龄阶段保额翻倍设计",
+      "premium_reference": "未给出具体保费示例，建议参考同类互联网重疾险：30岁/50万保额/30年交，年保费约7000-10000元区间"
     },
     {
       "id": "臻守护多次赔付重疾险-956",
@@ -144517,7 +144586,7 @@
     },
     {
       "id": "康寿终身重疾险-602",
-      "name": "康寿终身重疾险",
+      "name": "复星联合康乐一生重大疾病保险计划（A款升级款）",
       "company": "复星联合健康",
       "type": "重疾险",
       "subtype": "终身重疾险",
@@ -144565,12 +144634,18 @@
         "疾病保险",
         "健康险",
         "轻症保障",
-        "终身保障"
+        "终身保障",
+        "多次赔付",
+        "终身重疾"
       ],
       "competitive_edge": [
         "轻症保障"
       ],
-      "validity_status": "在售新品"
+      "validity_status": "在售新品",
+      "delisting_reason": "2021年1月31日停售",
+      "weakness": "等待期 180 天 缴费期 主险：1、5、10、15、20、30 年 附加险：4、9、",
+      "sales_tip": "80种重疾+35种轻症（市场最全面疾病保障）；特定严重疾病额外50%保额（恶性肿瘤+重大器官移植/造血干细胞移植，乳腺癌/甲状腺癌除外）；3次不分组轻症赔付+豁免保费；失能长期护理120月给付总计100%保额；投保人豁免附加险（夫妻互保双重豁免）；保单质押贷款最高80%现金价值；5项健康服务（健康星会员/专家手术安排/住院绿通/全球第二诊疗/海外治疗）",
+      "premium_reference": "30周岁夫妻互保50万保额/20年缴/终身，年缴保费11347.92-13116.36元（互为投保人/被保险人组合）；末年保费11005-12720元"
     },
     {
       "id": "臻守护重疾险-509",
@@ -145764,12 +145839,20 @@
       "coverage_period_parse_quality": "parsed",
       "coverage_period_split_at": "phase1_P1-5",
       "tags": [
-        "大公司品牌"
+        "大公司品牌",
+        "特药险",
+        "防癌险",
+        "保证续保",
+        "百万医疗险"
       ],
       "competitive_edge": [
         "大公司品牌"
       ],
-      "validity_status": "在售常规"
+      "validity_status": "在售常规",
+      "delisting_reason": "2018版底层百万医疗险已停售",
+      "weakness": "外购药报销比例有限，特定药品清单约束",
+      "sales_tip": "适合年轻健康人群，特药保障需求",
+      "premium_reference": "31-35岁保费89元/年（含当地基本医保/公费医疗），确诊后药品费用补偿最高150万；0-50岁保额150万，51-99岁保额100万"
     },
     {
       "id": "超能保住院医疗险-573",
@@ -145930,7 +146013,7 @@
     },
     {
       "id": "质子重离子住院医疗险-984",
-      "name": "质子重离子住院医疗险",
+      "name": "太保易享百万医疗保险（H2021）（互联网）",
       "company": "太平洋人寿",
       "type": "医疗险",
       "subtype": "住院医疗险",
@@ -145976,14 +146059,23 @@
       "tags": [
         "大公司品牌",
         "保费豁免",
-        "中症保障"
+        "中症保障",
+        "百万医疗险",
+        "质子重离子",
+        "防癌险",
+        "互联网产品"
       ],
       "competitive_edge": [
         "中症保障",
         "保费豁免",
         "大公司品牌（服务有保障）"
       ],
-      "validity_status": "在售常规"
+      "validity_status": "在售常规",
+      "delisting_reason": "短期健康险下架潮影响",
+      "weakness": "2万免赔额，仅保大额医疗风险，不含特药",
+      "sales_tip": "适合关注尖端放疗技术人群",
+      "policy_rate_change": "不保证续保（保险期间1年届满需重新投保，疾病观察期可能重新计算）",
+      "premium_reference": "一般医疗保险金200万元；重大疾病医疗保险金200万元；重症监护病房每日津贴500元；质子重离子医疗保险金年度限额100万元（参考同业）"
     },
     {
       "id": "住院保百万医疗险-297",
@@ -146726,7 +146818,19 @@
         "long_term_with_guaranteed_renewable"
       ],
       "coverage_period_split_at": "phase1_P1-5",
-      "validity_status": "在售常规"
+      "validity_status": "在售常规",
+      "delisting_reason": "今晚下架（蓝医保好医好药版Pro停售通知）",
+      "policy_rate_change": "费率可调（复星联合健康每年回顾赔付率）",
+      "competitive_edge": "100种特定疾病医疗保险金含特药及质子重离子，0免赔，保障400万",
+      "tags": [
+        "特药险",
+        "保证续保",
+        "防癌险",
+        "百万医疗险"
+      ],
+      "weakness": "等待期：本产品等待期为生效日零时起30天，如下情形，不受等待期影响：①被保险人因意外事",
+      "sales_tip": "谁？（含投保入口",
+      "premium_reference": "¥355.00起；首年或首月保费使用支付宝或微信支付；年交或月交"
     },
     {
       "id": "超能保防癌医疗险-291",
@@ -147495,7 +147599,7 @@
     },
     {
       "id": "大麦减额定期寿险-502",
-      "name": "大麦减额定期寿险",
+      "name": "华贵大麦2026A款定期寿险（互联网专属）",
       "company": "复星联合健康",
       "type": "定期寿险",
       "subtype": "减额定期寿险",
@@ -147541,13 +147645,21 @@
         "保障型",
         "寿险",
         "身故保障",
-        "定期寿险"
+        "定期寿险",
+        "互联网专属",
+        "高性价比",
+        "3条免责",
+        "可附加失能保障"
       ],
       "competitive_edge": [
         "中症保障",
         "大公司品牌"
       ],
-      "validity_status": "在售常规"
+      "validity_status": "在售常规",
+      "delisting_reason": "大麦系列3月20日就将下架",
+      "sales_tip": "适合25-55岁家庭经济支柱，寿险保额覆盖家庭责任期",
+      "weakness": "纯消费型定期寿险，无返还；BMI要求严格（16≤BMI<33）；职业限1-6类；保额200万以上BMI需≤30",
+      "premium_reference": "30岁男性/100万保额/保30年/交30年，年保费约4645元（臻爱2026两全），大麦系列53.70元起"
     },
     {
       "id": "瑞和定额定期寿险-161",
@@ -149532,13 +149644,17 @@
         "大公司品牌",
         "寿险",
         "财富传承",
-        "终身寿险"
+        "终身寿险",
+        "分红型",
+        "新华人寿"
       ],
       "competitive_edge": [
         "中症保障",
         "大公司品牌（服务有保障）"
       ],
-      "validity_status": "在售新品"
+      "validity_status": "在售新品",
+      "sales_tip": "身故保障终身；现金价值复利递增；财富传承",
+      "weakness": "原始文本以新华保险历史产品停售表+同业产品列表+招股说明书片段为主，缺乏该产品具体条款级信息"
     },
     {
       "id": "康健终身寿险-352",
@@ -150251,12 +150367,19 @@
       "coverage_period_parse_quality": "parsed_long",
       "coverage_period_split_at": "phase1_P1-5",
       "tags": [
-        "大公司品牌"
+        "大公司品牌",
+        "两全保险",
+        "太平洋人寿"
       ],
       "competitive_edge": [
         "大公司品牌"
       ],
-      "validity_status": "在售新品"
+      "validity_status": "在售新品",
+      "delisting_reason": "行业预定利率从4.025%下调至3.5%再到3.0%，老产品陆续下架",
+      "policy_rate_change": "历史预定利率从4.350%下调到3.5%再到2.5%-1.3%，分红型产品分红水平随预定利率下调",
+      "weakness": "分红型产品分红不保证；返还期限长（多在80岁后或期满）；中途退保有损失",
+      "sales_tip": "强调'返还型'设计（期满返还本金或保额），适合稳健型客户做养老补充；分红可累积生息",
+      "premium_reference": "参考利率示例：分红型保单预定利率4.350%（早期），现售多为2.5%-3.0%"
     },
     {
       "id": "祥瑞终身寿险-616",
@@ -150847,12 +150970,18 @@
         "大公司品牌",
         "意外险",
         "综合意外",
-        "意外医疗"
+        "意外医疗",
+        "老年人保险",
+        "高报销"
       ],
       "competitive_edge": [
         "大公司品牌"
       ],
-      "validity_status": "在售新品"
+      "validity_status": "在售新品",
+      "sales_tip": "适合为父母（50-85岁）配置高性价比老年意外保障",
+      "delisting_reason": "2024年7月大护甲7号意外险突发下架引发行业普遍涨价/缩责调整；孝心保系列面临产品迭代/费率调整压力",
+      "weakness": "老年人专属（50-85周岁），年龄上限严格；保障期限1年，需续保；不含普通疾病医疗；同业竞品大护甲8号高龄版（80岁可投）已抢占高龄段市场",
+      "premium_reference": "平安孝福康2号类比保费：50-55岁仅256元/年起，61-65岁336元/年起（孝心保具体保费依方案而定）"
     },
     {
       "id": "安享人生旅游意外险-353",
@@ -150903,12 +151032,17 @@
         "大公司品牌",
         "意外险",
         "综合意外",
-        "意外医疗"
+        "意外医疗",
+        "旅游意外险"
       ],
       "competitive_edge": [
         "大公司品牌"
       ],
-      "validity_status": "在售常规"
+      "validity_status": "在售常规",
+      "delisting_reason": "2024年3月1日停售",
+      "sales_tip": "全国”发展路径,秉承“诚信、创新、价值、分享”核心价值观,致力于打造成为一家发展特色突出、服务优质高效、品牌形象卓越、价值持续增长、风控体系完备、综合竞争力显著",
+      "weakness": "原始文本以保险公司介绍和同业产品对比为主，缺乏该产品具体条款级信息；旅游意外险通常仅保旅行期间内意外，不含日常意外",
+      "premium_reference": "未在文本中给出具体保费"
     },
     {
       "id": "出行保高危职业意外险-965",
@@ -151337,13 +151471,18 @@
         "大公司品牌",
         "综合意外",
         "意外险",
-        "意外医疗"
+        "意外医疗",
+        "老年人保险",
+        "公共交通意外"
       ],
       "competitive_edge": [
         "保费豁免",
         "大公司品牌"
       ],
-      "validity_status": "在售新品"
+      "validity_status": "在售新品",
+      "sales_tip": "适合60岁以上老人，弥补普通意外险无法覆盖高龄人群的缺口",
+      "weakness": "团体险不提供个人保单；仅保障持卡人本人/配偶/子女乘坐公共交通工具期间的意外；范围限于航空/火车/轮船/汽车等公共交通工具；部分老年意外险产品通过《特别约定》设置大量'除外医院'或'除外地区'控制理赔风险",
+      "premium_reference": "持卡人赠险（保费包含在信用卡权益中）；保险凭证可向 dingfanrs@abchina.com.cn 邮箱申请"
     },
     {
       "id": "畅行少儿意外险-673",
@@ -151444,12 +151583,18 @@
         "轻症保障",
         "意外险",
         "综合意外",
-        "意外医疗"
+        "意外医疗",
+        "航空意外险",
+        "交通意外险"
       ],
       "competitive_edge": [
         "轻症保障"
       ],
-      "validity_status": "在售新品"
+      "validity_status": "在售新品",
+      "sales_tip": "意外身故/伤残保障；交通意外额外赔付",
+      "delisting_reason": "行业航空意外险频繁下架（如慧飞行-智慧航空意外保障已下架）；同业产品迭代调整频繁",
+      "weakness": "71-90周岁被保险人意外身故及伤残保额减半；免责条款多（战争/军事行动/暴乱/武装叛乱/醉酒/受毒品影响等期间不赔；整容手术/药物过敏/中暑/猝死/未遵医嘱等不赔）；不重复给付（多份保单只赔最高）；不承保生产经营房屋",
+      "premium_reference": "计划A/B/C/D 四档可选；计划C 200万航空意外身故/伤残；计划B 60万航空意外+2万意外医疗"
     },
     {
       "id": "安心综合意外险-946",
@@ -151501,13 +151646,18 @@
         "综合意外",
         "意外险",
         "轻症保障",
-        "意外医疗"
+        "意外医疗",
+        "综合意外险",
+        "出行人群"
       ],
       "competitive_edge": [
         "轻症保障",
         "中症保障"
       ],
-      "validity_status": "在售常规"
+      "validity_status": "在售常规",
+      "sales_tip": "适合经常出差的商务人士，意外身故保额100万",
+      "premium_reference": "约99元/年：50万意外身故伤残+2万意外医疗+20万猝死",
+      "weakness": "18-60周岁，1-3类职业；保障期间1年；生效时间第3天（非次日零时）；需年收入要求"
     },
     {
       "id": "安行综合意外险-670",
@@ -151775,7 +151925,7 @@
     },
     {
       "id": "少儿护宝交通意外险-751",
-      "name": "少儿护宝交通意外险",
+      "name": "平安行·少儿意外险(互联网版)",
       "company": "平安人寿",
       "type": "意外险",
       "subtype": "交通意外险",
@@ -151823,12 +151973,17 @@
         "大公司品牌",
         "意外险",
         "综合意外",
-        "意外医疗"
+        "意外医疗",
+        "少儿意外险",
+        "交通意外险"
       ],
       "competitive_edge": [
         "大公司品牌（服务有保障）"
       ],
-      "validity_status": "在售新品"
+      "validity_status": "在售新品",
+      "sales_tip": "适合0-17岁儿童，覆盖日常意外及交通意外保障",
+      "premium_reference": "5.9元起，与主流少儿意外险相比价格偏低",
+      "weakness": "保险期限1年（非长期保证）；医院限制二级及以上公立/私立医院普通部；保单生效第5天才生效（非次日零时）；不含疾病门诊责任"
     },
     {
       "id": "小顽童旅游意外险-821",
@@ -151931,12 +152086,17 @@
         "保费豁免",
         "意外险",
         "综合意外",
-        "意外医疗"
+        "意外医疗",
+        "交通意外险"
       ],
       "competitive_edge": [
         "保费豁免"
       ],
-      "validity_status": "在售新品"
+      "validity_status": "在售新品",
+      "delisting_reason": "用户反映已下架",
+      "sales_tip": "意外身故/伤残保障；交通意外额外赔付",
+      "weakness": "原始文本主要为产品目录结构和客户评论，缺乏条款级信息；交通意外险仅保障公共交通工具内意外，普通意外不在覆盖范围",
+      "premium_reference": "页面临时保费示例¥1450.00（具体方案保费依保额/年龄而定）"
     },
     {
       "id": "畅行交通意外险-507",
@@ -152042,13 +152202,18 @@
         "大公司品牌",
         "综合意外",
         "意外险",
-        "意外医疗"
+        "意外医疗",
+        "交通意外险"
       ],
       "competitive_edge": [
         "保费豁免",
         "大公司品牌（服务有保障）"
       ],
-      "validity_status": "在售常规"
+      "validity_status": "在售常规",
+      "delisting_reason": "用户反映已下架",
+      "premium_reference": "约299元/年：100万意外身故伤残+3万意外医疗+300万航空意外+20万猝死",
+      "sales_tip": "意外身故/伤残保障；交通意外额外赔付",
+      "weakness": "仅承保1-3类职业（高空作业/刑警/消防员等高危职业不可投保）；需健康告知（2年内住院史/2级高血压/冠心病不可购）；仅报销社保范围内医疗费用；意外医疗有300元免赔额；整体性价比不算高（建议对比小蜜蜂超越版）"
     },
     {
       "id": "小顽童老年人意外险-812",
@@ -152499,12 +152664,17 @@
         "保费豁免",
         "储蓄型",
         "养老险",
-        "定期领取"
+        "定期领取",
+        "教育年金险",
+        "少儿保险"
       ],
       "competitive_edge": [
         "保费豁免"
       ],
-      "validity_status": "在售常规"
+      "validity_status": "在售常规",
+      "weakness": "万能险结算利率不保证，缴费方式灵活但费用不透明；条款引用见具体合同，初始费用与退保费用较高",
+      "sales_tip": "适合有稳定收入、追求长期保障与稳健理财的家庭，强调'陪伴式'保障+复利增值；可附加教育年金领取功能",
+      "premium_reference": "首期保费与保险金额按条款核算，最低保额及缴费期限以合同为准"
     },
     {
       "id": "鑫瑞婚嫁金保险-113",
@@ -152909,9 +153079,14 @@
         "储蓄型",
         "年金险",
         "养老险",
-        "定期领取"
+        "定期领取",
+        "教育年金险",
+        "儿童储蓄险"
       ],
-      "validity_status": "在售新品"
+      "validity_status": "在售新品",
+      "competitive_edge": "教育金规划、生存金返还、现金价值增长、缴费灵活",
+      "sales_tip": "适合为子女规划教育金的家庭用户",
+      "weakness": "原始文本主要为保险行业历史新闻汇编（2011-2012年），缺少该产品具体条款级信息；无法从原文核实产品核心要素"
     },
     {
       "id": "臻享福万能型年金险-163",
@@ -153108,14 +153283,19 @@
         "储蓄型",
         "养老险",
         "定期领取",
-        "轻症保障"
+        "轻症保障",
+        "教育年金险",
+        "年金分红",
+        "儿童储蓄"
       ],
       "competitive_edge": [
         "轻症保障",
         "中症保障",
         "保费豁免"
       ],
-      "validity_status": "在售常规"
+      "validity_status": "在售常规",
+      "policy_rate_change": "稳定",
+      "sales_tip": "适合为孩子储备教育金的家庭"
     },
     {
       "id": "智选人生终身年金险-248",
@@ -153513,12 +153693,16 @@
         "储蓄型",
         "大公司品牌",
         "养老险",
-        "定期领取"
+        "定期领取",
+        "婚嫁金保险",
+        "储蓄型保险"
       ],
       "competitive_edge": [
         "大公司品牌"
       ],
-      "validity_status": "在售常规"
+      "validity_status": "在售常规",
+      "sales_tip": "适合为子女婚嫁储备资金的家庭",
+      "weakness": "原始文本以各类财产保险/责任保险清单+新股IPO信息+富德生命人寿公司新闻+国元农业保险公司保费历史为主，缺乏该产品具体条款级信息"
     },
     {
       "id": "福满堂分红型两全险-293",
@@ -154401,12 +154585,20 @@
       "needs_human_review": true,
       "inconsistency_reason": "X3: is_active=true 与 delisting_time 已停售矛盾（含 None/待核实）",
       "tags": [
-        "保费豁免"
+        "保费豁免",
+        "投连险",
+        "理财险",
+        "众安保险"
       ],
       "competitive_edge": [
         "保费豁免"
       ],
-      "validity_status": "在售新品"
+      "validity_status": "在售新品",
+      "delisting_reason": "监管利率下调，理财型保险下架潮",
+      "sales_tip": "适合有投资理财需求的成年用户",
+      "policy_rate_change": "预定利率从3.5%下调至3.0%（行业统一调整）",
+      "weakness": "前期退保损失大；非稳赚不赔；产品营销常涉嫌误导性宣传（夸大收益）；中途退保有损失",
+      "premium_reference": "未在文本中给出具体保费示例"
     },
     {
       "id": "金钥匙年金储蓄险-178",
@@ -154450,7 +154642,19 @@
       "coverage_period_guaranteed_renewable": false,
       "coverage_period_parse_quality": "parsed",
       "coverage_period_split_at": "phase1_P1-5",
-      "validity_status": "在售新品"
+      "validity_status": "在售新品",
+      "delisting_reason": "监管整改，4.025%预定利率产品被叫停（2019年11月）",
+      "competitive_edge": "强制储蓄、长期收益稳定、适合养老规划",
+      "tags": [
+        "年金险",
+        "储蓄型保险",
+        "养老规划",
+        "农银人寿"
+      ],
+      "sales_tip": "适合中长期养老储蓄规划人群",
+      "policy_rate_change": "预定利率4.025%（参考）",
+      "weakness": "中途退保有损失；非保证回报（分红）部分不确定；预定利率持续下调导致新品收益降低",
+      "premium_reference": "生存金按主险基本保险金额的20%给付；满期金按所支付的全部主险保险费给付"
     },
     {
       "id": "金满堂储蓄险-664",
@@ -154871,13 +155075,19 @@
       "inconsistency_reason": "X3: is_active=true 与 delisting_time 已停售矛盾（含 None/待核实）",
       "tags": [
         "轻症保障",
-        "大公司品牌"
+        "大公司品牌",
+        "年金险",
+        "理财险",
+        "中华保险"
       ],
       "competitive_edge": [
         "轻症保障",
         "大公司品牌"
       ],
-      "validity_status": "在售新品"
+      "validity_status": "在售新品",
+      "delisting_reason": "监管利率下调，理财型保险下架潮",
+      "weakness": "投保年龄限制较窄（0-50周岁），职业类别限制1-4类",
+      "sales_tip": "适合中长期储蓄需求的25-45岁人群"
     },
     {
       "id": "传世宝储蓄险-537",
@@ -154963,13 +155173,22 @@
       "coverage_period_split_at": "phase1_P1-5",
       "tags": [
         "轻症保障",
-        "大公司品牌"
+        "大公司品牌",
+        "增额终身寿",
+        "储蓄型保险",
+        "弘康人寿",
+        "高收益"
       ],
       "competitive_edge": [
         "轻症保障",
         "大公司品牌"
       ],
-      "validity_status": "在售新品"
+      "validity_status": "在售新品",
+      "delisting_reason": "炒停售影响，多款高收益储蓄险下架调整",
+      "sales_tip": "适合有财富增值和传承需求的30-50岁人群",
+      "policy_rate_change": "预定利率3.5%（参考）",
+      "weakness": "预定利率即将下调之声风起",
+      "premium_reference": "金玉满堂IRR十分可观（接近3.5%），现价增长安全稳健快速（参考文本）"
     },
     {
       "id": "金玉满堂储蓄险-864",
@@ -155014,12 +155233,21 @@
       "coverage_period_parse_quality": "parsed",
       "coverage_period_split_at": "phase1_P1-5",
       "tags": [
-        "保费豁免"
+        "保费豁免",
+        "增额终身寿",
+        "储蓄型保险",
+        "弘康人寿",
+        "高收益"
       ],
       "competitive_edge": [
         "保费豁免"
       ],
-      "validity_status": "在售新品"
+      "validity_status": "在售新品",
+      "delisting_reason": "2023年9月30日下架",
+      "sales_tip": "适合追求高收益、长期储蓄增值的25-55岁人群",
+      "policy_rate_change": "年度有效保险金额每年3.8%递增（预定利率3.0%时期）",
+      "weakness": "增额寿险流动性差（前9年现金价值低于已交保费）；预定利率下调后收益降低；中途退保有损失",
+      "premium_reference": "5000元起投；演示IRR 60岁约2.89%（保证利益）；90岁现价478.4万（4.78倍已交保费）"
     },
     {
       "id": "稳得利终身储蓄险-477",
@@ -155065,13 +155293,22 @@
       "coverage_period_split_at": "phase1_P1-5",
       "tags": [
         "轻症保障",
-        "中症保障"
+        "中症保障",
+        "储蓄险",
+        "终身寿险",
+        "瑞华健康",
+        "保证回报"
       ],
       "competitive_edge": [
         "轻症保障",
         "中症保障"
       ],
-      "validity_status": "在售新品"
+      "validity_status": "在售新品",
+      "delisting_reason": "炒停售影响，高预定利率储蓄险下架调整",
+      "sales_tip": "适合追求稳健保本收益、短期储蓄规划的18-70岁人群",
+      "policy_rate_change": "预定利率从3.5%下调至3.0%（行业统一调整）",
+      "weakness": "增额寿险流动性差；前期现金价值低于已交保费；中途退保有较大经济损失；保险公司承担利差损风险",
+      "premium_reference": "未在文本中给出具体保费示例"
     },
     {
       "id": "稳得利理财险-303",
@@ -161000,6 +161237,14 @@
         "本金锁定+年度分红递增+长寿保障至105岁"
       ],
       "validity_status": "信息缺失"
+    },
+    {
+      "name": "超级玛丽13号",
+      "type": "重疾险",
+      "company": "君龙人寿",
+      "source": "comprehensive_scraper",
+      "is_active": true,
+      "addedAt": "2026-08-24T17:31:16.988475+00:00"
     }
   ]
 }
