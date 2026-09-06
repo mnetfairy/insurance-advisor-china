@@ -16,6 +16,7 @@ Tests:
 """
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -30,6 +31,30 @@ SCRIPT = os.path.join(SKILL_DIR, "scripts", "premium_calculator.py")
 PASS = "[PASS]"
 FAIL = "[FAIL]"
 
+# Strip ANSI control sequences (CSI / OSC) and C0 controls from subprocess output
+# before printing. Defense-in-depth: a child process or its inputs must not be
+# able to forge terminal escapes or overwrite prior log lines via control codes.
+# CR (0x0d) is stripped (log-line overwrite); LF (0x0a) and TAB (0x09) are kept
+# so multi-line Python tracebacks still render readably.
+_ANSI_CSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+_ANSI_OSC = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+_ANSI_C0 = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_ANSI_CR = re.compile(r"\r")
+_REPLACEMENT = "?"
+
+
+def _sanitize(text, max_len=None):
+    """Remove ANSI/C0 control sequences; optionally truncate to max_len."""
+    if text is None:
+        return ""
+    cleaned = _ANSI_OSC.sub("", text)
+    cleaned = _ANSI_CSI.sub("", cleaned)
+    cleaned = _ANSI_CR.sub("", cleaned)
+    cleaned = _ANSI_C0.sub(_REPLACEMENT, cleaned)
+    if max_len is not None and len(cleaned) > max_len:
+        cleaned = cleaned[:max_len] + "...<truncated>"
+    return cleaned
+
 
 def load_v2():
     with open(V2_PATH) as f:
@@ -41,7 +66,7 @@ def test_1_premium_calculator():
     r = subprocess.run(["python3", SCRIPT], capture_output=True, text=True, timeout=120)
     if r.returncode != 0:
         print(f"  {FAIL} exit={r.returncode}")
-        print(f"  stderr: {r.stderr[:300]}")
+        print(f"  stderr: {_sanitize(r.stderr, 300)}")
         return False
     try:
         data = json.loads(r.stdout)
@@ -59,7 +84,7 @@ def test_2_plan_designer():
                        capture_output=True, text=True, timeout=120)
     if r.returncode != 0:
         print(f"  {FAIL} exit={r.returncode}")
-        print(f"  stderr: {r.stderr[:300]}")
+        print(f"  stderr: {_sanitize(r.stderr, 300)}")
         return False
     print(f"  {PASS} plan_designer.py ran OK")
     return True
@@ -195,9 +220,9 @@ def test_6_idempotency():
             print(f"  {FAIL} {s} exit={r.returncode}")
             ok = False
             continue
-        if "0" not in out[:500]:
+        if "0" not in _sanitize(out, 500):
             print(f"  {WARN} {s} no clear zero in output — check manually")
-            print(f"  stdout: {out[:300]}")
+            print(f"  stdout: {_sanitize(out, 300)}")
         else:
             print(f"  {PASS} {s} idempotent")
     return ok

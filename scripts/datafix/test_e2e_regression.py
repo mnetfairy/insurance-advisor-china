@@ -14,6 +14,7 @@ Tests:
 """
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -21,6 +22,29 @@ THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 SKILL_DIR = os.path.dirname(os.path.dirname(THIS_DIR))
 V2_PATH = os.path.join(SKILL_DIR, "references", "products_v2.json")
 SCRIPT = os.path.join(SKILL_DIR, "scripts", "premium_calculator.py")
+
+# Strip ANSI/C0 control sequences from subprocess output before printing
+# (defense-in-depth: prevents terminal-escape forgery / log poisoning).
+# CR (0x0d) is stripped (log-line overwrite); LF (0x0a) and TAB (0x09) are kept
+# so multi-line Python tracebacks still render readably.
+_ANSI_CSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+_ANSI_OSC = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+_ANSI_C0 = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_ANSI_CR = re.compile(r"\r")
+_REPLACEMENT = "?"
+
+
+def _sanitize(text, max_len=None):
+    """Remove ANSI/C0 control sequences; optionally truncate to max_len."""
+    if text is None:
+        return ""
+    cleaned = _ANSI_OSC.sub("", text)
+    cleaned = _ANSI_CSI.sub("", cleaned)
+    cleaned = _ANSI_CR.sub("", cleaned)
+    cleaned = _ANSI_C0.sub(_REPLACEMENT, cleaned)
+    if max_len is not None and len(cleaned) > max_len:
+        cleaned = cleaned[:max_len] + "...<truncated>"
+    return cleaned
 
 # Baseline file (the v1 backup we made at start)
 BASELINE_PATH = os.path.join(SKILL_DIR, "references", "backups",
@@ -50,7 +74,7 @@ def main():
     print("   Running premium_calculator.py ...")
     r = subprocess.run(["python3", SCRIPT], capture_output=True, text=True, timeout=120)
     if r.returncode != 0:
-        print(f"   [FAIL] crashed: {r.stderr[:300]}")
+        print(f"   [FAIL] crashed: {_sanitize(r.stderr, 300)}")
         return 1
     print(f"   [PASS] no crash, returned {len(json.loads(r.stdout))} products")
 
