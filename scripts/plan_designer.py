@@ -2,18 +2,46 @@
 """
 方案设计工具
 根据需求分析结果，自动生成2-3套方案（基础版/标准版/全面版）
+
+🆕 2026-09-08 T09 安全修复：从 premium_calculator.py 同步产品有效性过滤
+   跳过以下产品（防止推荐已停售/重复/无效记录）：
+   - data_quality == "garbage"        不可信的脏数据
+   - is_active is False               已下架
+   - is_duplicate is True             重复记录
+   - delisting_time == "已停售"        已停售
 """
 
 import json
 import sys
 import os
 
+
+def _is_product_eligible(p):
+    """产品有效性过滤器：仅当返回 True 时才进入推荐池。
+
+    与 premium_calculator.py 的过滤行为一致；防止推荐已停售/重复/无效记录。
+
+    Returns:
+        bool: True=可推荐；False=跳过
+    """
+    if p.get("data_quality") == "garbage":
+        return False
+    if p.get("is_active") is False:
+        return False
+    if p.get("is_duplicate") is True:
+        return False
+    if p.get("delisting_time") == "已停售":
+        return False
+    return True
+
+
 def load_products():
-    """加载产品数据"""
+    """加载产品数据（已应用有效性过滤）"""
     product_file = os.path.join(os.path.dirname(__file__), "../references/products.json")
     with open(product_file, 'r', encoding='utf-8') as f:
         data = json.load(f)
-    return data["products"]
+    products = [p for p in data["products"] if _is_product_eligible(p)]
+    return products
 
 def select_products(products, product_type, criteria="recommended"):
     """按类型筛选产品"""

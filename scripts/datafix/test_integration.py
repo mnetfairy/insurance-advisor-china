@@ -43,6 +43,16 @@ _ANSI_CR = re.compile(r"\r")
 _REPLACEMENT = "?"
 
 
+def _sha256_file(path):
+    """Compute SHA256 of a file's bytes (for idempotency verification)."""
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def _sanitize(text, max_len=None):
     """Remove ANSI/C0 control sequences; optionally truncate to max_len."""
     if text is None:
@@ -200,8 +210,14 @@ def test_5_field_sanity():
 
 
 def test_6_idempotency():
-    """Re-run each fix script in --dry-run mode → should report no changes (idempotent)."""
-    print(f"\n{TEST_6_NAME}: fix scripts idempotent (dry-run shows no-op)")
+    """Re-run each fix script in --dry-run mode → should NOT modify products_v2.json (idempotent).
+
+    🆕 2026-09-08 输出处理安全修复：
+       不再依赖子进程 stdout 中是否包含 "0" 来判断（易被伪造输出欺骗）；
+       改为对比 products_v2.json 在 dry-run 前后的 SHA256——只有文件未变才算真正幂等。
+       exit code 仍作为基本健康检查使用（必须 == 0）。
+    """
+    print(f"\n{TEST_6_NAME}: fix scripts idempotent (dry-run leaves file unchanged)")
     scripts = [
         "fix_phase0_coverage_period_none.py",
         "fix_P0-1_name_clean.py",
@@ -213,18 +229,32 @@ def test_6_idempotency():
     ok = True
     for s in scripts:
         path = os.path.join(THIS_DIR, s)
-        r = subprocess.run(["python3", path, "--dry-run"],
-                           capture_output=True, text=True, timeout=60)
-        out = r.stdout + r.stderr
-        if r.returncode != 0:
-            print(f"  {FAIL} {s} exit={r.returncode}")
+        if not os.path.exists(V2_PATH):
+            print(f"  {FAIL} {s}: products_v2.json not found at {V2_PATH}")
             ok = False
             continue
-        if "0" not in _sanitize(out, 500):
-            print(f"  {WARN} {s} no clear zero in output — check manually")
-            print(f"  stdout: {_sanitize(out, 300)}")
-        else:
-            print(f"  {PASS} {s} idempotent")
+
+        hash_before = _sha256_file(V2_PATH)
+        r = subprocess.run(["python3", path, "--dry-run"],
+                           capture_output=True, text=True, timeout=60)
+        hash_after = _sha256_file(V2_PATH)
+
+        out_sanitized = _sanitize(r.stdout + r.stderr, 200)
+
+        if r.returncode != 0:
+            print(f"  {FAIL} {s} exit={r.returncode}")
+            print(f"  stderr: {out_sanitized}")
+            ok = False
+            continue
+
+        if hash_before != hash_after:
+            print(f"  {FAIL} {s} modified products_v2.json in --dry-run mode (should be no-op)")
+            print(f"    hash before: {hash_before[:16]}...")
+            print(f"    hash after:  {hash_after[:16]}...")
+            ok = False
+            continue
+
+        print(f"  {PASS} {s} idempotent (file unchanged, exit=0)")
     return ok
 
 

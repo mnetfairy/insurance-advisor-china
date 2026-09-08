@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """
-Phase 0: Fix premium_calculator.py crash (KeyError: 'coverage_period').
+Phase 0: Fix runtime script crashes (KeyError: 'coverage_period').
+
+📍 位置迁移说明（2026-09-08 T07 安全修复）：
+   - 原位置：scripts/datafix/fix_phase0_premium_calculator.py
+   - 新位置：scripts/runtime_patches/fix_phase0_runtime_scripts.py
+   - 原因：原 datafix/ 目录被声明为"只触碰产品数据"——但本脚本修改运行时脚本（premium_calculator.py / plan_designer.py / needs_analyzer.py），违反声明边界。
+   - 迁移后与 datafix/ 严格隔离：datafix/ 只动 products*.json；runtime_patches/ 只动 scripts/*.py。
 
 Symptom: 112 products have coverage_period = None (or key missing entirely).
          premium_calculator.py uses product["coverage_period"] directly → KeyError.
@@ -12,7 +18,7 @@ Fix: Defense-in-depth
   C. needs_analyzer.py: 同上
 
 This is a SKILL script edit (not data) — files in scripts/ (outside datafix/).
-Backup: we copy originals to scripts/datafix/backups_pre_fix/.
+Backup: we copy originals to scripts/runtime_patches/backups_pre_fix/.
 
 Idempotent: re-running detects already-fixed files and reports no-op.
 """
@@ -22,9 +28,9 @@ import shutil
 from datetime import datetime
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-SKILL_DIR = os.path.dirname(THIS_DIR)  # scripts/
-SCRIPTS_DIR = SKILL_DIR
-BACKUP_LOCAL = os.path.join(THIS_DIR, "backups_pre_fix")
+SKILL_DIR = os.path.dirname(THIS_DIR)  # scripts/ (parent of runtime_patches/)
+SCRIPTS_DIR = SKILL_DIR  # runtime scripts live directly under scripts/
+BACKUP_LOCAL = os.path.join(THIS_DIR, "backups_pre_fix")  # scripts/runtime_patches/backups_pre_fix/
 
 
 def now_ts():
@@ -184,6 +190,7 @@ def main():
     print("=" * 60)
     print("Phase 0: Fix SKILL script crashes (defense in scripts/)")
     print("=" * 60)
+    print(f"Location: scripts/runtime_patches/ (isolated from scripts/datafix/)")
     print(f"Backup dir: {BACKUP_LOCAL}")
 
     err = 0
