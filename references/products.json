@@ -1,7 +1,7 @@
 {
   "_meta": {
-    "version": "2.0.192",
-    "updated_at": "2026-10-20T17:31:27.922134+00:00",
+    "version": "2.0.193",
+    "updated_at": "2026-10-22T00:39:48.327402+00:00",
     "description": "保险产品库整理版，保留在售及有效产品",
     "total_products": 2536,
     "active_products": 558,
@@ -36,7 +36,7 @@
     "new_2025_products_added": 12,
     "enriched_products": 239,
     "cleanup_round2": "removed 8 additional garbage entries",
-    "daily_updated_at": "2026-10-21",
+    "daily_updated_at": "2026-10-22",
     "total_active": 637,
     "total_inactive": 1897,
     "last_updated": "2026-04-18",
@@ -56,7 +56,7 @@
       "终身寿险": 40
     },
     "active_count": 603,
-    "lastUpdated": "2026-10-20T17:31:27.920360+00:00",
+    "lastUpdated": "2026-10-22T00:39:48.267969+00:00",
     "policy_validity_check_at": "2026-07-12T17:15:47.479462+00:00",
     "policy_validity_check_summary": {
       "targets_total": 105,
@@ -69,8 +69,8 @@
       "needs_review": 0,
       "errors": 0
     },
-    "last_refreshed_at": "2026-10-20T17:40:22.099661+00:00",
-    "refresh_count": 131,
+    "last_refreshed_at": "2026-10-22T00:48:28.342601+00:00",
+    "refresh_count": 132,
     "duplicates": [
       {
         "dup_index": 205,
@@ -175007,7 +175007,30 @@
       "_missing_fields": [
         "renewal_terms",
         "health_disclosure"
-      ]
+      ],
+      "_meta": {
+        "_competitive_edge_updated_at": "2026-09-11T02:07:26.573504+00:00",
+        "_competitive_edge_sources": [
+          "https://www.taikang.com/happiness-guide",
+          "https://h5.ifeng.com/c/vivoArticle/v002TPtKb6-_-_-_cr7kPqxtRRc82KnyJKcwftPip8DhYt4E38__?isNews=1&showComments=0"
+        ],
+        "_renewal_terms_updated_at": "2026-09-11T02:07:29.096193+00:00",
+        "_renewal_terms_sources": [
+          "https://xinwen.bjd.com.cn/content/s67f8e045e4b068c68f123d17.html",
+          "https://www.yicai.com/news/100028600.html"
+        ],
+        "_health_disclosure_updated_at": "2026-09-11T02:07:31.626153+00:00",
+        "_health_disclosure_sources": [
+          "https://pic.bankofchina.com/bocappd/agreement/201904/P020190419398461948881.pdf",
+          "https://www.boc.cn/ebanking/bocnet_login/cs4/201904/t20190419_15135341.html"
+        ]
+      },
+      "renewal_terms": "The product \"健康有约轻享版\" by Taikang offers 10-year guaranteed renewal, with a maximum renewal age of 99 years. The product focuses on high-quality medical coverage and cost-effective health insurance for middle-income clients.",
+      "health_disclosure": "The product \"泰康悦享特定疾病海外医疗保险（标准计划）\" offers high coverage up to 500 million yuan, with flexible age range from 0 to 70 years. It includes global emergency assistance and a wide hospital network.",
+      "tags_last_updated": "2026-10-22T00:39:48.491192+00:00",
+      "tags_verified_at": "2026-10-22T00:39:48.491192+00:00",
+      "validity_status_last_updated": "2026-10-22T00:39:48.491192+00:00",
+      "validity_status_verified_at": "2026-10-22T00:39:48.491192+00:00"
     },
     {
       "id": "tavily-太平-2025",
@@ -175159,7 +175182,30 @@
       "_missing_fields": [
         "renewal_terms",
         "health_disclosure"
-      ]
+      ],
+      "_meta": {
+        "_competitive_edge_updated_at": "2026-09-11T02:07:18.987887+00:00",
+        "_competitive_edge_sources": [
+          "https://kjdsnews.com/s/%E9%80%9F%E5%8D%96%E9%80%9A%E4%BC%98%E5%8A%BF.aspx",
+          "https://pdfs.cir.cn/ITTongXun/36/%E4%BA%BA%E8%84%B8%E8%AF%86%E5%88%AB%E5%8F%91%E5%B1%95%E8%B6%8B%E5%8A%BF%E9%A2%84%E6%B5%8B%E5%88%86%E6%9E%90_1676036.pdf"
+        ],
+        "_renewal_terms_updated_at": "2026-09-11T02:07:21.513787+00:00",
+        "_renewal_terms_sources": [
+          "https://help.bowtie.com.hk/hc/zh-tw/articles/6947036697113-%E4%BD%A0%E5%80%91%E7%9A%84%E7%94%A2%E5%93%81%E6%9C%80%E9%AB%98%E5%8F%AF%E7%BA%8C%E4%BF%9D%E8%87%B3%E4%BB%80%E9%BA%BC%E6%AD%B2%E6%95%B8",
+          "http://paper.ce.cn/pc/content/202101/14/content_219022.html"
+        ],
+        "_health_disclosure_updated_at": "2026-09-11T02:07:24.046142+00:00",
+        "_health_disclosure_sources": [
+          "https://www.cpic.com.cn/c/2021-02-09/1619091.shtml",
+          "https://pdf.dfcfw.com/pdf/H3_AP202103041468369951_1.pdf?1614864635000.pdf="
+        ]
+      },
+      "renewal_terms": "The product's maximum renewal age varies by plan; some plans renew up to age 100, while others renew only up to age 60. Short-term health insurance does not guarantee renewal. Continuation fees may apply for policy renewal.",
+      "health_disclosure": "Health disclosure is required for initial insurance applications in China; specific diseases listed must be disclosed. Insurance companies use digital tools for intelligent underwriting and claims processing. Health insurance innovation includes partnerships for health management and AI-driven services.",
+      "tags_last_updated": "2026-10-22T00:39:48.491189+00:00",
+      "tags_verified_at": "2026-10-22T00:39:48.491189+00:00",
+      "validity_status_last_updated": "2026-10-22T00:39:48.491189+00:00",
+      "validity_status_verified_at": "2026-10-22T00:39:48.491189+00:00"
     },
     {
       "id": "tavily-太平-2025",
@@ -175205,7 +175251,30 @@
       "_missing_fields": [
         "renewal_terms",
         "health_disclosure"
-      ]
+      ],
+      "_meta": {
+        "_competitive_edge_updated_at": "2026-09-11T02:08:12.637368+00:00",
+        "_competitive_edge_sources": [
+          "https://www.chinamoney.org.cn/dqs/cm-s-notice-query/fileDownLoad.do?contentId=3143388&priority=0&mode=save",
+          "https://life.cntaiping.com"
+        ],
+        "_renewal_terms_updated_at": "2026-09-11T02:08:15.162166+00:00",
+        "_renewal_terms_sources": [
+          "https://market.cmbchina.com/ccard/bx/product/product57.html",
+          "https://www.cntaiping.com/service-shouxian-3"
+        ],
+        "_health_disclosure_updated_at": "2026-09-11T02:08:17.687017+00:00",
+        "_health_disclosure_sources": [
+          "https://blog.diting.cc/8887939m0",
+          "https://bobe.ai/%E9%86%AB%E7%99%82%E9%9A%AA/%E9%86%AB%E7%99%82%E9%9A%AA%E6%8A%95%E4%BF%9D%E9%A0%88%E7%9F%A5"
+        ]
+      },
+      "renewal_terms": "The \"太平人寿关爱今生\"重大疾病保险续保条件为投保人在保单效力中止之日起两年内申请。续保年龄没有上限，保单可续保至88周岁。",
+      "health_disclosure": "Health disclosure for 核保 requires identification and verification of the applicant's health status. Standard medical examinations are typically required. Specific requirements may vary by insurer.",
+      "tags_last_updated": "2026-10-22T00:39:48.491199+00:00",
+      "tags_verified_at": "2026-10-22T00:39:48.491199+00:00",
+      "validity_status_last_updated": "2026-10-22T00:39:48.491199+00:00",
+      "validity_status_verified_at": "2026-10-22T00:39:48.491199+00:00"
     },
     {
       "id": "tavily-阳光-推出了多",
@@ -175585,7 +175654,30 @@
       "_missing_fields": [
         "renewal_terms",
         "health_disclosure"
-      ]
+      ],
+      "_meta": {
+        "_competitive_edge_updated_at": "2026-09-11T02:08:04.824231+00:00",
+        "_competitive_edge_sources": [
+          "https://www.cpiclifehk.com.hk/ProductIntroduce/ProductDetail?productCode=Gold-Ruyi-Supreme-Version",
+          "https://thelifetank.com/company/pacific-life-insurance"
+        ],
+        "_renewal_terms_updated_at": "2026-09-11T02:08:07.477363+00:00",
+        "_renewal_terms_sources": [
+          "https://www.huize.com/hz-planet/wiki/89",
+          "https://www.bzfwy.com/79250.html"
+        ],
+        "_health_disclosure_updated_at": "2026-09-11T02:08:10.023087+00:00",
+        "_health_disclosure_sources": [
+          "https://www.cpic.com.cn/c/2021-02-09/1619091.shtml",
+          "https://bobe.ai/%E9%86%AB%E7%99%82%E9%9A%AA/%E9%86%AB%E7%99%82%E9%9A%AA%E6%8A%95%E4%BF%9D%E9%A0%88%E7%9F%A5"
+        ]
+      },
+      "renewal_terms": "Continuation insurance age limits vary by policy; generally, most policies allow continuation up to age 70, but terms depend on specific insurance contract. Continuation conditions include age, health status, and product availability. Always check the insurance contract for exact continuation age and conditions.",
+      "health_disclosure": "Health disclosure is crucial for accurate underwriting; truthful answers are required to avoid policy denial or claims rejection. Major health issues like cancer or severe diseases must be disclosed. Insurance companies use disclosed information to assess risk and determine coverage.",
+      "tags_last_updated": "2026-10-22T00:39:48.491197+00:00",
+      "tags_verified_at": "2026-10-22T00:39:48.491197+00:00",
+      "validity_status_last_updated": "2026-10-22T00:39:48.491197+00:00",
+      "validity_status_verified_at": "2026-10-22T00:39:48.491197+00:00"
     },
     {
       "id": "tavily-科技-创新推出",
@@ -175707,7 +175799,9 @@
         ]
       },
       "renewal_terms": "The Aviva insurance product \"福满佳\" can be renewed up to age 60. The maximum renewal age varies by product, with some extending to 100 years. The renewal conditions depend on the specific insurance plan.",
-      "health_disclosure": "For insurance product Fumanjia, health disclosure is required; insurers cannot use genetic information for underwriting. Insurers must inform policyholders of insurance terms and conditions. Insurers may adjust coverage based on disclosed health information."
+      "health_disclosure": "For insurance product Fumanjia, health disclosure is required; insurers cannot use genetic information for underwriting. Insurers must inform policyholders of insurance terms and conditions. Insurers may adjust coverage based on disclosed health information.",
+      "validity_status_last_updated": "2026-10-22T00:39:48.491200+00:00",
+      "validity_status_verified_at": "2026-10-22T00:39:48.491200+00:00"
     },
     {
       "id": "tavily-平安-2025",
@@ -175967,7 +176061,9 @@
         ]
       },
       "renewal_terms": "Continuation of major disease insurance requires meeting specific conditions, including age limits set by the insurer. Some policies guarantee continuation up to a certain age, while others may not. Continuation age can differ from initial coverage age.",
-      "health_disclosure": "Health disclosure is crucial for major disease insurance; truthful disclosure avoids policy rejection. Major diseases and recent medical history must be reported. Insurance companies use strict criteria to assess risk."
+      "health_disclosure": "Health disclosure is crucial for major disease insurance; truthful disclosure avoids policy rejection. Major diseases and recent medical history must be reported. Insurance companies use strict criteria to assess risk.",
+      "validity_status_last_updated": "2026-10-22T00:39:48.491201+00:00",
+      "validity_status_verified_at": "2026-10-22T00:39:48.491201+00:00"
     },
     {
       "id": "tavily-平安-推出了2",
@@ -176013,7 +176109,30 @@
       "_missing_fields": [
         "renewal_terms",
         "health_disclosure"
-      ]
+      ],
+      "_meta": {
+        "_competitive_edge_updated_at": "2026-09-11T02:07:49.372766+00:00",
+        "_competitive_edge_sources": [
+          "http://about.pingan.com/renshou/index.shtml",
+          "https://life.pingan.com/rexiaochanpin.jsp"
+        ],
+        "_renewal_terms_updated_at": "2026-09-11T02:07:52.184400+00:00",
+        "_renewal_terms_sources": [
+          "https://www.huize.com/hz-planet/wiki/89",
+          "https://www.cpic.com.cn/c/2021-05-31/1826714.shtml"
+        ],
+        "_health_disclosure_updated_at": "2026-09-11T02:07:54.713244+00:00",
+        "_health_disclosure_sources": [
+          "https://www.zhongan.com/toutiao/d1740082",
+          "https://www.cpic.com.cn/c/2021-02-09/1619091.shtml"
+        ]
+      },
+      "renewal_terms": "续保年龄是指保单持有人可以继续续保的最高年龄。投保年龄是指首次购买保单的年龄范围。续保年龄通常高于投保年龄。",
+      "health_disclosure": "Health disclosure is mandatory for insurance; non-disclosure can lead to claim denial. If non-disclosure is discovered, seek post-sale disclosure correction. If undisclosed conditions are significant, insurance companies may refuse claims or cancel policies.",
+      "tags_last_updated": "2026-10-22T00:39:48.491196+00:00",
+      "tags_verified_at": "2026-10-22T00:39:48.491196+00:00",
+      "validity_status_last_updated": "2026-10-22T00:39:48.491196+00:00",
+      "validity_status_verified_at": "2026-10-22T00:39:48.491196+00:00"
     },
     {
       "id": "tavily-包括-和重疾险",
