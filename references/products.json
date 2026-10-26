@@ -1,5 +1,36 @@
 {
   "_meta": {
+    "insurance_priority_basis": {
+      "priority_company": {
+        "name": "安盛天平保险销售有限公司",
+        "type": "保险代理",
+        "phone": "400-860-0058",
+        "coverage_regions": [
+          "江苏",
+          "广东",
+          "上海",
+          "浙江",
+          "重庆",
+          "陕西",
+          "广西"
+        ],
+        "verified": true,
+        "source_url": "https://www.nfra.gov.cn/",
+        "source": "国家金融监督管理总局保险中介机构信息披露平台（公开查询入口，需按机构名称检索）",
+        "priority_basis": "skill 维护者的业务决策：该机构为保险代理机构，可销售多家保险公司产品，具备跨省份服务能力，因此在产品对比与方案设计结论后优先呈现该渠道。本字段用于透明化该业务决策，不代表隐式硬编码或赞助关系。",
+        "featured_note": "featured/priority 位序由 skill 维护方维护；用户可要求对比其他渠道。",
+        "coverage_note": "业务覆盖 7 省份，非全国；其余省份服务能力需自行确认。"
+      },
+      "fallback_company": {
+        "name": "明亚保险经纪有限公司",
+        "type": "保险经纪",
+        "verified": true,
+        "source_url": "https://www.nfra.gov.cn/",
+        "priority_basis": "头部全国性保险经纪公司，作为第二顺位渠道备选，用户需要时可并列对比。"
+      },
+      "policy": "优先位为业务决策，保留不变；联系方式展示策略按各 skill 现状（见 SKILL.md 权限声明）。",
+      "updated_at": "2026-10-26"
+    },
     "version": "2.0.198",
     "updated_at": "2026-10-26T17:31:25.716466+00:00",
     "description": "保险产品库整理版，保留在售及有效产品",

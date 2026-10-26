@@ -39,15 +39,29 @@ Actually re-reading the master spec more carefully:
   and add a note field. We follow master spec's recommendation.
 
 Idempotent.
+
+🆕 2026-10-27 加固（I5）
+  1. 新增 --target 参数：默认指向**包内实际存在**的 references/products.json。
+     （历史默认 products_v2.json 不在发布包内，脚本此前必然 FileNotFoundError。）
+     如需迁移到 v2 数据集，显式传 --target references/products_v2.json；
+     products_v2.json 为可选目标，不随本 skill 发布包分发。
+  2. < 10000 元的金额不再被抹成 0：整数字段仍按万元取整记 0，
+     但原值保留到 min_coverage_raw / max_coverage_raw（字段已存在），
+     并新增 min_coverage_note / max_coverage_note 说明取整原因。
+  3. 区间端点（"50万/100万"）被丢弃的高位端点不再静默丢失：
+     写入新增字段 max_coverage_alternatives（数组），并在 max_coverage_note 说明。
+  这些是离线人工维护工具，不影响运行时输出。
 """
 import argparse
+import json
 import os
 import re
 import sys
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, THIS_DIR)
-from lib_common import load_v2, save_v2, backup_v2, write_report, add_dry_run_arg
+from lib_common import (load_v2, save_v2, backup_v2, write_report, add_dry_run_arg,
+                       PRODUCTS_V1, PRODUCTS_V2, BACKUPS_DIR, now_ts)
 
 RE_DIGIT = re.compile(r"\d+(?:\.\d+)?")
 RE_RANGE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*[-~到至]\s*(\d+(?:\.\d+)?)\s*(万|万元)?\s*$")
@@ -57,23 +71,42 @@ RE_YUAN = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*元?\s*$")
 
 
 def parse_coverage(raw):
-    """Parse coverage value (str/int/None) → (int_value_or_None, parse_status, note).
-    status: verified | parsed | missing | parse_failed
+    """Parse coverage value (str/int/None) → dict.
+
+    status: verified | parsed | parsed_range | parsed_dual | parsed_yuan |
+            parsed_yuan_to_wan | parsed_digits | parsed_digits_to_wan |
+            missing | parse_failed
+
+    返回字段：
+      value            : int_value_or_None（按万元单位的整数值）
+      status           : 解析状态
+      note             : 原有的解析备注（parse_note 语义）
+      raw_value        : < 10000 元时保留原值到 *_raw 的依据（否则 None）
+      alternatives     : 被丢弃的区间高端点（如 "50万/100万" 的 100）
+      value_note       : 面向人的说明（写入 *_note）
     """
     if raw is None:
-        return None, "missing", None
+        return {"value": None, "status": "missing", "note": None,
+                "raw_value": None, "alternatives": [], "value_note": None}
     if isinstance(raw, int):
-        return raw, "verified", None
+        return {"value": raw, "status": "verified", "note": None,
+                "raw_value": None, "alternatives": [], "value_note": None}
     if isinstance(raw, float):
         if raw.is_integer():
-            return int(raw), "verified", None
-        return None, "parse_failed", "float_non_integer"
+            return {"value": int(raw), "status": "verified", "note": None,
+                    "raw_value": None, "alternatives": [], "value_note": None}
+        return {"value": None, "status": "parse_failed", "note": "float_non_integer",
+                "raw_value": None, "alternatives": [], "value_note": None}
     if not isinstance(raw, str):
-        return None, "parse_failed", f"unknown_type_{type(raw).__name__}"
+        return {"value": None, "status": "parse_failed",
+                "note": f"unknown_type_{type(raw).__name__}",
+                "raw_value": None, "alternatives": [], "value_note": None}
 
     s = raw.strip()
     if not s or s in ("N/A", "n/a", "-", "—", "无", "未知", "待核实"):
-        return None, "parse_failed", f"empty_or_placeholder({s!r})"
+        return {"value": None, "status": "parse_failed",
+                "note": f"empty_or_placeholder({s!r})",
+                "raw_value": None, "alternatives": [], "value_note": None}
 
     # Pattern 1: range like "10-350万" or "10-350"
     m = RE_RANGE.match(s)
@@ -81,37 +114,65 @@ def parse_coverage(raw):
         # Range in single field — return the smaller value as per spec
         lower = int(float(m.group(1)))
         upper = int(float(m.group(2)))
-        return lower, "parsed_range", f"range_{lower}-{upper}"
+        return {
+            "value": lower, "status": "parsed_range", "note": f"range_{lower}-{upper}",
+            "raw_value": None,
+            "alternatives": [upper] if upper != lower else [],
+            "value_note": (f"原值 {s}（区间 {lower}-{upper} 万元），"
+                           f"按取低值策略存 {lower}，高端点 {upper} 保留在 *_alternatives"),
+        }
 
     # Pattern 2: "5万" / "5万起" / "5万元"
     m = RE_SINGLE_WAN.match(s)
     if m:
-        return int(float(m.group(1))), "parsed", None
+        return {"value": int(float(m.group(1))), "status": "parsed", "note": None,
+                "raw_value": None, "alternatives": [], "value_note": None}
 
-    # Pattern 3: "50万/100万" — take smaller value
+    # Pattern 3: "50万/100万" — take smaller value, keep the dropped upper tier
     m = RE_TWO_WAN.match(s)
     if m:
         lower = int(float(m.group(1)))
         upper = int(float(m.group(2)))
-        return lower, "parsed_dual", f"two_tiers_{lower}/{upper}万"
+        return {
+            "value": lower, "status": "parsed_dual", "note": f"two_tiers_{lower}/{upper}万",
+            "raw_value": None,
+            "alternatives": [upper] if upper != lower else [],
+            "value_note": (f"原值 {s}（双档位 {lower}/{upper} 万），"
+                           f"按取低值策略存 {lower}，高端点 {upper} 保留在 *_alternatives"),
+        }
 
     # Pattern 4: "50000元" or "50000"
     m = RE_YUAN.match(s)
     if m:
         val = int(float(m.group(1)))
         if val >= 10000:
-            return val // 10000, "parsed_yuan_to_wan", f"original={val}元"
-        return val, "parsed_yuan", f"original={val}元"
+            return {"value": val // 10000, "status": "parsed_yuan_to_wan",
+                    "note": f"original={val}元",
+                    "raw_value": None, "alternatives": [],
+                    "value_note": (f"原值 {val} 元，按万元单位取整为 {val // 10000}，"
+                                   f"整万元余数 {val % 10000} 元未保留") if val % 10000 else None}
+        # < 10000 元：原值不能被抹成 0 —— 整数字段记 0，原值保留到 *_raw
+        return {"value": 0, "status": "parsed_yuan", "note": f"original={val}元",
+                "raw_value": val,
+                "alternatives": [],
+                "value_note": (f"原值 {val} 元，低于 1 万元，按万元单位取整为 0，"
+                               f"原值见 *_raw")}
 
     # Pattern 5: just digits with garbage
     nums = RE_DIGIT.findall(s)
     if nums:
         val = int(float(nums[0]))
         if val >= 10000:
-            return val // 10000, "parsed_digits_to_wan", f"raw={s}"
-        return val, "parsed_digits", f"raw={s}"
+            return {"value": val // 10000, "status": "parsed_digits_to_wan",
+                    "note": f"raw={s}", "raw_value": None, "alternatives": [],
+                    "value_note": (f"原值 {val} 元，按万元单位取整为 {val // 10000}，"
+                                   f"整万元余数 {val % 10000} 元未保留") if val % 10000 else None}
+        return {"value": 0, "status": "parsed_digits", "note": f"raw={s}",
+                "raw_value": val, "alternatives": [],
+                "value_note": f"原值 {val} 元，低于 1 万元，按万元单位取整为 0，原值见 *_raw"}
 
-    return None, "parse_failed", f"unknown_format({s!r})"
+    return {"value": None, "status": "parse_failed", "note": f"unknown_format({s!r})",
+            "raw_value": None, "alternatives": [], "value_note": None}
 
 
 def fix_field(prods, field_name, dry_run=False):
@@ -127,7 +188,10 @@ def fix_field(prods, field_name, dry_run=False):
         if f"{field_name}_processed_at" in p:
             continue
         raw = p.get(field_name)
-        new_val, status, note = parse_coverage(raw)
+        parsed = parse_coverage(raw)
+        new_val = parsed["value"]
+        status = parsed["status"]
+        note = parsed["note"]
         counters[status] = counters.get(status, 0) + 1
 
         record = {
@@ -138,6 +202,9 @@ def fix_field(prods, field_name, dry_run=False):
             "new_value": new_val,
             "status": status,
             "note": note,
+            "raw_preserved": parsed["raw_value"],
+            "alternatives": parsed["alternatives"],
+            "value_note": parsed["value_note"],
         }
         diff.append(record)
 
@@ -148,10 +215,26 @@ def fix_field(prods, field_name, dry_run=False):
                 p[field_name] = None
             # Track on the product
             p[f"{field_name}_quality"] = status
-            p[f"{field_name}_raw"] = raw if isinstance(raw, str) else None
+            # < 10000 元的原值不能被抹掉：保留到 *_raw
+            if parsed["raw_value"] is not None:
+                p[f"{field_name}_raw"] = parsed["raw_value"]
+            elif isinstance(raw, str):
+                p[f"{field_name}_raw"] = raw
+            # 新增：面向人的说明（为什么是 0 / 为什么取低值）
+            if parsed["value_note"]:
+                p[f"{field_name}_note"] = parsed["value_note"]
             p[f"{field_name}_processed_at"] = "phase1_P1-3"
             if note:
                 p[f"{field_name}_parse_note"] = note
+            # 新增：被丢弃的区间高端点（如 "50万/100万" 的 100）不再静默丢弃
+            if parsed["alternatives"]:
+                existing = p.get("max_coverage_alternatives")
+                if not isinstance(existing, list):
+                    existing = []
+                for alt in parsed["alternatives"]:
+                    if alt not in existing:
+                        existing.append(alt)
+                p["max_coverage_alternatives"] = existing
 
     return diff, counters
 
@@ -173,16 +256,49 @@ def fix(data, dry_run=False):
     return min_diff, min_counters, max_diff, max_counters
 
 
+def backup_target(target_path, label):
+    """备份任意目标文件（而非固定 products_v2.json）。
+
+    🆕 2026-10-27：--target 可指向不同文件，备份也必须跟随目标，
+    否则会把 v1 目标错误地备份成 products_v2_* 名字。
+    """
+    import shutil
+    os.makedirs(BACKUPS_DIR, exist_ok=True)
+    ts = now_ts()
+    base = os.path.splitext(os.path.basename(target_path))[0]
+    dst = os.path.join(BACKUPS_DIR, f"{base}_{label}_{ts}.json")
+    shutil.copy2(target_path, dst)
+    return dst
+
+
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description="Phase 1 P1-3: 把 min_coverage / max_coverage 统一为 int（万元单位）。"
+                    "默认目标为发布包内实际存在的 references/products.json；"
+                    "products_v2.json 为可选目标，不随本 skill 发布包分发，需显式用 --target 指定。",
+        epilog="示例："
+               "  python3 fix_P1-3_coverage_types.py --dry-run"
+               "  python3 fix_P1-3_coverage_types.py --target ../references/products_v2.json")
     add_dry_run_arg(parser)
+    parser.add_argument("--target", default=None,
+                        help="目标产品数据文件路径。默认：references/products.json（包内实际存在）。"
+                             "可选：references/products_v2.json（不在发布包内，需自行提供）。")
     args = parser.parse_args()
 
+    # 解析目标路径：默认 → 包内实际存在的 references/products.json
+    target = os.path.abspath(args.target or PRODUCTS_V1)
+    if not os.path.exists(target):
+        print(f"[FATAL] 目标文件不存在: {target}")
+        print("  可选目标：references/products_v2.json 不在发布包内，需自行提供。")
+        return 1
+
     print("=" * 60)
-    print("Phase 1 P1-3: unify min_coverage/max_coverage → int (v2)")
+    print("Phase 1 P1-3: unify min_coverage/max_coverage → int")
+    print(f"Target: {target}")
     print("=" * 60)
 
-    data = load_v2()
+    with open(target, "r", encoding="utf-8") as f:
+        data = json.load(f)
     n_already = sum(1 for p in data["products"] if "min_coverage_processed_at" in p)
     print(f"Already processed: {n_already} products")
 
@@ -201,10 +317,16 @@ def main():
 
     print(f"\nTotal min_coverage changes: {sum(1 for d in min_diff if d['old_value'] != d['new_value'])}")
     print(f"Total max_coverage changes: {sum(1 for d in max_diff if d['old_value'] != d['new_value'])}")
+    print(f"Sub-10000-yuan values preserved to *_raw: "
+          f"{sum(1 for d in min_diff + max_diff if d['raw_preserved'] is not None)}")
+    print(f"Dropped range endpoints kept in max_coverage_alternatives: "
+          f"{sum(1 for d in min_diff + max_diff if d['alternatives'])}")
 
     report = {
         "fix": "P1-3 (min/max_coverage type unify)",
-        "policy": "All → int (万); ranges 'X-Y万' take lower; 'X万/Y万' take lower; parse_failed → null",
+        "policy": "All → int (万); ranges 'X-Y万' take lower; 'X万/Y万' take lower; "
+                  "<10000 元 → 0 with original preserved in *_raw; parse_failed → null",
+        "target": target,
         "min_coverage_counters": min_counters,
         "max_coverage_counters": max_counters,
         "min_coverage_samples": [d for d in min_diff if d["status"] not in ("verified", "missing")][:30],
@@ -216,14 +338,17 @@ def main():
     print(f"\nReport: {rp}")
 
     if args.dry_run:
-        print("[DRY RUN] Not writing products_v2.json")
+        print(f"[DRY RUN] Not writing {target}")
         return 0
 
     if min_diff or max_diff:
-        bk = backup_v2("pre_P1-3_coverage_types")
-        save_v2(data)
+        bk = backup_target(target, "pre_P1-3_coverage_types")
         print(f"Backup: {bk}")
-        print(f"[OK] Saved products_v2.json")
+        tmp = target + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, target)
+        print(f"[OK] Saved {target}")
 
     return 0
 

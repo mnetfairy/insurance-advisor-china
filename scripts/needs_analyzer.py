@@ -3,10 +3,20 @@
 保险需求分析工具
 输入：客户基本信息（年龄、职业、家庭结构、已有保单、预算）
 输出：结构化需求分析报告
+
+🆕 2026-10-27 计算口径修正（收入/预算）
+   修复 SDI-4：原实现把"年收入 15%/10%"的百分比实际套在 annual_budget 上，
+   注释与口径自相矛盾（收入 20 万 / 预算 2 万时报 3000 与 2000）。
+   现改为：百分比按 **年收入** 计算，再与用户给出的年度预算取较小值。
+       income_ceiling  = annual_income * 0.15
+       ideal_premium   = min(income_ceiling, annual_budget)
+       essential_premium = min(annual_income * 0.10, annual_budget)
+   保费计算公式、风险评分、保障缺口算法均未改动。
 """
 
 import json
 import sys
+
 
 def analyze_risks(age, has_family, has_house_mortgage, existing_coverage, annual_income):
     """分析四大风险"""
@@ -112,9 +122,12 @@ def analyze_needs(age, gender, occupation, has_family, family_members,
     if existing_coverage.get("意外险", 0) == 0:
         priority_list.append({"type": "意外险", "priority": 4, "gap": annual_income * 5})
 
-    # 预算规划
-    ideal_premium = annual_budget * 0.15  # 建议保费支出不超过年收入15%
-    essential_premium = annual_budget * 0.10  # 最低10%
+    # 预算规划（口径修正：百分比按年收入计算，再与年度预算取较小值）
+    income_ceiling = annual_income * 0.15      # 收入基准：年保费不超过年收入 15%
+    essential_ceiling = annual_income * 0.10  # 收入基准：基础保障约占年收入 10%
+    budget_cap = annual_budget                 # 用户给出的年度预算上限
+    ideal_premium = min(income_ceiling, budget_cap)
+    essential_premium = min(essential_ceiling, budget_cap)
 
     result = {
         "customer_info": {
@@ -160,10 +173,14 @@ def analyze_needs(age, gender, occupation, has_family, family_members,
         },
         "priority_list": priority_list,
         "budget_planning": {
-            "建议保费预算": ideal_premium,
-            "最低保费预算": essential_premium,
+            "建议保费预算": round(ideal_premium, 2),
+            "最低保费预算": round(essential_premium, 2),
             "可用预算": annual_budget,
-            "说明": "保障型保费建议不超过年收入15%，其中基础保障（寿险+重疾+医疗+意外）约占10%"
+            "收入基准_年保费上限": round(income_ceiling, 2),
+            "预算上限": budget_cap,
+            "计算口径": "百分比按年收入计算，再与年度预算取较小值",
+            "说明": "保障型保费建议不超过年收入 15%（按年收入计算），同时不超过用户给出的年度预算；"
+                    "基础保障（寿险+重疾+医疗+意外）约占年收入 10%"
         },
         "summary": f"{age}岁{'已婚' if has_family else '未婚'}{'有子女' if has_child else ''}，{'家庭经济支柱' if has_family else '个人'}，{'有房贷压力' if has_house_mortgage else '无房贷'}。" \
                    f"建议优先配置：{' '.join([p['type'] for p in priority_list[:2]])}。"
@@ -172,32 +189,55 @@ def analyze_needs(age, gender, occupation, has_family, family_members,
     return result
 
 
-if __name__ == "__main__":
-    # 默认测试数据
-    if len(sys.argv) == 1:
-        test_data = {
-            "age": 35,
-            "gender": "男",
-            "occupation": "企业主",
-            "has_family": True,
-            "family_members": 4,
-            "has_child": True,
-            "child_age": 8,
-            "has_house_mortgage": True,
-            "mortgage_balance": 1500000,
-            "annual_income": 500000,
-            "annual_expense": 200000,
-            "existing_coverage": {"重疾险": 0, "医疗险": 0, "定期寿险": 0, "意外险": 0},
-            "annual_budget": 500000
-        }
-        result = analyze_needs(**test_data)
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+# 示例档案（仅在 stdin 未提供输入时作为演示数据打印，并明确标注来源）
+EXAMPLE_PROFILE = {
+    "age": 35,
+    "gender": "男",
+    "occupation": "企业主",
+    "has_family": True,
+    "family_members": 4,
+    "has_child": True,
+    "child_age": 8,
+    "has_house_mortgage": True,
+    "mortgage_balance": 1500000,
+    "annual_income": 500000,
+    "annual_expense": 200000,
+    "existing_coverage": {"重疾险": 0, "医疗险": 0, "定期寿险": 0, "意外险": 0},
+    "annual_budget": 500000
+}
+
+
+def _read_stdin_text():
+    """读取 stdin 文本；TTY（无管道输入）返回空串。"""
+    try:
+        if sys.stdin is None or sys.stdin.isatty():
+            return ""
+        return sys.stdin.read() or ""
+    except Exception:
+        return ""
+
+
+def main():
+    raw = _read_stdin_text().strip()
+    if not raw:
+        # 未提供输入：明确标注示例数据，不静默把示例档案当作正式结果
+        sys.stderr.write("⚠️ 未提供输入，以下为示例数据（示例档案，非真实客户数据）：\n")
+        sys.stderr.write(json.dumps(EXAMPLE_PROFILE, ensure_ascii=False, indent=2) + "\n")
+        params = EXAMPLE_PROFILE
     else:
-        # 从stdin读取JSON参数
         try:
-            import sys
-            params = json.loads(sys.stdin.read())
-            result = analyze_needs(**params)
-            print(json.dumps(result, ensure_ascii=False, indent=2))
+            params = json.loads(raw)
         except Exception as e:
             print(json.dumps({"error": str(e)}, ensure_ascii=False))
+            return 0
+    try:
+        result = analyze_needs(**params)
+    except Exception as e:
+        print(json.dumps({"error": str(e)}, ensure_ascii=False))
+        return 0
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
