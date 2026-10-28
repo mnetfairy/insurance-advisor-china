@@ -155,6 +155,12 @@ def calculate_product_premium(product, age, gender, coverage, payment_term):
 # I2 预算硬约束
 # ---------------------------------------------------------------------------
 
+# 核心保障险种：移除顺序在可选险种之后作为兜底
+# （重疾险 → 定期寿险）。min_coverage 是「可售最小保额」，不是「必须卖这么多」，
+# 因此降到下限仍超预算时允许移除。
+_CORE_COVERAGE_TYPES = ("重疾险", "定期寿险")
+
+
 def _product_index(products):
     """建立 (type, product_name) → 产品记录 的索引，供保费重算使用。"""
     return {(p.get("type"), p.get("name")): p for p in products}
@@ -196,9 +202,13 @@ def _enforce_budget(plan, budget, annual_income, age=None, gender=None,
       1. 若 annual_premium > budget，从最后加入的产品开始按比例下调 coverage
          （下限 = 产品 min_coverage，无则用原保额 60%），用同一
          calculate_product_premium 重算，直到 <= budget 或无可下调空间。
-      2. 仍超预算：按 removal_order 依次移除可选险种
-         （基础版 医疗险→意外险；标准/全面版 意外险→医疗险）。
-      3. 每次调整写入 plan["budget_adjustments"]。
+      2. 仍超预算：按 removal_order 依次移除险种
+         （可选险种优先；核心险种兜底：重疾险 → 定期寿险）。
+      3. 兜底：removal_order 走完仍超预算时，从后往前移除剩余险种，
+         直到年保费 <= 上限或产品列表为空（此时年保费 = 0）。
+      4. 每次调整写入 plan["budget_adjustments"]。
+      5. 产品列表为空 → budget_planning["方案可行性"] 明确说明预算不足，
+         绝不允许返回「超预算却不说原因」的方案。
 
     Args:
         plan: 方案 dict（含 products / annual_premium）
@@ -213,7 +223,23 @@ def _enforce_budget(plan, budget, annual_income, age=None, gender=None,
     product_index = product_index or {}
     removal_order = removal_order or []
 
-    if not budget or budget <= 0:
+    if budget is None:
+        return plan
+    if budget <= 0:
+        # 年度保费上限为 0（或收入为 0 导致上限为 0）：无法配置任何险种，
+        # 方案置为「不可行」：年保费 0、产品列表为空，并留下审计记录。
+        for entry in list(plan.get("products", [])):
+            adjustments.append({
+                "type": "product_removed",
+                "product": entry.get("product_name"),
+                "product_type": entry.get("type"),
+                "removed_coverage": entry.get("coverage"),
+                "removed_premium": round(entry.get("annual_premium", 0), 2),
+                "reason": "年度保费上限为 0，无法配置任何险种，方案置为不可行",
+            })
+        plan["products"] = []
+        plan["annual_premium"] = 0
+        plan["total_coverage"] = 0
         return plan
 
     # ---- 步骤 1：按比例下调保额 ----
@@ -266,7 +292,26 @@ def _enforce_budget(plan, budget, annual_income, age=None, gender=None,
             "reason": "超出年度保费预算，按比例下调保额",
         })
 
-    # ---- 步骤 2：移除可选险种 ----
+    # ---- 步骤 2：移除险种（可选险种优先，核心险种兜底）----
+    # removal_order 中排在后面的为核心险种（重疾险 / 定期寿险）：
+    # min_coverage 是产品「可售」的最小保额，不是「必须卖这么多」，
+    # 因此降到下限仍超预算时，允许移除该产品，而不是硬撑出一个超预算方案。
+    def _remove_entry(idx, reason, level):
+        """移除一个险种并同步 total_coverage（沿用原有增量口径）。"""
+        entry = plan["products"].pop(idx)
+        premium = entry.get("annual_premium", 0)
+        plan["annual_premium"] -= premium
+        plan["total_coverage"] -= entry.get("coverage", 0)
+        adjustments.append({
+            "type": "product_removed",
+            "product": entry.get("product_name"),
+            "product_type": entry.get("type"),
+            "removed_coverage": entry.get("coverage"),
+            "removed_premium": round(premium, 2),
+            "reason": reason,
+            "coverage_level": level,
+        })
+
     for product_type in removal_order:
         if plan["annual_premium"] <= budget:
             break
@@ -274,35 +319,73 @@ def _enforce_budget(plan, budget, annual_income, age=None, gender=None,
             entry = plan["products"][idx]
             if entry.get("type") != product_type:
                 continue
-            premium = entry.get("annual_premium", 0)
-            plan["products"].pop(idx)
-            plan["annual_premium"] -= premium
-            plan["total_coverage"] -= entry.get("coverage", 0)
-            adjustments.append({
-                "type": "product_removed",
-                "product": entry.get("product_name"),
-                "product_type": product_type,
-                "removed_coverage": entry.get("coverage"),
-                "removed_premium": round(premium, 2),
-                "reason": "超出年度保费预算且保额无可下调空间，移除该可选险种",
-            })
+            is_core = product_type in _CORE_COVERAGE_TYPES
+            _remove_entry(
+                idx,
+                ("超出年度保费预算且保额已降至可售最小保额仍超上限，兜底移除该核心险种"
+                 if is_core else
+                 "超出年度保费预算且保额无可下调空间，移除该可选险种"),
+                "core" if is_core else "optional",
+            )
             break
 
-    plan["annual_premium"] = round(plan["annual_premium"], 2)
+    # ---- 步骤 3：兜底移除剩余险种（removal_order 未覆盖的类型）----
+    # 目的只有一个：保证返回的方案年保费恒不超过年度保费上限。
+    while plan["annual_premium"] > budget and plan.get("products"):
+        entry = plan["products"][-1]
+        _remove_entry(
+            len(plan["products"]) - 1,
+            "超出年度保费上限，兜底移除该险种以保证方案不超预算",
+            "core" if entry.get("type") in _CORE_COVERAGE_TYPES else "optional",
+        )
+
+    plan["annual_premium"] = max(0.0, round(plan["annual_premium"], 2))
     plan["total_coverage"] = max(0, plan.get("total_coverage", 0))
     return plan
 
 
 def _attach_budget_planning(plan, budget, annual_income, ratio, note=""):
     """为方案附加 budget_planning 块。"""
+    premium = round(plan["annual_premium"], 2)
+    cap = round(budget, 2)
+    in_budget = premium <= cap + 0.01
     plan["budget_planning"] = {
-        "年度保费上限": round(budget, 2),
-        "方案年保费": round(plan["annual_premium"], 2),
-        "占年收入比": round(plan["annual_premium"] / annual_income * 100, 1) if annual_income else None,
-        "是否在预算内": plan["annual_premium"] <= budget,
-        "说明": "保费上限 = min(年度预算, 年收入×比例)；超出部分已自动下调保额或移除可选险种",
+        "年度保费上限": cap,
+        "方案年保费": premium,
+        "占年收入比": round(premium / annual_income * 100, 1) if annual_income else None,
+        "是否在预算内": in_budget,
+        "说明": "保费上限 = min(年度预算, 年收入×比例)；超出部分已自动下调保额、"
+                "移除可选险种，必要时兜底移除核心险种（重疾险→定期寿险）",
         "上限口径": f"min(年度预算 {budget}, 年收入 × {int(ratio * 100)}%)",
     }
+    if not plan.get("products"):
+        # 产品列表为空 → 方案不可行，必须说明原因，不允许静默返回一个空壳方案
+        removed_core = [a for a in plan.get("budget_adjustments", [])
+                        if a.get("type") == "product_removed"
+                        and a.get("product_type") in _CORE_COVERAGE_TYPES]
+        if removed_core:
+            detail = ("核心险种（重疾险/定期寿险）已降至可售最小保额仍超上限，"
+                      "兜底移除后方案为空")
+        else:
+            detail = "年度保费上限过低，任何一个险种（含最低保额）都无法在上限内配置"
+        plan["budget_planning"]["方案可行性"] = (
+            f"不可行：{detail}。当前方案年保费已置为 0，"
+            "请提高年度保费预算，或仅在预算内配置基础医疗/意外保障后再行评估。"
+        )
+        plan["budget_planning"]["方案状态"] = "不可行"
+    else:
+        removed_core = [a for a in plan.get("budget_adjustments", [])
+                        if a.get("type") == "product_removed"
+                        and a.get("product_type") in _CORE_COVERAGE_TYPES]
+        if removed_core:
+            plan["budget_planning"]["方案可行性"] = (
+                "可行（已按预算上限调整）：因年度保费上限偏低，"
+                f"已移除核心险种 {'、'.join(a.get('product_type') for a in removed_core)}，"
+                "剩余保障不足以覆盖该险种责任，请知悉保障缺口。"
+            )
+        else:
+            plan["budget_planning"]["方案可行性"] = "可行：方案年保费在年度保费上限内"
+        plan["budget_planning"]["方案状态"] = "可行"
     if note:
         plan["budget_planning"]["备注"] = note
     return plan
@@ -389,7 +472,8 @@ def design_basic_plan(age, gender, annual_income, annual_budget, coverage_needs,
                 "reason": "加入医疗险后累计保费将超出年度保费上限，未加入",
             })
 
-    return _finalize_plan(plan, budget, annual_income, 0.10, age, gender, products)
+    return _finalize_plan(plan, budget, annual_income, 0.10, age, gender, products,
+                          removal_order=["医疗险", "意外险", "定期寿险"])
 
 
 def design_standard_plan(age, gender, annual_income, annual_budget, coverage_needs, products):
@@ -491,7 +575,7 @@ def design_standard_plan(age, gender, annual_income, annual_budget, coverage_nee
     ]
 
     return _finalize_plan(plan, budget, annual_income, 0.15, age, gender, products,
-                          removal_order=["意外险", "医疗险"])
+                          removal_order=["意外险", "医疗险", "重疾险", "定期寿险"])
 
 
 def design_premium_plan(age, gender, annual_income, annual_budget, coverage_needs, products):
@@ -615,22 +699,17 @@ def design_premium_plan(age, gender, annual_income, annual_budget, coverage_need
     ]
 
     return _finalize_plan(plan, budget, annual_income, 0.20, age, gender, products,
-                          removal_order=["意外险", "医疗险", "储蓄险"])
+                          removal_order=["意外险", "医疗险", "储蓄险", "重疾险", "定期寿险"])
 
 
 def _finalize_plan(plan, budget, annual_income, ratio, age, gender, products,
                    removal_order=None):
     """统一收尾：执行预算硬约束 + 附加 budget_planning 块。"""
     plan.setdefault("budget_adjustments", [])
-    if removal_order:
-        _enforce_budget(plan, budget, annual_income, age=age, gender=gender,
-                        product_index=_product_index(products),
-                        removal_order=removal_order)
-    else:
-        # 基础版同样执行保额下调（移除顺序：医疗险 → 意外险）
-        _enforce_budget(plan, budget, annual_income, age=age, gender=gender,
-                        product_index=_product_index(products),
-                        removal_order=removal_order or ["医疗险", "意外险"])
+    # 移除顺序：可选险种优先，核心险种兜底（重疾险 → 定期寿险）
+    _enforce_budget(plan, budget, annual_income, age=age, gender=gender,
+                    product_index=_product_index(products),
+                    removal_order=removal_order or ["医疗险", "意外险", "定期寿险"])
     _attach_budget_planning(plan, budget, annual_income, ratio)
     return plan
 
