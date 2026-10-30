@@ -32,7 +32,7 @@
       "updated_at": "2026-10-26"
     },
     "version": "2.0.200",
-    "updated_at": "2026-10-29T17:32:12.407298+00:00",
+    "updated_at": "2026-10-30T17:32:20.626908+00:00",
     "description": "保险产品库整理版，保留在售及有效产品",
     "total_products": 2536,
     "active_products": 558,
@@ -67,7 +67,7 @@
     "new_2025_products_added": 12,
     "enriched_products": 239,
     "cleanup_round2": "removed 8 additional garbage entries",
-    "daily_updated_at": "2026-10-30",
+    "daily_updated_at": "2026-10-31",
     "total_active": 637,
     "total_inactive": 1897,
     "last_updated": "2026-04-18",
@@ -87,7 +87,7 @@
       "终身寿险": 40
     },
     "active_count": 603,
-    "lastUpdated": "2026-10-29T17:32:12.350059+00:00",
+    "lastUpdated": "2026-10-30T17:32:20.568789+00:00",
     "policy_validity_check_at": "2026-07-12T17:15:47.479462+00:00",
     "policy_validity_check_summary": {
       "targets_total": 105,
@@ -100,8 +100,8 @@
       "needs_review": 0,
       "errors": 0
     },
-    "last_refreshed_at": "2026-10-29T17:55:20.259347+00:00",
-    "refresh_count": 143,
+    "last_refreshed_at": "2026-10-30T18:01:10.077717+00:00",
+    "refresh_count": 144,
     "duplicates": [
       {
         "dup_index": 205,
@@ -8209,7 +8209,7 @@
           "https://www.cpic.com.cn/c/2021-02-09/1619091.shtml"
         ]
       },
-      "health_disclosure": "For 人保重大疾病保险, health disclosure is required for conditions that may affect coverage. Non-disclosure can lead to policy cancellation. Always answer insurance questions truthfully and accurately."
+      "health_disclosure": "For 人保重大疾病保险, health disclosure is required for conditions that may affect coverage. Non-disclosure can lead to policy cancellation. 健康告知要求如实回答保险公司问询；未如实告知可能导致保单解除或拒赔。"
     },
     {
       "id": "crx-renbao-pingan",
@@ -8468,7 +8468,7 @@
           "https://www.cpic.com.cn/c/2021-02-09/1619091.shtml"
         ]
       },
-      "health_disclosure": "For 人保寿险金色童年重大疾病保险, health disclosure must be truthful; otherwise, coverage may be voided. The policy has a 10-day free-cancellation period. Medical records are key for accurate disclosure."
+      "health_disclosure": "For 人保寿险金色童年重大疾病保险, 健康告知需如实填写；未如实告知可能导致保单解除。 The policy has a 10-day free-cancellation period. Medical records are key for accurate disclosure."
     },
     {
       "id": "crx-taiping-renshen",
@@ -9665,7 +9665,7 @@
           "https://mybank.icbc.com.cn/icbc/newperbank/perbank3/assurance/frame_assurance_detail_help.jsp?item=0&pdfUrl=028%2F601%2FPRODUCT_INTRO_ZH%2F1CHANPINJIESHAOC.html"
         ]
       },
-      "health_disclosure": "Health disclosure must be truthful but not exaggerated. Policyholders can apply for re-evaluation after two years if health improves. Complex cases may benefit from manual review over automated assessment."
+      "health_disclosure": "健康告知需如实填写，不应夸大病情。 Policyholders can apply for re-evaluation after two years if health improves. Complex cases may benefit from manual review over automated assessment."
     },
     {
       "id": "crx-gongyin-qixin",
@@ -12490,7 +12490,7 @@
           "https://www.xiaoyusan.com/article/content/articleid/300002892"
         ]
       },
-      "health_disclosure": "Health declaration in insurance requires truthful disclosure of medical history; failure to disclose can lead to claim denial; always answer insurance-specific questions honestly."
+      "health_disclosure": "Health declaration in insurance requires truthful disclosure of medical history; failure to disclose can lead to claim denial; 如实回答保险公司具体问询的问题即可。"
     },
     {
       "id": "mi-yangguang-fangai",
@@ -13679,7 +13679,7 @@
           "https://www.cpic.com.cn/c/2021-02-09/1619091.shtml"
         ]
       },
-      "health_disclosure": "Health disclosure must be truthful for accurate insurance assessment; incomplete or false information can lead to claim denial or policy cancellation. Medical history, treatments, and lifestyle habits are key disclosures. Insurance companies use this info to determine risk and premium rates."
+      "health_disclosure": "健康告知需如实填写，方可作出准确的核保评估；信息不完整或不真实可能导致拒赔或保单解除。 Medical history, treatments, and lifestyle habits are key disclosures. Insurance companies use this info to determine risk and premium rates."
     },
     {
       "id": "mi-huatai-fangai",
@@ -15419,7 +15419,7 @@
           "http://tk.cn/tkcms/publish/product/detail/182/182_0.html"
         ]
       },
-      "health_disclosure": "For 泰康减额定期寿险, health disclosure includes medical history, lifestyle factors, and past insurance issues. Required documents include identity proofs and insurance contract. Health disclosure must be truthful to avoid contract termination."
+      "health_disclosure": "For 泰康减额定期寿险, health disclosure includes medical history, lifestyle factors, and past insurance issues. Required documents include identity proofs and insurance contract. 健康告知需如实填写，以免保险人解除合同。"
     },
     {
       "id": "tl-taikang-forever",
@@ -24355,7 +24355,7 @@
           "https://www.shenlanbao.com/zhinan/1872126281219129344"
         ]
       },
-      "health_disclosure": "Health disclosure must be truthful; if not asked, no need to disclose. If insurance denies, try another insurer. Always consult professionals for complex cases."
+      "health_disclosure": "健康告知需如实填写；未被问及的事项无需填写。 If insurance denies, try another insurer. 复杂情形建议咨询专业保险代理人或核保人员。"
     },
     {
       "id": "ac-taiping-laonian",
@@ -25543,7 +25543,7 @@
           "https://www.cpic.com.cn/c/2020-12-01/1612665.shtml"
         ]
       },
-      "health_disclosure": "For Pacific Insurance's \"Two-Win Life Insurance,\" health disclosure requires truthful reporting and may need medical reports and test results for approval. If denied, the contract ends, and refunds may apply within two years. Always consult professionals for complex cases."
+      "health_disclosure": "For Pacific Insurance's \"Two-Win Life Insurance,\" health disclosure requires truthful reporting and may need medical reports and test results for approval. If denied, the contract ends, and refunds may apply within two years. 复杂情形建议咨询专业保险代理人或核保人员。"
     },
     {
       "id": "sa-xinhua-liangquan",
@@ -28779,7 +28779,7 @@
           "https://www.shenlanbao.com/zhinan/1567759876438831104"
         ]
       },
-      "health_disclosure": "For Bohai Insurance's stable income lifetime endowment insurance, health disclosure must be truthful. If disclosure is not truthful, the insurer reserves the right to terminate the contract. If health disclosure fails, consider other insurers."
+      "health_disclosure": "For Bohai Insurance's stable income lifetime endowment insurance, 健康告知需如实填写. If disclosure is not truthful, the insurer reserves the right to terminate the contract. If health disclosure fails, consider other insurers."
     },
     {
       "id": "ac-huagui-haofeng",
@@ -30348,7 +30348,7 @@
           "https://www.generalichina.com/faqg/index.html"
         ]
       },
-      "health_disclosure": "To apply for 中意人寿臻康保重大疾病保险, provide a health declaration and relevant medical reports if needed. Health declarations must be truthful; false information can void coverage. Claims require medical diagnosis and identity documents."
+      "health_disclosure": "To apply for 中意人寿臻康保重大疾病保险, provide a health declaration and relevant medical reports if needed. 健康告知需如实填写；信息不真实可能导致保单解除。 Claims require medical diagnosis and identity documents."
     },
     {
       "id": "NEW_ZX_0018",
@@ -32469,7 +32469,7 @@
           "https://file.shenlanbao.com/2020/01/05/120010511371371401.pdf"
         ]
       },
-      "health_disclosure": "Health disclosure must be truthful; omissions can void coverage. Recognized medical institutions are official hospitals. Supplemental disclosures after policy's initial period may affect coverage."
+      "health_disclosure": "健康告知需如实填写；遗漏告知事项可能导致保单解除。 Recognized medical institutions are official hospitals. Supplemental disclosures after policy's initial period may affect coverage."
     },
     {
       "id": "NEW_ZX_0043",
@@ -33526,7 +33526,7 @@
           "https://www.kaixinbao.com/jiankang-baoxian/330455.shtml"
         ]
       },
-      "health_disclosure": "Health disclosure must be truthful; if insurance questions are asked, answer honestly. If insurance and smart underwriting conflict, health disclosure is primary. Always answer asked questions, not all."
+      "health_disclosure": "健康告知需如实填写；对保险公司问询的问题应如实回答。 智能核保结论与健康告知要求冲突时，以健康告知要求为准。 如实回答保险公司实际问询的问题即可，无需回答未被问及的事项。"
     },
     {
       "id": "NEW_ZX_0056",
@@ -36165,7 +36165,7 @@
           "https://www.generalichina.com/faqg/index.html"
         ]
       },
-      "health_disclosure": "To apply for 中意人寿福如东海重大疾病保险, you must provide a health declaration and may need a recent medical report if the coverage exceeds the free check-up limit. Health declarations must be truthful; otherwise, the policy may be voided. The waiting period for claims is 30 days."
+      "health_disclosure": "To apply for 中意人寿福如东海重大疾病保险, you must provide a health declaration and may need a recent medical report if the coverage exceeds the free check-up limit. 健康告知需如实填写；未如实告知可能导致保单解除。 The waiting period for claims is 30 days."
     },
     {
       "id": "NEW_ZX_0086",
@@ -41244,7 +41244,7 @@
           "https://www.xiaoyusan.com/article/content/articleid/300002892"
         ]
       },
-      "health_disclosure": "Health declaration in China's life insurance requires full disclosure of medical history; failure to disclose can lead to claim denial; always answer insurance company's specific health questions truthfully."
+      "health_disclosure": "Health declaration in China's life insurance requires full disclosure of medical history; failure to disclose can lead to claim denial; 如实回答保险公司具体问询的健康问题即可。"
     },
     {
       "id": "NEW_YL_0147",
@@ -41318,7 +41318,7 @@
           "https://www.zhongan.com/toutiao/d1740082"
         ]
       },
-      "health_disclosure": "Health disclosure is required to truthfully inform the insurer of medical history; failure to disclose can lead to claim denial. Always answer insurer's specific questions honestly; do not volunteer information not asked. Some insurers offer alternative options for those who fail disclosure."
+      "health_disclosure": "Health disclosure is required to truthfully inform the insurer of medical history; failure to disclose can lead to claim denial. 如实回答保险公司具体问询的问题即可，无需主动补充未被问及的信息。 Some insurers offer alternative options for those who fail disclosure."
     },
     {
       "id": "NEW_YL_0148",
@@ -42355,7 +42355,7 @@
           "https://www.transglobe.com.tw/transglobe_resource/leap_do/download_picture/1550126637903/%E5%81%A5%E5%BA%B7%E5%91%8A%E7%9F%A5%E6%9B%B8.pdf"
         ]
       },
-      "health_disclosure": "Long-term health insurance requires full disclosure of medical history, including past illnesses, treatments, and medications. Failure to disclose can lead to policy cancellation. Always answer insurance questions truthfully and accurately."
+      "health_disclosure": "Long-term health insurance requires full disclosure of medical history, including past illnesses, treatments, and medications. Failure to disclose can lead to policy cancellation. 健康告知要求如实回答保险公司问询；未如实告知可能导致保单解除或拒赔。"
     },
     {
       "id": "NEW_YL_0163",
@@ -176327,7 +176327,7 @@
         ]
       },
       "renewal_terms": "Good Medical Insurance can be renewed indefinitely, with a maximum age limit of 100 years. Renewal is possible even if the product is discontinued, but conditions may vary for those who have made claims. The age limit for renewal is 55 years or younger.",
-      "health_disclosure": "Health disclosure is crucial for insurance approval; undisclosed serious conditions can lead to policy cancellation. Specific diseases and symptoms must be reported; minor conditions may not need disclosure. Always consult professionals for complex cases."
+      "health_disclosure": "Health disclosure is crucial for insurance approval; undisclosed serious conditions can lead to policy cancellation. Specific diseases and symptoms must be reported; minor conditions may not need disclosure. 复杂情形建议咨询专业保险代理人或核保人员。"
     },
     {
       "name": "小青龙5号",
@@ -176726,7 +176726,7 @@
         ]
       },
       "renewal_terms": "小淘气6号续保可至60岁，投保年龄无限制。续保条件较为宽松，无需健康告知或体检。无职业限制。",
-      "health_disclosure": "For 小淘气6号, health disclosure is required for medical history, treatments, and medications. Failure to disclose can lead to claim denial. Always answer insurance questions truthfully."
+      "health_disclosure": "For 小淘气6号, health disclosure is required for medical history, treatments, and medications. Failure to disclose can lead to claim denial. 健康告知要求如实回答保险公司问询；未如实告知可能导致保单解除或拒赔。"
     },
     {
       "name": "完美人生8号",
@@ -179818,7 +179818,7 @@
         ]
       },
       "renewal_terms": "青鸾版续保可能有年龄限制，通常在80岁后不再接受续保申请。保险公司可能根据健康状况调整保费。续保期间届满后30日内提出续保申请可进入下一个保证续保期间。",
-      "health_disclosure": "Health disclosure for 青鸾版 insurance requires full honesty about past and current medical conditions, treatments, and medications. Omitting information can lead to policy cancellation. Always answer insurance questions directly based on medical records."
+      "health_disclosure": "Health disclosure for 青鸾版 insurance requires full honesty about past and current medical conditions, treatments, and medications. Omitting information can lead to policy cancellation. 健康告知应以病历记录为依据如实填写；未如实告知可能导致保单解除或拒赔。"
     },
     {
       "name": "光明慧选",
@@ -180003,7 +180003,7 @@
         ]
       },
       "renewal_terms": "Continuation age is the maximum age for renewing insurance; it varies by policy but often has a limit, unlike initial purchase age. Some policies offer lifelong renewal without age limits. Always check policy details for specific terms.",
-      "health_disclosure": "Health disclosure is required to inform insurers of past medical history; failure to disclose can lead to policy denial or claim rejection; always answer truthfully based on medical records."
+      "health_disclosure": "Health disclosure is required to inform insurers of past medical history; failure to disclose can lead to policy denial or claim rejection; 健康告知应以病历记录为依据如实填写。"
     },
     {
       "name": "火凤版",
