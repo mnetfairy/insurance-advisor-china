@@ -87,10 +87,53 @@ def analyze_risks(age, has_family, has_house_mortgage, existing_coverage, annual
     return risks
 
 
+def _validate_financial_inputs(params):
+    """🆕 2026-10-30 SDI-4：校验财务输入为非负数。
+
+    审计要求：“validate financial inputs as nonnegative numbers”。
+    负数收入/支出/预算会让保障缺口、预算建议算出无意义的负值或虚高的上限，
+    在保险建议场景里会直接误导投保决策。
+
+    Raises:
+        ValueError: 输入非法（非数值 / 负数）
+    """
+    numeric_fields = (
+        "annual_income",
+        "annual_expense",
+        "annual_budget",
+        "mortgage_balance",
+    )
+    for field in numeric_fields:
+        if field not in params:
+            continue
+        value = params[field]
+        if value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"{field} 必须是数值，收到：{value!r}")
+        if value < 0:
+            raise ValueError(f"{field} 不能为负数，收到：{value}")
+
+    age = params.get("age")
+    if age is not None and (isinstance(age, bool) or not isinstance(age, (int, float))):
+        raise ValueError(f"age 必须是数值，收到：{age!r}")
+    if age is not None and not (0 <= age <= 120):
+        raise ValueError(f"age 超出合理范围（0-120），收到：{age}")
+    return params
+
+
 def analyze_needs(age, gender, occupation, has_family, family_members,
                   has_child, child_age, has_house_mortgage, mortgage_balance,
                   annual_income, annual_expense, existing_coverage, annual_budget):
     """综合需求分析"""
+    # 🆕 2026-10-30 SDI-4：入口处校验财务输入（直接调用本函数时同样受保护）
+    _validate_financial_inputs({
+        "age": age,
+        "annual_income": annual_income,
+        "annual_expense": annual_expense,
+        "annual_budget": annual_budget,
+        "mortgage_balance": mortgage_balance,
+    })
 
     # 风险分析
     risks = analyze_risks(age, has_family, has_house_mortgage, existing_coverage, annual_income)
@@ -180,7 +223,10 @@ def analyze_needs(age, gender, occupation, has_family, family_members,
             "预算上限": budget_cap,
             "计算口径": "百分比按年收入计算，再与年度预算取较小值",
             "说明": "保障型保费建议不超过年收入 15%（按年收入计算），同时不超过用户给出的年度预算；"
-                    "基础保障（寿险+重疾+医疗+意外）约占年收入 10%"
+                    "基础保障（寿险+重疾+医疗+意外）约占年收入 10%。"
+                    "⚠️ 上述百分比是【规划指引】，不是普适最低值：家庭结构、负债、社保状态、"
+                    "已有保单差异很大，实际以用户给出的年度预算与自身情况为准；"
+                    "预算不足以覆盖基础保障时，应明示保障缺口而不是硬凑方案"
         },
         "summary": f"{age}岁{'已婚' if has_family else '未婚'}{'有子女' if has_child else ''}，{'家庭经济支柱' if has_family else '个人'}，{'有房贷压力' if has_house_mortgage else '无房贷'}。" \
                    f"建议优先配置：{' '.join([p['type'] for p in priority_list[:2]])}。"
@@ -230,6 +276,12 @@ def main():
         except Exception as e:
             print(json.dumps({"error": str(e)}, ensure_ascii=False))
             return 0
+    try:
+        _validate_financial_inputs(params)
+    except ValueError as e:
+        # 🆕 2026-10-30 SDI-4：财务输入非法 → 明确报错，不出看似正常的错误建议
+        print(json.dumps({"error": f"输入校验失败：{e}"}, ensure_ascii=False))
+        return 0
     try:
         result = analyze_needs(**params)
     except Exception as e:

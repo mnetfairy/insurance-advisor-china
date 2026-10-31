@@ -711,6 +711,14 @@ def _finalize_plan(plan, budget, annual_income, ratio, age, gender, products,
                     product_index=_product_index(products),
                     removal_order=removal_order or ["医疗险", "意外险", "定期寿险"])
     _attach_budget_planning(plan, budget, annual_income, ratio)
+    # 🆕 2026-10-30 SDI-4：出口处最终校验 —— 单一硬上限 min(年度预算, 年收入×比例)。
+    # 审计要求「validate the final total before returning the plan」。
+    # _enforce_budget 已保证，但这里再兜一层：任何未来改动若引入放宽乘数
+    # （如历史上的 budget * 1.2），也会在这里被拦住。
+    if budget and plan["annual_premium"] > budget + 0.01:
+        raise AssertionError(
+            f"方案年保费 {plan['annual_premium']} 超过年度保费上限 {budget}（{plan.get('plan_name')}）"
+        )
     return plan
 
 

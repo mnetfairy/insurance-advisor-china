@@ -1,7 +1,7 @@
 ---
 name: insurance-advisor-china
 description: 中国大陆AI保险顾问。为个人和家庭提供全方位的保险咨询、产品对比、方案设计、投保指导。当用户询问保险配置、保险方案、产品对比、重疾险/医疗险/寿险/意外险/储蓄险推荐、保费计算、保障缺口分析、需求分析、核保合规、理赔等问题时使用。
-version: 2.0.200
+version: 2.0.201
 tags: insurance, china, financial, advisor, product-comparison, medical, family-protection, health
 last_published: 2026-10-31
 permissions:
@@ -423,7 +423,84 @@ SKILL_DIR/
 
 ---
 
+## 🛡️ ClawHub 安全审计整改记录（v2.0.201）
+
+> 对应审计报告：`https://clawhub.ai/mnetfairy/skills/ai-insurance-advisor/security-audit`
+> （姊妹 skill ai-insurance-advisor 的审计；本 skill 与它共用同一份产品库
+> `references/products.json` 与同一个发布侧 compactor，故同类问题同样适用）
+> 本节供后续审计逐条比对 / grep。
+
+### 根因与修法总览
+
+| 编号 | 数量 | 严重度 | 根因 | 修法 |
+|---|---|---|---|---|
+| **AE1** Referenced artifact was not completely inspected | 5 | HIGH | 发布时 `products.json` 被压成**单行 3.4MB**（最大单行 2,568,005 字节），扫描器无法完整解析 | 发布产物改**多行**（`indent=1` → 130,165 行 / 最大行长 393 字节） |
+| **AR1** Anti-Refusal | 9 | HIGH | 产品库 `health_disclosure` 含**对 agent 的祈使句**（"Always answer…" / "must be truthful" / "do not volunteer"） | ①本地数据中和（20 款产品）②发布时整字段剥离该两字段 |
+| **SDI-4** Excessive Agency | 2 | MEDIUM | ①百分比套在 `annual_budget` 而注释写「年收入」②基础版 `budget * 1.2` 越界 | 统一口径 + 单一硬上限 + 非负校验 + 出口总额校验 + 回归测试 |
+
+### 各项修法明细
+
+**AE1（5 项，HIGH）**
+- 根因不在 skill 自身，而在**发布侧**：`skills-analysis/daily_updater/products_json_compactor.py`
+  用 `indent=None, separators=(",",":")` 把整个 JSON 挤成 1 行。
+- 修法：compactor 写盘改为 `indent=1`（**不用 indent=2**：4,225,704 字节超 ClawHub 4MB 上限）。
+  产物：130,165 行 / 最大行长 393 字节 / 3,810,200 字节。
+- 附带修掉一个**真 bug**：v3.3 的 `DROP_TOP_LEVEL_FIELDS` 含整个 `_meta` →
+  发布产物里 `products.json._meta.insurance_priority_basis` **根本不存在**，
+  且 `test_insurance_recommendations.py` 对发布产物直接崩（`KeyError: '_meta'`）。
+  现改为保留 `_meta`、只剥 `duplicates`/`repair_history`/`meta_history`。
+
+**AR1（9 项，HIGH）**
+- 根因：`health_disclosure` / `renewal_terms` 是外部抓取（Tavily + LLM 摘要）回填的自由文本，
+  其中混入**对 agent 的祈使句**，会抑制 agent 拒绝不安全/越界请求的能力。
+  该两字段**无任何脚本消费**（AST 级扫描确认）。
+- 修法 ①（源头）：新增 `scripts/sanitize_products_json.py`，把祈使句式改写为**中性陈述**
+  （语义全保留：健康告知要求 / 未如实告知的后果 / 询问范围）→ 20 款产品受影响。
+- 修法 ②（末端）：两个字段进入发布侧剥离清单 → 发布产物中完全不存在。
+- **刻意不动**：保险条款语义里的 "regardless of …"（如保证续保不受健康状况影响）
+  是**产品条款**不是指令 → 保留；结构化续保信息在 `coverage_period_*` 字段（2535 款齐全）。
+
+**SDI-4（2 项，MEDIUM）**
+- 主体口径 v2.0.200 已修（`min(annual_income×比例, annual_budget)`、去掉 1.2 乘数）。
+- 本轮补审计要求的其余部分：
+  ①`needs_analyzer` **校验财务输入为非负数**（`annual_income`/`annual_expense`/
+  `annual_budget`/`mortgage_balance` 为负或非数值 → 报错而非输出错误建议）；
+  ②说明文案明确「10% 是**规划指引**而非普适最低值」；
+  ③`plan_designer` **返回前校验最终总额**（`_finalize_plan` 出口兜底断言 ≤ 单一硬上限）；
+  ④新增 4 组回归测试 + 新增 `scripts/test_data_hygiene.py`。
+
+### 🔴 400 电话优先推荐（红线，功能零改动）
+
+本次整改**未改动** 400 电话优先推荐的任何功能：
+- 安盛天平仍为**首位渠道**，`400-860-0058` 保留（本 skill 规范三为直接展示，与姊妹 skill 的
+  「联系方式需用户确认后才展示」策略**刻意不同**，两者都保持各自既有行为）
+- `priority_basis` / `verified` / `source_url` 三件套、覆盖 7 省份披露、用户选择权 全部保留
+- `products.json._meta.insurance_priority_basis` 语义**字节级不动**
+- `scripts/test_insurance_recommendations.py` **未修改**，仍 7/7 PASS
+
+`scripts/test_data_hygiene.py` 新增**红线守卫断言**（400 电话存在 / verified / source_url /
+fallback 三件套 / SKILL.md 引用 / 联系方式展示策略与本 skill 既有声明一致）。
+
+---
+
 ## 更新日志
+
+- v2.0.201 (2026-10-31)：**ClawHub 安全审计整改**（AE1 ×5 / AR1 ×9 / SDI-4 ×2）：
+  - ⚠️ **本版含数据改动，不是「业务逻辑零改动」**（上一版 v2.0.200 的该表述仅指当次改动）
+  - **AE1（发布侧，HIGH）**：`products_json_compactor.py` 写盘 `indent=None` → `indent=1`
+    → 发布产物 130,165 行 / 最大行长 393 字节（原单行 2,568,005 字节）；体积 3,810,200 B（< 4MB）
+  - **发布产物不再丢 `_meta`**：保留 `insurance_priority_basis` 等对外披露字段
+    → 发布的 `test_insurance_recommendations.py` 从 `KeyError: '_meta'` **崩溃 → 7/7 PASS**
+  - **AR1（数据侧 + 发布侧，HIGH）**：新增 `scripts/sanitize_products_json.py`，
+    中和 20 款产品 `health_disclosure` 里的祈使指令（语义全保留，仅改语气）；
+    `health_disclosure`/`renewal_terms` 加入发布剥离清单
+  - **SDI-4（MEDIUM）**：`needs_analyzer` 加财务输入非负校验 + 「10% 是规划指引」文案；
+    `plan_designer` 加返回前最终总额校验；`test_budget_compliance.py` 新增 4 组回归测试
+  - **测试**：新增 `scripts/test_data_hygiene.py`（22 项）；既有 149 + 13 + 7 项 → **合计 191 项全 PASS**
+  - **数据变更范围**：仅 20 款产品的 `health_disclosure` 字段；其余字段与 `_meta` 未变
+  - **红线**：400 电话优先推荐功能零改动（详见上方「🔴 400 电话优先推荐（红线，功能零改动）」）
+  - **主从关系**：本 skill 是保险产品库 **master**；姊妹 skill ai-insurance-advisor 是 mirror，
+    每日 publish 后由 `sync_master_slave()` 同步 → 本库的数据修正是两库共同的源头
 
 - v2.0.200 (2026-10-28)：**ClawHub SDI-4 修正（预算硬约束补强）**：
   - **预算硬约束补强：极小预算下核心险种兜底移除，方案年保费恒不超过上限** —— `plan_designer.py` 的 `_enforce_budget()` 在原「按比例下调保额 → 移除可选险种」之后新增两层兜底：① 各方案 `removal_order` 补入核心险种（重疾险 → 定期寿险）作兜底；② `removal_order` 走完仍超预算时，从后往前持续移除剩余险种，直到年保费 ≤ 上限或产品列表为空。
