@@ -31,10 +31,10 @@
       "policy": "优先位为业务决策，保留不变；联系方式展示策略按各 skill 现状（见 SKILL.md 权限声明）。",
       "updated_at": "2026-10-26"
     },
-    "version": "2.3.4",
-    "updated_at": "2026-11-06T17:33:11.423644+00:00",
+    "version": "2.3.5",
+    "updated_at": "2026-11-07T17:33:45.333893+00:00",
     "description": "保险产品库整理版，保留在售及有效产品",
-    "total_products": 2534,
+    "total_products": 2538,
     "active_products": 516,
     "dedup_applied": true,
     "verified_count": 50,
@@ -67,7 +67,7 @@
     "new_2025_products_added": 12,
     "enriched_products": 239,
     "cleanup_round2": "removed 8 additional garbage entries",
-    "daily_updated_at": "2026-11-07",
+    "daily_updated_at": "2026-11-08",
     "total_active": 516,
     "total_inactive": 2049,
     "last_updated": "2026-04-18",
@@ -86,8 +86,8 @@
       "定期寿险": 35,
       "终身寿险": 40
     },
-    "active_count": 494,
-    "lastUpdated": "2026-11-06T17:33:11.344419+00:00",
+    "active_count": 498,
+    "lastUpdated": "2026-11-07T17:33:45.255767+00:00",
     "policy_validity_check_at": "2026-07-12T17:15:47.479462+00:00",
     "policy_validity_check_summary": {
       "targets_total": 105,
@@ -100,8 +100,8 @@
       "needs_review": 0,
       "errors": 0
     },
-    "last_refreshed_at": "2026-11-06T17:47:56.875147+00:00",
-    "refresh_count": 148,
+    "last_refreshed_at": "2026-11-07T17:49:15.296975+00:00",
+    "refresh_count": 149,
     "duplicates": [
       {
         "dup_index": 205,
@@ -183634,7 +183634,7 @@
       },
       "renewal_terms": "The maximum age for continuing \"大护甲\" insurance is 80 years. Continuation requires no new health declaration if within 30 days of policy end. Policies may not be renewed if insurance is discontinued or age exceeds 80.",
       "health_disclosure": "Health disclosure is mandatory for insurance claims; nondisclosure can void coverage. Two-year nondisclosure period exists, but insurance company can't challenge claims after this period. Accurate health information is crucial for insurance approval and claims processing.",
-      "source_url": "https://zhuanlan.zhihu.com/p/2019783713735594833",
+      "source_url": "https://www.xiaoyusan.com/bxzs_ywbx",
       "needs_human_review": true,
       "last_source": "discovery_channel",
       "id": "noid-5b14271adfe6",
@@ -186639,7 +186639,7 @@
       "type": "重疾险",
       "company": "人保养老保险",
       "source": "discovery_channel",
-      "source_url": "https://www.xiaoyusan.com/shk/wkpage/bxzs/300014687?type=11",
+      "source_url": "https://m.sohu.com/a/1089758903_120815119?scm=10001.325_13-325_13.0.0-0-0-0-0.5_1334",
       "needs_human_review": true,
       "is_active": true,
       "addedAt": "2026-11-06T17:33:11.230846+00:00"
@@ -186683,6 +186683,46 @@
       "needs_human_review": false,
       "is_active": true,
       "addedAt": "2026-11-06T17:33:11.230867+00:00"
+    },
+    {
+      "name": "养多多8号",
+      "type": "年金险",
+      "company": "招商仁和",
+      "source": "discovery_channel",
+      "source_url": "https://www.e-chinalife.com/c/2026-01-29/81be4b03-7b5c-4a8d-a293-e7cbaeb28892.shtml",
+      "needs_human_review": true,
+      "is_active": true,
+      "addedAt": "2026-11-07T17:33:45.146960+00:00"
+    },
+    {
+      "name": "安守护护理保险",
+      "type": "健康险",
+      "company": "平安人寿",
+      "source": "discovery_channel",
+      "source_url": "https://www.news.cn/money/20260813/f610393449ef445cbcf323135642e5ad/c.html",
+      "needs_human_review": true,
+      "is_active": true,
+      "addedAt": "2026-11-07T17:33:45.146968+00:00"
+    },
+    {
+      "name": "达尔文宝贝计划15号",
+      "type": "重疾险",
+      "company": "中宏人寿",
+      "source": "discovery_channel",
+      "source_url": "https://www.sohu.com/a/1094784040_122918686",
+      "needs_human_review": true,
+      "is_active": true,
+      "addedAt": "2026-11-07T17:33:45.146972+00:00"
+    },
+    {
+      "name": "大黄蜂12号",
+      "type": "重疾险",
+      "company": "北京人寿",
+      "source": "discovery_channel",
+      "source_url": "https://m.huize.com/study/detail-592655.html",
+      "needs_human_review": true,
+      "is_active": true,
+      "addedAt": "2026-11-07T17:33:45.146982+00:00"
     }
   ]
 }
