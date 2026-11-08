@@ -45,6 +45,16 @@ import sys
 # ---------------------------------------------------------------------------
 _RE_DELIST_DATE = re.compile(r"^\d{4}(-\d{2}(-\d{2})?)?$")
 
+# ---------------------------------------------------------------------------
+# 🆕 2026-11-08 整改 R5：医疗险续保条款按**真实结构化字段**判定
+#   解析器写入的权威标记（references/products.json 的 coverage_period_parse_notes）
+#   与保险期间字段（duration_value/duration_unit/is_lifetime）互不等价：
+#   实测有 14 款「1年（保证续保20年）」产品的 duration_value=1（保险期间 1 年），
+#   只看 duration_value 会把 20 年保证续保误判成 1 年 → 必须以 parse_notes 为准。
+# ---------------------------------------------------------------------------
+_RE_GUARANTEED_YEARS = re.compile(r"guaranteed_renewable_(\d+)\s*年")
+_RE_LONG_TERM_MARK = re.compile(r"long_term_with_guaranteed_renewable")
+
 
 def _is_product_discontinued(product):
     """产品是否已停售/已下架（基于真实字段分布判定）。"""
@@ -79,6 +89,169 @@ def load_products(include_discontinued=False):
     products = [p for p in data["products"]
                 if _is_product_eligible(p, include_discontinued=include_discontinued)]
     return products
+
+
+def _parse_notes_list(product):
+    """返回产品库解析标记列表（统一成 list[str]）。"""
+    notes = product.get("coverage_period_parse_notes")
+    if notes is None:
+        return []
+    if isinstance(notes, str):
+        return [notes]
+    if isinstance(notes, (list, tuple)):
+        return [str(n) for n in notes]
+    return []
+
+
+def _renewal_duration_years(product):
+    """返回该产品保证续保的年限（年）。无法确定时返回 None。
+
+    判定口径（**只用结构化字段**，不做子串猜测）：
+      1. `coverage_period_parse_notes` 是产品库解析器写入的**权威标记**：
+         - 'guaranteed_renewable_20年' → 20
+         - 'guaranteed_renewable_6年'  → 6
+         - 'long_term_with_guaranteed_renewable' → None（长期，不按年限计）
+         ⚠️ 该标记**优先于** duration_value：实测有 14 款「1年（保证续保20年）」的
+         duration_value=1（保险期间 1 年），但保证续保期是 20 年 —— 只看
+         duration_value 会把 20 年保证续保误判成 1 年。
+      2. 次选 `coverage_period_duration_unit == 'year'` → 取 `coverage_period_duration_value`。
+      3. `coverage_period_duration_unit == 'long_term'` → None（长期）。
+      4. `coverage_period_is_lifetime is True` → None（终身）。
+    """
+    notes = _parse_notes_list(product)
+    for note in notes:
+        m = _RE_GUARANTEED_YEARS.search(note)
+        if m:
+            return int(m.group(1))
+
+    if product.get("coverage_period_is_lifetime") is True:
+        return None
+    unit = (product.get("coverage_period_duration_unit") or "").strip().lower()
+    value = product.get("coverage_period_duration_value")
+    if unit == "year" and isinstance(value, (int, float)):
+        return int(value)
+    return None
+
+
+def _is_guaranteed_renewable(product):
+    """产品是否明确标注「保证续保」。"""
+    return product.get("coverage_period_guaranteed_renewable") is True
+
+
+def _has_long_term_renewal(product):
+    """产品是否带长期保证续保（long_term 单位、解析标记或终身）。"""
+    for note in _parse_notes_list(product):
+        if _RE_LONG_TERM_MARK.search(note):
+            return True
+    if product.get("coverage_period_is_lifetime") is True:
+        return True
+    unit = (product.get("coverage_period_duration_unit") or "").strip().lower()
+    return unit == "long_term"
+
+
+def select_medical_product(products, min_guaranteed_years=None, prefer=None):
+    """按真实续保字段选医疗险。
+
+    Args:
+        products: 候选产品列表。
+        min_guaranteed_years: 要求的最低保证续保年限（如 20）。None = 不要求。
+        prefer: 可选的选品偏好函数（如按 core_coverage 含 '600' 选 600 万产品）。
+
+    Returns:
+        tuple[dict|None, dict|None]: (选中产品, 未满足要求时的限制说明)
+            第二个元素为 None 表示选品成功满足要求。
+    """
+    candidates = [p for p in products if p.get("type") == "医疗险"]
+    if not candidates:
+        return None, {
+            "reason": "产品库中没有在售医疗险，无法在方案中加入医疗保障。",
+            "requirement": None,
+        }
+
+    # 第 1 优先：满足「保证续保 ≥ N 年」的（结构化字段判定，非子串匹配）
+    if min_guaranteed_years:
+        qualified = [
+            p for p in candidates
+            if _is_guaranteed_renewable(p)
+            and (_renewal_duration_years(p) is not None
+                 and _renewal_duration_years(p) >= min_guaranteed_years
+                 or _has_long_term_renewal(p))
+        ]
+        if qualified:
+            chosen = prefer(qualified) if prefer else qualified[0]
+            return chosen, None
+
+        # 无合格产品 → 如实报告限制，**不**替换为任意产品却宣称满足
+        guaranteed_any = [p for p in candidates if _is_guaranteed_renewable(p)]
+        if guaranteed_any:
+            best_years = max(
+                (_renewal_duration_years(p) or 0) for p in guaranteed_any
+            )
+            limitation = {
+                "reason": (
+                    f"产品库中无满足「保证续保{min_guaranteed_years}年」的在售医疗险；"
+                    f"现有保证续保医疗险的最高保证续保年限为 {best_years} 年。"
+                ),
+                "requirement": f"保证续保{min_guaranteed_years}年",
+                "fallback_product": None,
+            }
+        else:
+            limitation = {
+                "reason": (
+                    f"产品库中无任何标明保证续保的在售医疗险，"
+                    f"无法满足「保证续保{min_guaranteed_years}年」的要求。"
+                ),
+                "requirement": f"保证续保{min_guaranteed_years}年",
+                "fallback_product": None,
+            }
+        # 兜底选品：优先选**确实带保证续保（年限不足）**的产品；
+        # 若连保证续保的都没有，则选续保条件最清晰的一款，并如实标注。
+        fallback_pool = guaranteed_any or candidates
+        fallback = prefer(fallback_pool) if prefer else fallback_pool[0]
+        limitation["fallback_product"] = fallback.get("name")
+        return fallback, limitation
+
+    # 无年限要求：优先带保证续保的
+    guaranteed = [p for p in candidates if _is_guaranteed_renewable(p)]
+    pool = guaranteed or candidates
+    chosen = prefer(pool) if prefer else pool[0]
+    return chosen, None
+
+
+def derive_medical_coverage_period(product):
+    """从产品真实字段派生医疗险的 `coverage_period` 展示文本。"""
+    if not product:
+        return "未明确"
+    raw = product.get("coverage_period")
+    if _is_guaranteed_renewable(product):
+        years = _renewal_duration_years(product)
+        if years is not None:
+            return f"{years}年保证续保"
+        if _has_long_term_renewal(product):
+            return "长期保证续保"
+        return "保证续保"
+    if raw:
+        return raw
+    return "未明确"
+
+
+def derive_medical_key_benefits(product, base_benefits, coverage_period=None):
+    """从产品真实字段派生医疗险的 `key_benefits` 展示文本。
+
+    续保描述**只陈述产品自身字段所载的事实**，不套用与实际条款不符的年限。
+    """
+    benefits = base_benefits
+    if not product:
+        return benefits
+    if _is_guaranteed_renewable(product):
+        years = _renewal_duration_years(product)
+        if years is not None:
+            return f"{benefits}，{years}年保证续保"
+        if _has_long_term_renewal(product):
+            return f"{benefits}，长期保证续保"
+        return f"{benefits}，保证续保"
+    # 无保证续保：不得使用「保证续保N年」措辞；如实表述为「续保条件以产品条款为准」
+    return f"{benefits}，续保条件以产品条款为准"
 
 
 def select_products(products, product_type, criteria="recommended"):
@@ -183,6 +356,56 @@ def _coverage_floor(product, entry):
     return min(floor, current)
 
 
+def _coverage_cap(product):
+    """保额上限：产品 max_coverage（单位万元→元）；无 max_coverage 时返回 None（不设上限）。
+
+    ⚠️ R4 整改 2026-11-08：产品库中 max_coverage 是**可售保额上限**，
+    如「安心少儿意外险」max_coverage=50（万元）= 500,000 元，
+    方案原写死 2,500,000 元 → 超上限 50 倍（对外虚报可售保额）。
+    `coverage_unit` 为「万元」时 ×10000；其他单位（缺省视为元）不换算。
+    max_coverage 缺失（None / 非数值）→ 返回 None，**不设上限**，
+    调用方须如实标注「该产品未提供可售保额上限」，不得假装有上限。
+    """
+    if not product:
+        return None
+    raw = product.get("max_coverage")
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if value <= 0:
+        return None
+    unit = product.get("coverage_unit") or "万元"
+    if unit == "万元":
+        value = value * 10000
+    return int(value)
+
+
+def _apply_coverage_cap(plan, product, desired_coverage, entry_type=None, entry_name=None):
+    """把期望保额夹到产品 max_coverage 上限；触顶时写入 budget_adjustments。
+
+    Returns:
+        tuple[int, bool]: (最终保额, 是否因上限而被下调)
+    """
+    cap = _coverage_cap(product)
+    desired = int(desired_coverage or 0)
+    if cap is None or desired <= cap:
+        return desired, False
+    plan.setdefault("budget_adjustments", []).append({
+        "type": "coverage_capped",
+        "product": entry_name,
+        "product_type": entry_type,
+        "requested_coverage": desired,
+        "capped_to": cap,
+        "max_coverage": product.get("max_coverage"),
+        "coverage_unit": product.get("coverage_unit"),
+        "reason": "方案保额超过该产品在产品库的可售保额上限（max_coverage），已按上限下调",
+    })
+    return cap, True
+
+
 def _refresh_coverage_text(entry, from_coverage, to_coverage):
     """保额变化后同步 key_benefits 中内嵌的保额数字。"""
     kb = entry.get("key_benefits")
@@ -192,6 +415,139 @@ def _refresh_coverage_text(entry, from_coverage, to_coverage):
     new_wan = to_coverage // 10000
     if old_wan and f"{old_wan}万" in kb:
         entry["key_benefits"] = kb.replace(f"{old_wan}万", f"{new_wan}万")
+
+
+def _coverage_claim_text(coverage):
+    """由实际保额派生出对外的保额表述（万元）。"""
+    wan = coverage // 10000
+    if wan >= 1:
+        return f"{wan}万"
+    # < 1 万：如实表述为具体金额（千元级），不得谎称「百万」
+    qian = round(coverage / 1000)
+    return f"{qian}千" if qian else "保额较低"
+
+
+def _normalize_coverage_claim(text, coverage):
+    """把文本里的保额量词表述替换为由**实际保额**派生的表述。
+
+    ⚠️ R4 整改 2026-11-08：原实现只匹配「100万保额」「600万医疗」等
+    「数字+万」紧跟关键词的形态，**漏掉了**「600万高保额」「医疗险600万保额」
+    这类写法 → 保额被 max_coverage 夹到 400 万后，对外仍宣称 600 万。
+    这里改为：凡文本中出现「数字+万」且位于保额语境的，一律替换为实际保额表述。
+    """
+    if not isinstance(text, str) or not text:
+        return text
+
+    claim = _coverage_claim_text(coverage)
+
+    def _sub_num(m):
+        # 形如「100万保额」：用实际保额量词替换整个「数字+万」，保留后缀
+        return claim + m.group(2)
+
+    # ① 「数字+万」后紧跟保额类关键词（保额/意外/医疗/重疾/身故/赔付/保障/高保额…）
+    out = re.sub(r"(\d+(?:\.\d+)?)万(保额|高保额|意外|医疗|重疾|身故|赔付|保障|，)",
+                 _sub_num, text)
+    # ② 「数字+万」后紧跟逗号 + 常见后缀（，仅需 / ，含 / ，含质子）
+    out = re.sub(r"(\d+(?:\.\d+)?)万(，(?:仅需|含|含质子))",
+                 _sub_num, out)
+    # ③ 「医疗险600万保额」这类「险种名+数字+万+保额」已在 ① 覆盖；
+    #    残留的裸「数字+万」紧跟在「医疗险/意外险/重疾险/寿险」之后也替换。
+    out = re.sub(r"((?:医疗险|意外险|重疾险|寿险))(\d+(?:\.\d+)?)万",
+                 lambda m: m.group(1) + claim, out)
+    # ④ 「百万医疗」——实际保额 <100 万时不得再称「百万」
+    if "百万医疗" in out and coverage < 1000000:
+        out = out.replace("百万医疗", f"{claim}医疗")
+    # ⑤ 「百万」独立出现（无「医疗」后缀）时同样按实际保额校正
+    if "百万" in out and coverage < 1000000:
+        out = out.replace("百万", claim)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# R6 整改 2026-11-08：方案描述与实际构成一致性
+# ---------------------------------------------------------------------------
+# 险种类型 → 描述中使用的名称（顺序即描述中列举的优先级）
+_TYPE_LABELS = (
+    ("定期寿险", "定期寿险"),
+    ("重疾险", "重疾保障"),
+    ("医疗险", "医疗保障"),
+    ("意外险", "意外保障"),
+    ("储蓄险", "养老储蓄规划"),
+)
+
+# 险种类型 → 该险种被移除后不得出现在描述/卖点中的关键词
+_TYPE_BANNED_WORDS = {
+    "定期寿险": ("寿险",),
+    "重疾险": ("重疾",),
+    "医疗险": ("医疗",),
+    "意外险": ("意外",),
+    "储蓄险": ("养老", "储蓄"),
+}
+
+
+def _build_plan_description(plan_name, products):
+    """按**实际剩余险种**生成方案描述。
+
+    ⚠️ R6 整改 2026-11-08：原先 description 写死（如「保障全面，含重疾保障」
+    「高保额全方位保障，另含养老储蓄规划」），在产品被移除后不再成立 → 属于
+    对外虚报。本函数以 plan["products"] 为唯一事实来源动态生成。
+
+    Args:
+        plan_name: 方案名（基础版 / 标准版 / 全面版）
+        products: 方案实际保留的产品列表
+
+    Returns:
+        描述文本；产品为空时明确说明方案不覆盖任何险种。
+    """
+    present = {p.get("type") for p in (products or [])}
+    if not present:
+        return f"{plan_name}：当前预算不足以配置任何险种，方案暂不覆盖具体保障责任"
+
+    labels = [label for ptype, label in _TYPE_LABELS if ptype in present]
+    scope = "、".join(labels)
+
+    # 全面版卖点：仅当储蓄险真实保留时才提「养老储蓄规划」
+    if plan_name == "全面版":
+        if "储蓄险" in present:
+            others = [l for ptype, l in _TYPE_LABELS
+                      if ptype in present and ptype != "储蓄险"]
+            other_scope = "、".join(others)
+            return (f"高保额全方位保障（{other_scope}），另含养老储蓄规划")
+        return f"高保额全方位保障（{scope}）"
+
+    # 标准版卖点：仅当重疾险真实保留时才提「含重疾保障」
+    if plan_name == "标准版":
+        if "重疾险" in present:
+            return f"保障全面，含重疾保障（{scope}），适合大多数家庭"
+        return f"保障基础，含{scope}，适合大多数家庭"
+
+    # 基础版
+    return f"以最低成本建立基础保障，覆盖核心风险（{scope}）"
+
+
+def _prune_plan_features(plan, features):
+    """剔除 features 中与实际保留险种不符的条目。
+
+    被移除险种对应的卖点（如「重疾险提供终身保障」「医疗险600万保额」
+    「可选储蓄险，为养老做准备」）必须同步消失。
+    """
+    present = {p.get("type") for p in plan.get("products", [])}
+    kept = []
+    for feat in features or []:
+        if not isinstance(feat, str):
+            continue
+        drop = False
+        for ptype, words in _TYPE_BANNED_WORDS.items():
+            if ptype in present:
+                continue
+            # 只在该条目明确提到被移除险种时剔除；
+            # 「医疗险20年保证续保」这类提及具体险种的条目同样处理。
+            if any(w in feat for w in words):
+                drop = True
+                break
+        if not drop:
+            kept.append(feat)
+    return kept
 
 
 def _enforce_budget(plan, budget, annual_income, age=None, gender=None,
@@ -280,6 +636,9 @@ def _enforce_budget(plan, budget, annual_income, age=None, gender=None,
         entry["coverage"] = best
         entry["annual_premium"] = calculate_product_premium(product, age, gender, best, payment_term)
         plan["annual_premium"] = plan["annual_premium"] - old_premium + entry["annual_premium"]
+        # ⚠️ R6 整改 2026-11-08：下调保额时必须同步扣减 total_coverage，
+        #    否则会出现「实际保额 5 万、对外报告 630 万」的保额虚报。
+        plan["total_coverage"] = plan.get("total_coverage", 0) - (old_coverage - best)
         _refresh_coverage_text(entry, old_coverage, best)
         adjustments.append({
             "type": "coverage_downscale",
@@ -408,6 +767,9 @@ def design_basic_plan(age, gender, annual_income, annual_budget, coverage_needs,
         return _finalize_plan(plan, budget, annual_income, 0.10, age, gender, products)
     tl_product = min(tl_products, key=lambda x: x.get("premium_per_10k", 999))
     tl_coverage = min(coverage_needs.get("death", 500000), 1000000)
+    # ⚠️ R4 整改 2026-11-08：保额不得超产品可售上限（max_coverage）
+    tl_coverage, _capped = _apply_coverage_cap(
+        plan, tl_product, tl_coverage, "定期寿险", tl_product.get("name"))
     tl_premium = calculate_product_premium(tl_product, age, gender, tl_coverage, "20年")
     if plan["annual_premium"] + tl_premium <= budget:
         plan["products"].append({
@@ -428,6 +790,10 @@ def design_basic_plan(age, gender, annual_income, annual_budget, coverage_needs,
     if ac_products:
         ac_product = min(ac_products, key=lambda x: x.get("premium_per_10k", 999))
         ac_coverage = min(annual_income * 5, 3000000)
+        # ⚠️ R4 整改 2026-11-08：意外险保额夹到产品 max_coverage
+        #    （如「安心少儿意外险」max_coverage=50 万 → 上限 500,000 元）
+        ac_coverage, _capped = _apply_coverage_cap(
+            plan, ac_product, ac_coverage, "意外险", ac_product.get("name"))
         ac_premium = calculate_product_premium(ac_product, age, gender, ac_coverage, "年交")
         if plan["annual_premium"] + ac_premium <= budget:
             plan["products"].append({
@@ -444,14 +810,16 @@ def design_basic_plan(age, gender, annual_income, annual_budget, coverage_needs,
             plan["total_coverage"] += ac_coverage
 
     # 医疗险（加入前必须校验累计保费 ≤ budget）
-    mi_products = [p for p in products if p["type"] == "医疗险" and "保证续保" in (p.get("notes") or "")]
-    if not mi_products:
-        mi_products = [p for p in products if p["type"] == "医疗险"]
-    mi_product = mi_products[0] if mi_products else None
+    # ⚠️ R5 整改 2026-11-08：选品改用**结构化续保字段**（原先对 notes 做子串匹配），
+    #    展示字段由真实字段派生（原先无条件写死 "coverage_period": "1年"）。
+    mi_product, mi_limitation = select_medical_product(products, min_guaranteed_years=None)
     if mi_product:
         mi_coverage = 2000000
+        mi_coverage, _capped = _apply_coverage_cap(
+            plan, mi_product, mi_coverage, "医疗险", mi_product.get("name"))
         mi_premium = calculate_product_premium(mi_product, age, gender, mi_coverage, "年交")
         if plan["annual_premium"] + mi_premium <= budget:
+            mi_coverage_period = derive_medical_coverage_period(mi_product)
             plan["products"].append({
                 "type": "医疗险",
                 "product_name": mi_product["name"],
@@ -459,11 +827,21 @@ def design_basic_plan(age, gender, annual_income, annual_budget, coverage_needs,
                 "coverage": mi_coverage,
                 "annual_premium": mi_premium,
                 "payment_term": "年交",
-                "coverage_period": "1年",
-                "key_benefits": "百万医疗，不限社保，进口药/靶向药均可报销"
+                "coverage_period": mi_coverage_period,
+                "key_benefits": derive_medical_key_benefits(
+                    mi_product, "百万医疗，不限社保，进口药/靶向药均可报销", mi_coverage_period)
             })
             plan["annual_premium"] += mi_premium
             plan["total_coverage"] += mi_coverage
+            if mi_limitation:
+                plan.setdefault("limitations", []).append({
+                    "type": "coverage_limit",
+                    "product_type": "医疗险",
+                    "product": mi_product["name"],
+                    "requirement": mi_limitation["requirement"],
+                    "reason": mi_limitation["reason"],
+                    "actual_coverage_period": mi_coverage_period,
+                })
         else:
             plan.setdefault("budget_adjustments", []).append({
                 "type": "product_skipped",
@@ -493,6 +871,9 @@ def design_standard_plan(age, gender, annual_income, annual_budget, coverage_nee
         return _finalize_plan(plan, budget, annual_income, 0.15, age, gender, products)
     tl_product = next((p for p in tl_products if "星" in p["name"]), tl_products[0])
     tl_coverage = min(coverage_needs.get("death", 1000000), 2000000)
+    # ⚠️ R4 整改 2026-11-08：保额不得超产品可售上限（max_coverage）
+    tl_coverage, _capped = _apply_coverage_cap(
+        plan, tl_product, tl_coverage, "定期寿险", tl_product.get("name"))
     tl_premium = calculate_product_premium(tl_product, age, gender, tl_coverage, "20年")
     plan["products"].append({
         "type": "定期寿险",
@@ -512,6 +893,9 @@ def design_standard_plan(age, gender, annual_income, annual_budget, coverage_nee
     if crx_products:
         crx_product = next((p for p in crx_products if "福" in p["name"] and "终身" in (p.get("coverage_period") or "")), crx_products[0])
         crx_coverage = min(coverage_needs.get("critical_illness", annual_income * 3), 500000)
+        # ⚠️ R4 整改 2026-11-08：保额不得超产品可售上限（max_coverage）
+        crx_coverage, _capped = _apply_coverage_cap(
+            plan, crx_product, crx_coverage, "重疾险", crx_product.get("name"))
         crx_premium = calculate_product_premium(crx_product, age, gender, crx_coverage, "20年")
         plan["products"].append({
             "type": "重疾险",
@@ -526,14 +910,14 @@ def design_standard_plan(age, gender, annual_income, annual_budget, coverage_nee
         plan["annual_premium"] += crx_premium
         plan["total_coverage"] += crx_coverage
 
-    # 医疗险 - 选保证续保20年的
-    mi_products = [p for p in products if p["type"] == "医疗险" and "20年" in (p.get("coverage_period") or "")]
-    if not mi_products:
-        mi_products = [p for p in products if p["type"] == "医疗险"]
-    if mi_products:
-        mi_product = mi_products[0]
+    # 医疗险 - 按**真实续保字段**选保证续保20年的（R5 整改 2026-11-08）
+    mi_product, mi_limitation = select_medical_product(products, min_guaranteed_years=20)
+    if mi_product:
         mi_coverage = 4000000
+        mi_coverage, _capped = _apply_coverage_cap(
+            plan, mi_product, mi_coverage, "医疗险", mi_product.get("name"))
         mi_premium = calculate_product_premium(mi_product, age, gender, mi_coverage, "年交")
+        mi_coverage_period = derive_medical_coverage_period(mi_product)
         plan["products"].append({
             "type": "医疗险",
             "product_name": mi_product["name"],
@@ -541,17 +925,31 @@ def design_standard_plan(age, gender, annual_income, annual_budget, coverage_nee
             "coverage": mi_coverage,
             "annual_premium": mi_premium,
             "payment_term": "年交",
-            "coverage_period": "保证续保20年",
-            "key_benefits": "长期医疗保障，20年续保稳定"
+            "coverage_period": mi_coverage_period,
+            "key_benefits": derive_medical_key_benefits(
+                mi_product, "长期医疗保障", mi_coverage_period)
         })
         plan["annual_premium"] += mi_premium
         plan["total_coverage"] += mi_coverage
+        if mi_limitation:
+            # 无「保证续保20年」的合格产品 → 如实报告限制，不谎称已满足
+            plan.setdefault("limitations", []).append({
+                "type": "coverage_limit",
+                "product_type": "医疗险",
+                "product": mi_product["name"],
+                "requirement": mi_limitation["requirement"],
+                "reason": mi_limitation["reason"],
+                "actual_coverage_period": mi_coverage_period,
+            })
 
     # 意外险
     ac_products = [p for p in products if p["type"] == "意外险"]
     if ac_products:
         ac_product = next((p for p in ac_products if "百万" in p["name"]), ac_products[0])
         ac_coverage = min(annual_income * 5, 3000000)
+        # ⚠️ R4 整改 2026-11-08：意外险保额夹到产品 max_coverage
+        ac_coverage, _capped = _apply_coverage_cap(
+            plan, ac_product, ac_coverage, "意外险", ac_product.get("name"))
         ac_premium = calculate_product_premium(ac_product, age, gender, ac_coverage, "年交")
         plan["products"].append({
             "type": "意外险",
@@ -566,12 +964,18 @@ def design_standard_plan(age, gender, annual_income, annual_budget, coverage_nee
         plan["annual_premium"] += ac_premium
         plan["total_coverage"] += ac_coverage
 
+    # features 中的医疗险描述由**真实选中产品**派生（R5 整改 2026-11-08）
+    mi_entry = next((e for e in plan["products"] if e["type"] == "医疗险"), None)
+    if mi_entry:
+        mi_feature = f"医疗险{mi_entry['coverage_period']}，长期稳定"
+    else:
+        mi_feature = "本方案未包含医疗险"
     plan["features"] = [
         "保障全面：寿险+重疾+医疗+意外",
         "重疾险提供终身保障，确诊即赔付",
-        "医疗险保证续保20年，长期稳定",
+        mi_feature,
         "定期寿险覆盖家庭经济责任期",
-        "年保费已按年度保费上限（min(年度预算, 年收入×15%)）校验"
+        "年保费已按年度保费上限（min(年度预算, 年收入×15%））校验"
     ]
 
     return _finalize_plan(plan, budget, annual_income, 0.15, age, gender, products,
@@ -595,6 +999,9 @@ def design_premium_plan(age, gender, annual_income, annual_budget, coverage_need
         return _finalize_plan(plan, budget, annual_income, 0.20, age, gender, products)
     tl_product = tl_products[0]
     tl_coverage = min(coverage_needs.get("death", 2000000), 5000000)
+    # ⚠️ R4 整改 2026-11-08：保额不得超产品可售上限（max_coverage）
+    tl_coverage, _capped = _apply_coverage_cap(
+        plan, tl_product, tl_coverage, "定期寿险", tl_product.get("name"))
     tl_premium = calculate_product_premium(tl_product, age, gender, tl_coverage, "20年")
     plan["products"].append({
         "type": "定期寿险",
@@ -616,6 +1023,9 @@ def design_premium_plan(age, gender, annual_income, annual_budget, coverage_need
     if crx_products:
         crx_product = crx_products[0]
         crx_coverage = min(coverage_needs.get("critical_illness", annual_income * 5), 500000)
+        # ⚠️ R4 整改 2026-11-08：保额不得超产品可售上限（max_coverage）
+        crx_coverage, _capped = _apply_coverage_cap(
+            plan, crx_product, crx_coverage, "重疾险", crx_product.get("name"))
         crx_premium = calculate_product_premium(crx_product, age, gender, crx_coverage, "20年")
         plan["products"].append({
             "type": "重疾险",
@@ -631,11 +1041,19 @@ def design_premium_plan(age, gender, annual_income, annual_budget, coverage_need
         plan["total_coverage"] += crx_coverage
 
     # 医疗险 - 600万高保额
-    mi_products = [p for p in products if p["type"] == "医疗险"]
-    if mi_products:
-        mi_product = next((p for p in mi_products if "600" in (p.get("core_coverage") or "")), mi_products[0])
+    # ⚠️ R5 整改 2026-11-08：选品规则（600 万偏好）保持原样，
+    #    仅把展示字段由**真实续保字段**派生（原先无条件写死 "1年可续保"）。
+    def _prefer_600w(pool):
+        return next((p for p in pool if "600" in (p.get("core_coverage") or "")), pool[0])
+
+    mi_product, mi_limitation = select_medical_product(
+        products, min_guaranteed_years=None, prefer=_prefer_600w)
+    if mi_product:
         mi_coverage = 6000000
+        mi_coverage, _capped = _apply_coverage_cap(
+            plan, mi_product, mi_coverage, "医疗险", mi_product.get("name"))
         mi_premium = calculate_product_premium(mi_product, age, gender, mi_coverage, "年交")
+        mi_coverage_period = derive_medical_coverage_period(mi_product)
         plan["products"].append({
             "type": "医疗险",
             "product_name": mi_product["name"],
@@ -643,17 +1061,30 @@ def design_premium_plan(age, gender, annual_income, annual_budget, coverage_need
             "coverage": mi_coverage,
             "annual_premium": mi_premium,
             "payment_term": "年交",
-            "coverage_period": "1年可续保",
-            "key_benefits": "600万高保额，含质子重离子、CAR-T治疗"
+            "coverage_period": mi_coverage_period,
+            "key_benefits": derive_medical_key_benefits(
+                mi_product, "600万高保额，含质子重离子、CAR-T治疗", mi_coverage_period)
         })
         plan["annual_premium"] += mi_premium
         plan["total_coverage"] += mi_coverage
+        if mi_limitation:
+            plan.setdefault("limitations", []).append({
+                "type": "coverage_limit",
+                "product_type": "医疗险",
+                "product": mi_product["name"],
+                "requirement": mi_limitation["requirement"],
+                "reason": mi_limitation["reason"],
+                "actual_coverage_period": mi_coverage_period,
+            })
 
     # 意外险 - 100万
     ac_products = [p for p in products if p["type"] == "意外险"]
     if ac_products:
         ac_product = next((p for p in ac_products if "百万" in p["name"]), ac_products[0])
         ac_coverage = 1000000
+        # ⚠️ R4 整改 2026-11-08：意外险保额夹到产品 max_coverage
+        ac_coverage, _capped = _apply_coverage_cap(
+            plan, ac_product, ac_coverage, "意外险", ac_product.get("name"))
         ac_premium = calculate_product_premium(ac_product, age, gender, ac_coverage, "年交")
         plan["products"].append({
             "type": "意外险",
@@ -676,6 +1107,9 @@ def design_premium_plan(age, gender, annual_income, annual_budget, coverage_need
         if sa_products and plan["annual_premium"] + 10000 <= budget:
             sa_product = sa_products[0]
             sa_coverage = 100000
+            # ⚠️ R4 整改 2026-11-08：保额不得超产品可售上限（max_coverage）
+            sa_coverage, _capped = _apply_coverage_cap(
+                plan, sa_product, sa_coverage, "储蓄险", sa_product.get("name"))
             sa_premium = calculate_product_premium(sa_product, age, gender, sa_coverage, "10年")
             plan["products"].append({
                 "type": "储蓄险",
@@ -689,13 +1123,21 @@ def design_premium_plan(age, gender, annual_income, annual_budget, coverage_need
             })
             plan["annual_premium"] += sa_premium
 
+    # features 中的医疗险描述由**真实选中产品与实际保额**派生
+    # （R4 整改 2026-11-08：原写死「医疗险600万保额」，保额被夹紧后即为虚报）
+    mi_entry = next((e for e in plan["products"] if e["type"] == "医疗险"), None)
+    if mi_entry:
+        mi_feature = (f"医疗险{mi_entry['coverage'] // 10000}万保额，"
+                      f"{mi_entry['coverage_period']}，涵盖最新治疗手段")
+    else:
+        mi_feature = "本方案未包含医疗险"
     plan["features"] = [
         "全方位高保额保障：寿险+重疾+医疗+意外",
         "重疾险保额高达年收入5倍",
-        "医疗险600万保额，涵盖最新治疗手段",
+        mi_feature,
         "定期寿险高保额，覆盖所有家庭财务责任",
         "可选储蓄险，为养老做准备",
-        "年保费已按年度保费上限（min(年度预算, 年收入×20%)）校验"
+        "年保费已按年度保费上限（min(年度预算, 年收入×20%））校验"
     ]
 
     return _finalize_plan(plan, budget, annual_income, 0.20, age, gender, products,
@@ -719,6 +1161,27 @@ def _finalize_plan(plan, budget, annual_income, ratio, age, gender, products,
         raise AssertionError(
             f"方案年保费 {plan['annual_premium']} 超过年度保费上限 {budget}（{plan.get('plan_name')}）"
         )
+    # ⚠️ R6 整改 2026-11-08：**出口兜底重算** total_coverage。
+    #    以 plan["products"] 为唯一事实来源 —— 任何新增的保额调整路径
+    #    （下调保额 / 移除险种 / 未来新增逻辑）若漏了增量同步，
+    #    都会在这里被重算纠正，杜绝保额虚报。
+    plan["total_coverage"] = sum(p.get("coverage", 0) or 0
+                                 for p in plan.get("products", []))
+    # ⚠️ R6 整改 2026-11-08：描述与卖点必须与**实际保留险种**一致。
+    #    _enforce_budget 可能已移除险种 → 此时重写 description / features，
+    #    确保被移除险种（如重疾、养老储蓄）不再出现在对外文案中。
+    plan["description"] = _build_plan_description(
+        plan.get("plan_name", ""), plan.get("products", []))
+    if plan.get("features"):
+        plan["features"] = _prune_plan_features(plan, plan["features"])
+    # ⚠️ R6 整改 2026-11-08：key_benefits 中的保额表述必须与实际保额一致。
+    #    _refresh_coverage_text 只在**下调保额**时被调用 → 设计期写死的
+    #    「100万保额」「百万医疗」等硬编码表述可能与实际保额不符，
+    #    故在出口处对每个产品统一校正（幂等）。
+    for _entry in plan.get("products", []):
+        _cov = _entry.get("coverage") or 0
+        _entry["key_benefits"] = _normalize_coverage_claim(
+            _entry.get("key_benefits"), _cov)
     return plan
 
 

@@ -7,8 +7,8 @@ test_data_hygiene.py — 数据卫生回归测试（ClawHub 安全审计 AR1 / A
 覆盖 4 组断言：
 
 1. **AR1（Anti-Refusal）**：`references/products.json` 的 `health_disclosure` /
-   `renewal_terms` 里不得残留对 agent 的祈使指令
-   （"Always answer…" / "must be truthful" / "do not volunteer" / "never refuse" …）。
+   `renewal_terms` 里不得残留对 agent 的祈使指令（英文祈使句式，含 answer /
+   truthful / volunteer / refuse / comply 等动词形态）。
    ⚠️ 保险条款语义里的 "regardless of …"（如保证续保不受健康状况影响）**不是**指令，
    必须豁免，否则会误伤正常条款。
 

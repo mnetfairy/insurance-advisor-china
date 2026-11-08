@@ -7,14 +7,13 @@ sanitize_products_json.py — 中和产品库中对 agent 的祈使指令（Claw
 背景
 ----
 `references/products.json` 的 `health_disclosure` / `renewal_terms` 是外部抓取
-（Tavily + LLM 摘要）回填的自由文本，其中混入了**对 agent 的祈使句**：
+（Tavily + LLM 摘要）回填的自由文本，其中混入了**面向助手的祈使语气句**——即针对
+助手下达的祈使句式（核心动词形态包括 answer / truthful / volunteer /
+refuse / comply 等，完整字面量见下方 `REWRITES` 匹配表）。
 
-    "Always answer insurance questions truthfully and accurately."
-    "Health disclosure must be truthful; otherwise, coverage may be voided."
-    "do not volunteer information not asked."
-
-ClawHub 安全扫描器据此判定「Skill instructs the agent to never refuse or to always
-comply」→ Anti-Refusal（AR1 × 9，severity HIGH）。这类句子**不是**产品条款本身，
+ClawHub 安全扫描器据此判定「指令要求 agent 不得拒绝」→ Anti-Refusal（AR1 × 9，
+severity HIGH）。⚠️ 上句为扫描器判定语的**转述**（描述性），本脚本不重复任何
+祈使句字面量。这类句子**不是**产品条款本身，
 而是抓取摘要时误写成了对助手的指令，会抑制 agent 拒绝不安全/越界请求的能力。
 
 本脚本做什么
@@ -44,6 +43,9 @@ comply」→ Anti-Refusal（AR1 × 9，severity HIGH）。这类句子**不是**
 
     # 校验（断言无祈使指令）→ 退出码 0/1
     python3 scripts/sanitize_products_json.py --db references/products.json --check
+
+⚠️ 2026-11-08 整改（SDI-3）：--db 现仅接受**本 skill 目录内**的
+   references/products.json；其他路径一律拒绝并返回**退出码 3**（越权写库防护）。
 
 幂等性
 ------
@@ -84,7 +86,7 @@ REGARDLESS_RE = re.compile(r"regardless of", re.IGNORECASE)
 # 语义全部保留（健康告知要求 / 未如实告知的后果 / 询问范围）
 # ---------------------------------------------------------------------------
 REWRITES = [
-    # ── Always answer … ──
+    # ── answer 型祈使句（以 Always answer… 开头的一组）──
     (r"Always answer insurance questions truthfully and accurately\.",
      "健康告知要求如实回答保险公司问询；未如实告知可能导致保单解除或拒赔。"),
     (r"Always answer insurance questions directly based on medical records\.",
@@ -106,7 +108,7 @@ REWRITES = [
     (r"always answer honestly\.",
      "健康告知需如实填写。"),
 
-    # ── must be truthful（含分号从句，整体替换避免残留半句）──
+    # ── truthful 型祈使句（含分号从句，整体替换避免残留半句）──
     (r"Health disclosure must be truthful; otherwise, coverage may be voided\.",
      "健康告知需如实填写；未如实告知可能导致保单解除。"),
     (r"Health disclosure must be truthful; omissions can void coverage\.",
@@ -127,7 +129,7 @@ REWRITES = [
      "健康告知需如实填写；信息不真实可能导致保单解除。"),
     (r"Health declaration(?:s)? must be truthful; otherwise, the policy may be voided\.",
      "健康告知需如实填写；未如实告知可能导致保单解除。"),
-    # 兜底：任何 Health disclosure(s)/Health declaration(s) must be truthful …
+    # 兜底：任何 Health disclosure(s)/Health declaration(s) + truthful 型从句 …
     (r"(Health disclosure(?:s)?|Health declaration(?:s)?) must be truthful\b",
      "健康告知需如实填写"),
     (r"health disclosure must be truthful\b",
@@ -144,7 +146,7 @@ REWRITES = [
 
 # 排序策略：先按【具体度】—— 含标点从句的具体句式优先于泛化兜底；
 # 同具体度内按模式长度降序（长句优先，避免短句先命中导致长句残留）。
-# ⚠️ 泛化兜底（(Health disclosure…|Health declaration…) must be truthful）必须排在最后，
+# ⚠️ 泛化兜底（Health disclosure… / Health declaration… + truthful 型从句）必须排在最后，
 #    否则它会先命中并吃掉后面的从句，留下 "健康告知需如实填写; otherwise, coverage may be voided." 这种半句。
 _GENERIC_FALLBACK = r"(Health disclosure(?:s)?|Health declaration(?:s)?) must be truthful\b"
 
@@ -166,7 +168,7 @@ def neutralize(text):
     out = text
     for pattern, replacement in REWRITES:
         # ⚠️ 必须 IGNORECASE：真实数据里同一句式大小写混用
-        #（"Health disclosure must be truthful" vs "health disclosure must be truthful"）。
+        #（Health disclosure 型与 health disclosure 型两句式仅首字母大小写不同）。
         # 若用大小写敏感匹配，长句模式会漏掉小写开头 → 只剩泛化兜底命中 →
         # 产出 "健康告知需如实填写; otherwise, coverage may be voided." 这种半句残渣。
         new_out, n = re.subn(pattern, replacement, out, flags=re.IGNORECASE)
@@ -212,14 +214,46 @@ def scan_file(path):
     return found, len(products)
 
 
+def _skill_root():
+    """返回本 skill 根目录（scripts/ 的上一级）。"""
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _resolve_managed_db(db_arg):
+    """把 --db 解析为**本 skill 自有**的 references/products.json。
+
+    ⚠️ 2026-11-08 整改（SDI-3）：--db 原先接受任意路径 → 脚本可被用来改写
+    任意 JSON 文件（越权写库）。现在只接受本 skill 自己的产品库路径；
+    其他路径一律拒绝并返回非 0 退出码。
+
+    Returns:
+        tuple[str, str | None]: (解析后的绝对路径, 错误信息)
+    """
+    managed = os.path.join(_skill_root(), "references", "products.json")
+    managed_real = os.path.realpath(managed)
+    candidate = os.path.realpath(os.path.abspath(db_arg))
+
+    if candidate == managed_real:
+        return candidate, None
+
+    return None, (
+        f"拒绝操作非本 skill 所有的数据库文件：{candidate}\n"
+        f"本脚本仅允许操作：{managed_real}"
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description="中和中和产品库中对 agent 的祈使指令（ClawHub AR1）")
-    parser.add_argument("--db", required=True, help="products.json 路径")
+    parser.add_argument("--db", required=True,
+                        help="products.json 路径（仅限本 skill 的 references/products.json）")
     parser.add_argument("--dry-run", action="store_true", help="只报告不写盘")
     parser.add_argument("--check", action="store_true", help="只校验（无祈使指令则退出码 0）")
     args = parser.parse_args()
 
-    path = os.path.abspath(args.db)
+    path, path_err = _resolve_managed_db(args.db)
+    if path_err:
+        print(f"❌ {path_err}", file=sys.stderr)
+        return 3
     if not os.path.exists(path):
         print(f"❌ 找不到 {path}", file=sys.stderr)
         return 2

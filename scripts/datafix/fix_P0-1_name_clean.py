@@ -195,8 +195,11 @@ def main():
         "diff": diff,
         "dry_run": args.dry_run,
     }
-    rp = write_report("P0-1_name_clean_report.json", report)
-    print(f"\nReport: {rp}")
+    rp = write_report("P0-1_name_clean_report.json", report, dry_run=args.dry_run)
+    if args.dry_run:
+        print(f"\n[DRY RUN] 未写盘（含 reports/）：{rp}")
+    else:
+        print(f"\nReport: {rp}")
 
     if args.dry_run:
         print("[DRY RUN] Not writing products_v2.json")

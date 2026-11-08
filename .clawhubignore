@@ -1,0 +1,64 @@
+# .clawhubignore — ClawHub 发布产物收敛（ClawHub 安全审计整改 2026-11-08）
+#
+# 本文件中的路径不随 skill 发布产物分发（本地文件保留，维护链路照常可用）。
+#
+# 发布产物收敛为 7 个文件：
+#   SKILL.md
+#   references/products.json
+#   references/insurance-knowledge.md
+#   references/compliance.md
+#   scripts/needs_analyzer.py
+#   scripts/premium_calculator.py
+#   scripts/plan_designer.py
+#
+# 排除原因：
+#   - scripts/datafix/               : 本地数据维护脚本（写入型）。含历史修复脚本、
+#                                     备份/报告目录、端到端与集成测试。运行时不需要，
+#                                     发布产物中不应暴露写入能力。
+#   - scripts/runtime_patches/       : 本地运行时边界崩溃修复脚本（直接改写 scripts/*.py）。
+#                                     运行时不需要，不随产物分发。
+#   - scripts/sanitize_products_json.py : 本地数据清洗工具（改写产品库自由文本字段）。
+#                                     运行时不需要、发布产物中不应暴露写入能力。
+#   - scripts/test_*.py              : 本地回归测试脚本。包含未在公开 description 中披露的
+#                                     内部断言与绝对路径依赖，不属于运行时能力面。
+#   - references/products_v2.json    : 历史 v2 数据集（体积大、已被 products.json 取代）。
+#   - references/_repo_analysis_*.md : 内部分析报告。
+#   - references/保险资料库分析报告_* : 内部分析报告（含 DOCX 二进制）。
+#   - references/backups/            : 数据备份目录。
+#
+# ⚠️ 运行时白名单仅 3 个脚本：
+#      scripts/needs_analyzer.py
+#      scripts/premium_calculator.py
+#      scripts/plan_designer.py
+#
+# ⚠️ 以上仅为发布面收敛；本地维护链路（datafix / runtime_patches / 清洗 / 测试）
+#    在开发机上照常可用，不受本文件影响。
+
+# ---- 本地维护工具：数据修复 ----
+scripts/datafix/
+scripts/datafix/**
+scripts/runtime_patches/
+scripts/runtime_patches/**
+scripts/sanitize_products_json.py
+
+# ---- 本地回归测试 ----
+scripts/test_*.py
+
+# ---- 历史数据与分析报告 ----
+references/products_v2.json
+references/_repo_analysis_*.md
+references/保险资料库分析报告_*.md
+references/保险资料库分析报告_*.docx
+references/backups/
+references/backups/**
+
+# ---- 其他本地副产物 ----
+**/__pycache__/
+**/*.pyc
+**/*.bak
+**/*.bak.*
+**/*.orig
+**/*.orig.*
+**/*.backup
+**/*.backup_*
+.DS_Store

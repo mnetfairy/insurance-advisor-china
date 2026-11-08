@@ -51,6 +51,11 @@ Idempotent.
   3. 区间端点（"50万/100万"）被丢弃的高位端点不再静默丢失：
      写入新增字段 max_coverage_alternatives（数组），并在 max_coverage_note 说明。
   这些是离线人工维护工具，不影响运行时输出。
+
+🆕 2026-11-08 ClawHub 安全审计整改（SDI-3 / 越权写入）
+  4. --target 现仅接受**本 skill 目录内**的 references/products*.json；
+     其他路径一律拒绝并返回**非 0 退出码**（以前接受任意路径 → 可改写任意 JSON）。
+  5. --dry-run 现为**零写入**（含 reports/ 目录）。
 """
 import argparse
 import json
@@ -61,6 +66,7 @@ import sys
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, THIS_DIR)
 from lib_common import (load_v2, save_v2, backup_v2, write_report, add_dry_run_arg,
+                       resolve_managed_target,
                        PRODUCTS_V1, PRODUCTS_V2, BACKUPS_DIR, now_ts)
 
 RE_DIGIT = re.compile(r"\d+(?:\.\d+)?")
@@ -281,12 +287,18 @@ def main():
                "  python3 fix_P1-3_coverage_types.py --target ../references/products_v2.json")
     add_dry_run_arg(parser)
     parser.add_argument("--target", default=None,
-                        help="目标产品数据文件路径。默认：references/products.json（包内实际存在）。"
-                             "可选：references/products_v2.json（不在发布包内，需自行提供）。")
+                        help="目标产品数据文件路径。仅限本 skill 目录内的 "
+                             "references/products*.json（如 references/products.json、"
+                             "references/products_v2.json）；其他路径一律拒绝。")
     args = parser.parse_args()
 
     # 解析目标路径：默认 → 包内实际存在的 references/products.json
-    target = os.path.abspath(args.target or PRODUCTS_V1)
+    # ⚠️ 2026-11-08（SDI-3）：写路径收敛到本 skill 目录内的 references/products*.json，
+    #    其他路径一律拒绝并返回非 0 退出码。
+    target, target_err = resolve_managed_target(args.target or PRODUCTS_V1)
+    if target_err:
+        print(f"[FATAL] {target_err}", file=sys.stderr)
+        return 3
     if not os.path.exists(target):
         print(f"[FATAL] 目标文件不存在: {target}")
         print("  可选目标：references/products_v2.json 不在发布包内，需自行提供。")
@@ -334,8 +346,11 @@ def main():
         "coverage_unit_added": "万元",
         "dry_run": args.dry_run,
     }
-    rp = write_report("P1-3_coverage_types_report.json", report)
-    print(f"\nReport: {rp}")
+    rp = write_report("P1-3_coverage_types_report.json", report, dry_run=args.dry_run)
+    if args.dry_run:
+        print(f"\n[DRY RUN] 未写盘（含 reports/）：{rp}")
+    else:
+        print(f"\nReport: {rp}")
 
     if args.dry_run:
         print(f"[DRY RUN] Not writing {target}")

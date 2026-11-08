@@ -122,6 +122,29 @@ def is_discontinued(product):
     return False
 
 
+def is_eligible_for_pool(product, filter_garbage=True, include_discontinued=False):
+    """产品是否可进入默认产品池（报价 / 对比 / 计数共用的**唯一**资格谓词）。
+
+    ⚠️ 2026-11-08 整改（R7 · SDI-4）：原先 `load_products()` 与 `load_product_stats()`
+    各写一套过滤条件，`load_products()` **漏了 is_duplicate 过滤**，
+    导致报价池里仍混有重复记录，且 `eligible_products` != len(load_products())。
+    现在两者共用本谓词，口径不会再漂移。
+
+    过滤项：
+      - data_quality == 'garbage'      → 数据不可信
+      - is_duplicate is True            → 重复记录
+      - 已停售/已下架（除非 include_discontinued=True）
+    """
+    if filter_garbage:
+        if _extract_quality_hints(product)["skip_for_recommendation"] is not False:
+            return False
+    if product.get("is_duplicate") is True:
+        return False
+    if not include_discontinued and is_discontinued(product):
+        return False
+    return True
+
+
 def load_products(filter_garbage=True, include_discontinued=False):
     """加载产品数据。
 
@@ -131,19 +154,16 @@ def load_products(filter_garbage=True, include_discontinued=False):
                               True=保留它们（显式查询停售产品时使用）。
 
     Returns:
-        list[dict]: 产品列表（已过滤 garbage 与停售产品）
+        list[dict]: 产品列表（已过滤 garbage、重复记录与停售产品）
     """
     product_file = os.path.join(os.path.dirname(__file__), "../references/products.json")
     with open(product_file, 'r', encoding='utf-8') as f:
         data = json.load(f)
-    products = data["products"]
-    if filter_garbage:
-        products = [
-            p for p in products
-            if _extract_quality_hints(p)["skip_for_recommendation"] is False
-        ]
-    if not include_discontinued:
-        products = [p for p in products if not is_discontinued(p)]
+    products = [
+        p for p in data["products"]
+        if is_eligible_for_pool(p, filter_garbage=filter_garbage,
+                                include_discontinued=include_discontinued)
+    ]
     return products
 
 
@@ -169,10 +189,12 @@ def load_product_stats(include_discontinued=False):
     duplicates = [p for p in all_products if p.get("is_duplicate") is True]
     discontinued = [p for p in all_products if is_discontinued(p)]
 
+    # ⚠️ 2026-11-08 整改（R7 · SDI-4）：与 load_products() 共用同一资格谓词，
+    #    保证 eligible_products == len(load_products())。
     eligible = [
         p for p in all_products
-        if p.get("data_quality") != "garbage" and p.get("is_duplicate") is not True
-        and (include_discontinued or not is_discontinued(p))
+        if is_eligible_for_pool(p, filter_garbage=True,
+                                include_discontinued=include_discontinued)
     ]
     return {
         "total_products": len(all_products),

@@ -282,8 +282,11 @@ def main():
         ],
         "dry_run": args.dry_run,
     }
-    rp = write_report("P1-5_coverage_period_split_report.json", report)
-    print(f"\nReport: {rp}")
+    rp = write_report("P1-5_coverage_period_split_report.json", report, dry_run=args.dry_run)
+    if args.dry_run:
+        print(f"\n[DRY RUN] 未写盘（含 reports/）：{rp}")
+    else:
+        print(f"\nReport: {rp}")
 
     if args.dry_run:
         print("[DRY RUN] Not writing products_v2.json")
