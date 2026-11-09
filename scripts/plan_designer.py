@@ -339,59 +339,190 @@ def _product_index(products):
     return {(p.get("type"), p.get("name")): p for p in products}
 
 
+# 保额单位合同：唯一受支持的单位 → 换算为「元」的系数。
+# 「元」与「万元」是产品库当前唯一支持的两种单位（实测 2542 条记录：
+# 万元 2267 / 缺失 275 / 无其他取值）。**不做静默兜底**。
+_COVERAGE_UNIT_FACTORS = {
+    "元": 1,
+    "万元": 10000,
+}
+
+
+def _coverage_unit_factor(product):
+    """保额单位换算系数（单一事实来源）：返回 (factor, status)。
+
+    status:
+      - "ok"               —— 单位明确且受支持（"元" / "万元"），factor 为换算系数
+      - "unit_missing"     —— coverage_unit 缺失 / 空串 / 非字符串
+      - "unit_unsupported" —— coverage_unit 是受支持之外的值（如 "亿元" / "USD"）
+
+    ⚠️ SDI-4 整改 2026-11-09：**不做静默兜底**。
+    旧实现在单位缺失时静默套「万元」系数（×10000），而旧 docstring 却把缺省单位
+    写成「元」—— 文档与实现相反，单位缺失时可售上限会被**放大 10000 倍**，
+    反而放行超出真实可售上限的保额。
+    现在：单位缺失 → 不猜、不换算（factor=None, status="unit_missing"）；
+    单位不受支持 → 显式标记（factor=None, status="unit_unsupported"），
+    两者都**不静默套任何乘数**，交由调用方如实留痕 + 对外披露。
+
+    ⚠️ 口径选择说明（重要，勿擅自改为缺省「元」）：
+    若把缺省单位改成「元」，实测产品库 2267 条「万元」记录的换算结果会**缩小
+    10000 倍** → 击穿可售上限夹逼保护（上限保护失效比「文档↔实现矛盾」更严重）。
+    因此本轮口径 = 显式支持「元」/「万元」；缺失与不支持一律**不换算**。
+    （实测「有保额上下限但缺单位」的记录数为 0、「元/万元」之外的单位为 0 条
+      → 对现有数据零行为影响。）
+
+    Returns:
+        tuple[int | None, str]: (换算系数, 状态)。factor 为 None 时**不得**套任何乘数。
+    """
+    if not product:
+        return None, "unit_missing"
+    unit = product.get("coverage_unit")
+    if unit is None or not isinstance(unit, str):
+        return None, "unit_missing"
+    unit = unit.strip()
+    if not unit:
+        return None, "unit_missing"
+    if unit not in _COVERAGE_UNIT_FACTORS:
+        return None, "unit_unsupported"
+    return _COVERAGE_UNIT_FACTORS[unit], "ok"
+
+
 def _coverage_floor(product, entry):
-    """保额下调下限：产品 min_coverage（单位万元→元）；无 min_coverage 时用原保额 60%。"""
+    """保额下调下限：产品 min_coverage 按**单位合同**换算为元。
+
+    单位口径（与 _coverage_unit_factor 严格一致）：
+      - `coverage_unit == "万元"` → min_coverage × 10000
+      - `coverage_unit == "元"`    → min_coverage × 1
+      - 单位缺失 / 空串 / 非字符串 → **不换算**（不猜单位、不套任何乘数）
+      - 单位不受支持（如 "亿元"）  → **不换算**（不静默套乘数）
+
+    当 min_coverage 缺失、或单位不可信（无法确定可售最小保额）时，
+    沿用既有兜底语义：**原保额的 60%**（`current * 0.6`）。
+
+    ⚠️ SDI-4 整改 2026-11-09：旧实现在单位缺失时静默按「万元」换算 min_coverage，
+    与旧 docstring 把缺省单位写成「元」相反 → 下限被放大 10000 倍，
+    预算下调时的保额下限形同虚设。现与 _coverage_unit_factor 共用同一合同，
+    **单位不可信时不套任何乘数**。
+    """
     current = entry.get("coverage") or 0
     floor = None
     if product:
         raw_min = product.get("min_coverage")
         if raw_min is not None:
-            unit = product.get("coverage_unit") or "万元"
-            try:
-                floor = float(raw_min) * (10000 if unit == "万元" else 1)
-            except (TypeError, ValueError):
-                floor = None
+            factor, _unit_status = _coverage_unit_factor(product)
+            if factor is not None:
+                try:
+                    floor = float(raw_min) * factor
+                except (TypeError, ValueError):
+                    floor = None
     if not floor or floor <= 0:
         return current * 0.6
     return min(floor, current)
 
 
+def _coverage_cap_status(product):
+    """返回 (cap, status)：可售保额上限（元）与该上限的可信度状态。
+
+    status 取值：
+      - "ok"                   —— max_coverage 与单位均可信，cap 为换算后的元值
+      - "no_product"           —— 产品记录缺失
+      - "max_coverage_missing" —— 产品库未提供 max_coverage
+      - "max_coverage_invalid" —— max_coverage 非数值或非正数
+      - "unit_untrusted"       —— max_coverage 有值但 coverage_unit 缺失/为空/非字符串
+      - "unit_unsupported"     —— max_coverage 有值但 coverage_unit 是受支持之外的值
+
+    ⚠️ SDI-4 整改 2026-11-09：**单位口径由 _coverage_unit_factor 单一来源定义**。
+    旧实现在单位缺失时静默套「万元」系数（×10000），而旧 docstring 却把缺省单位
+    写成「元」—— 文档与实现相反；若某条记录的真实单位是「元」，
+    按万元换算会把上限**放大 10000 倍**，反而放行超出真实可售上限的保额。
+    现在：
+      - 单位缺失 → **不猜单位、不做换算**，返回 (None, "unit_untrusted")；
+      - 单位不受支持 → **不静默套乘数**，返回 (None, "unit_unsupported")；
+      两者都不设上限（不虚构上限），由调用方写入留痕 + 对外披露。
+
+    ⚠️ 判定顺序：max_coverage 的三类状态（缺失 / 非数值 / 非正数）保持**原样不变**，
+    单位合同仅在 max_coverage 存在且为正数时生效。
+    """
+    if not product:
+        return None, "no_product"
+    raw = product.get("max_coverage")
+    if raw is None:
+        return None, "max_coverage_missing"
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None, "max_coverage_invalid"
+    if value <= 0:
+        return None, "max_coverage_invalid"
+    factor, unit_status = _coverage_unit_factor(product)
+    if unit_status == "unit_missing":
+        # 单位缺失 → 单位不可信：不换算、不设上限（交给调用方披露）
+        return None, "unit_untrusted"
+    if unit_status == "unit_unsupported":
+        # 单位是受支持之外的值 → 显式标记：不换算、不设上限
+        return None, "unit_unsupported"
+    if factor is None:
+        return None, "unit_untrusted"
+    return int(value * factor), "ok"
+
+
 def _coverage_cap(product):
-    """保额上限：产品 max_coverage（单位万元→元）；无 max_coverage 时返回 None（不设上限）。
+    """保额上限：产品 max_coverage（可售保额上限）按 coverage_unit 换算为元；不可信时返回 None。
 
     ⚠️ R4 整改 2026-11-08：产品库中 max_coverage 是**可售保额上限**，
     如「安心少儿意外险」max_coverage=50（万元）= 500,000 元，
     方案原写死 2,500,000 元 → 超上限 50 倍（对外虚报可售保额）。
-    `coverage_unit` 为「万元」时 ×10000；其他单位（缺省视为元）不换算。
-    max_coverage 缺失（None / 非数值）→ 返回 None，**不设上限**，
-    调用方须如实标注「该产品未提供可售保额上限」，不得假装有上限。
+
+    ⚠️ SDI-4 整改 2026-11-09：**单位口径（与实现严格一致，来源 = _coverage_unit_factor）**
+      - `coverage_unit == "万元"` → ×10000 换算为元；
+      - `coverage_unit == "元"`    → ×1，不换算；
+      - `coverage_unit` 缺失/为空/非字符串 且 max_coverage 有值 → **单位不可信**：
+        **不**按万元、也**不**按元静默换算 → 返回 None（不设上限），
+        由调用方写入留痕并对外披露（见 _apply_coverage_cap / _build_coverage_disclaimers）。
+        （实测产品库中 max_coverage 有值的记录 `coverage_unit` 全部为「万元」，
+          「有值但缺单位」的记录数为 0；此分支为防御性口径。）
+      - `coverage_unit` 为受支持之外的值（如 "亿元" / "USD"） → **不静默套乘数**：
+        返回 None（不设上限），并由调用方以 `unit_unsupported` 状态留痕 + 披露。
+      - max_coverage 缺失（None / 非数值 / 非正数）→ 返回 None，**不设上限**，
+        调用方须如实标注「该产品未提供可售保额上限」，不得假装有上限。
+
+    Returns:
+        int | None: 可售保额上限（元）；上限未知或不可信时为 None。
     """
-    if not product:
-        return None
-    raw = product.get("max_coverage")
-    if raw is None:
-        return None
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        return None
-    if value <= 0:
-        return None
-    unit = product.get("coverage_unit") or "万元"
-    if unit == "万元":
-        value = value * 10000
-    return int(value)
+    cap, _status = _coverage_cap_status(product)
+    return cap
 
 
 def _apply_coverage_cap(plan, product, desired_coverage, entry_type=None, entry_name=None):
     """把期望保额夹到产品 max_coverage 上限；触顶时写入 budget_adjustments。
 
+    ⚠️ F4 整改 2026-11-09：**上限未知（cap is None）时不再静默放行**。
+    旧实现原样返回期望保额且**不留任何痕迹** → 最终方案呈现一个「看起来很具体」
+    却未经可售上限核实的保额，对用户构成误导。
+    现在写入 `coverage_cap_unknown` 留痕（可审计），
+    并由 _finalize_plan 汇总为对外披露（plan["coverage_disclaimers"]）。
+
     Returns:
         tuple[int, bool]: (最终保额, 是否因上限而被下调)
     """
-    cap = _coverage_cap(product)
+    cap, cap_status = _coverage_cap_status(product)
     desired = int(desired_coverage or 0)
-    if cap is None or desired <= cap:
+    if cap is None:
+        # 上限未知/不可信 → 不设上限（不虚构上限），但必须留痕并披露
+        plan.setdefault("budget_adjustments", []).append({
+            "type": "coverage_cap_unknown",
+            "product": entry_name,
+            "product_type": entry_type,
+            "requested_coverage": desired,
+            "cap_status": cap_status,
+            "max_coverage": (product or {}).get("max_coverage"),
+            "coverage_unit": (product or {}).get("coverage_unit"),
+            "reason": "该产品在产品库中未提供可核实的可售保额上限"
+                      "（max_coverage 缺失/非数值/非正数，或保额单位不可信/不受支持），"
+                      "此保额未经可售上限核实，请以保险公司正式测算为准",
+        })
+        return desired, False
+    if desired <= cap:
         return desired, False
     plan.setdefault("budget_adjustments", []).append({
         "type": "coverage_capped",
@@ -404,6 +535,60 @@ def _apply_coverage_cap(plan, product, desired_coverage, entry_type=None, entry_
         "reason": "方案保额超过该产品在产品库的可售保额上限（max_coverage），已按上限下调",
     })
     return cap, True
+
+
+def _build_coverage_disclaimers(plan):
+    """汇总「可售保额上限未经核实」的险种，生成对外披露文案。
+
+    ⚠️ F4 整改 2026-11-09：审计原文指出
+    「_coverage_cap 返回 None 时，_apply_coverage_cap 原样返回期望保额且不留痕迹，
+      finalization 也不加对应披露 → 缺失/畸形/非正的 max_coverage 会产出
+      一个看似具体、但无可核实可售上限的保险建议」。
+
+    本函数把 budget_adjustments 中的 `coverage_cap_unknown` 记录汇总为
+    顶层 `coverage_disclaimers`（list[str]），**必须真实出现在最终 JSON 输出里**。
+
+    仅当确实存在上限未知的险种时才写入该键（无未知上限时**不新增空数组**，
+    以免给所有方案引入无意义的空字段）。
+
+    Returns:
+        list[str]: 披露文案列表；无上限未知险种时返回空列表。
+    """
+    unknown = [a for a in (plan.get("budget_adjustments") or [])
+               if isinstance(a, dict) and a.get("type") == "coverage_cap_unknown"]
+    if not unknown:
+        return []
+
+    # 只披露**最终方案里实际保留**的险种：
+    #   若某产品因保费超预算从未加入方案（或被 _enforce_budget 移除），
+    #   它不在 plan["products"] 里 → 不该出现在本方案的保额披露中。
+    final_names = {p.get("product_name") for p in (plan.get("products") or [])}
+    if not final_names:
+        return []
+    unknown = [a for a in unknown if a.get("product") in final_names]
+    if not unknown:
+        return []
+
+    # 按险种去重（同一险种可能多次留痕），保持出现顺序
+    seen = []
+    details = []
+    for adj in unknown:
+        label = adj.get("product_type") or "险种"
+        name = adj.get("product")
+        key = (label, name)
+        if key in seen:
+            continue
+        seen.append(key)
+        detail = f"{label}" + (f"「{name}」" if name else "")
+        details.append(detail)
+
+    n = len(details)
+    plural = "、".join(details)
+    return [
+        f"本方案中有 {n} 个险种（{plural}）的可售保额上限未在产品库中核实："
+        "产品库未提供可售保额上限，或保额单位不可信/不受支持，无法确认其可售上限。"
+        "上述险种的建议保额**未经可售上限核实**，请以保险公司正式测算结果为准。",
+    ]
 
 
 def _refresh_coverage_text(entry, from_coverage, to_coverage):
@@ -1182,6 +1367,15 @@ def _finalize_plan(plan, budget, annual_income, ratio, age, gender, products,
         _cov = _entry.get("coverage") or 0
         _entry["key_benefits"] = _normalize_coverage_claim(
             _entry.get("key_benefits"), _cov)
+    # ⚠️ F4 整改 2026-11-09：把「可售保额上限未核实」的险种汇总为**对外披露**。
+    #    必须写在**出口处**（与 total_coverage 重算同一位置），
+    #    否则上限未知的保额会以一种「看起来很具体」但未经核实的形式呈现给用户。
+    #    无上限未知的险种时**不新增该键**（避免给所有方案引入空字段）。
+    _coverage_disclaimers = _build_coverage_disclaimers(plan)
+    if _coverage_disclaimers:
+        plan["coverage_disclaimers"] = _coverage_disclaimers
+    else:
+        plan.pop("coverage_disclaimers", None)
     return plan
 
 

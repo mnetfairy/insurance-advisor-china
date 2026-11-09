@@ -1,9 +1,9 @@
 ---
 name: insurance-advisor-china
 description: 中国大陆AI保险顾问。为个人和家庭提供全方位的保险咨询、产品对比、方案设计、投保指导。当用户询问保险配置、保险方案、产品对比、重疾险/医疗险/寿险/意外险/储蓄险推荐、保费计算、保障缺口分析、需求分析、核保合规、理赔等问题时使用。发布产物仅含 SKILL.md + 3 个只读参考文件（references/products.json、insurance-knowledge.md、compliance.md）+ 3 个运行时脚本（needs_analyzer / premium_calculator / plan_designer）；数据清洗脚本与回归测试脚本是本地维护工具，不随发布产物分发。
-version: 2.3.7
+version: 2.3.8
 tags: insurance, china, financial, advisor, product-comparison, medical, family-protection, health
-last_published: 2026-11-09
+last_published: 2026-11-10
 allowed-tools:
   - read
   - exec
@@ -17,7 +17,8 @@ permissions:
                          # ⚠️ 维护路径（scripts/datafix/、scripts/runtime_patches/、
                          #    scripts/sanitize_products_json.py、scripts/test_*.py）
                          #    均为**本地维护工具，不随发布产物分发**、不在运行时白名单内、
-                         #    不由 agent 自动调用；仅由维护者在显式授权的离线流程中手动执行。
+                         #    不由 agent 自动调用；仅由维护者在显式授权的离线流程中手动执行，
+                         #    **agent 不代为执行（即使用户明确要求）**。
                          #    详见下方「权限与范围声明」章节
   exec:
     allow:
@@ -35,7 +36,8 @@ scope: |
   发布产物（ClawHub）仅含 7 个文件：SKILL.md、references/{products.json,insurance-knowledge.md,compliance.md}、
   scripts/{needs_analyzer.py,premium_calculator.py,plan_designer.py}。
   数据清洗脚本（sanitize_products_json.py）与回归测试脚本（test_*.py）是**本地维护工具**，
-  不随发布产物分发、不在运行时白名单内、不由 agent 自动调用。
+  不随发布产物分发、不在运行时白名单内、不由 agent 自动调用；
+  维护脚本仅由**维护者在独立的离线流程中手动执行**，**agent 不代为执行（即使用户明确要求）**。
   datafix/ 和 runtime_patches/ 是两个互相隔离的离线、按需手动触发的维护工具目录，与运行时业务流程隔离；
   其写路径已收敛到本 skill 目录内（--target / --db 越界一律拒绝，--dry-run 零写入）；
   详见下文「权限与范围声明」。
@@ -229,7 +231,7 @@ python3 scripts/needs_analyzer.py
 **执行方式**：
 - 读取 `references/insurance-knowledge.md`
 - 根据用户问题匹配相关章节
-- 用中文清晰解释
+- 用中文清晰解释（用户明确要求其他语言时，按用户指定的语言输出）
 
 **知识覆盖范围**：
 - 五大险种定义与功能
@@ -363,7 +365,7 @@ echo '{"age":35,"gender":"男","annual_income":500000,"annual_budget":500000,"co
 3. 产品数据为静态参考数据，实际保费以保险公司正式测算为准
 4. 方案设计结果仅供参考，最终方案需结合客户实际情况调整
 5. 合规提示不能替代专业法律意见
-6. 所有输出内容使用中文
+6. 输出语言：默认使用中文；当用户明确要求其他语言时，按用户指定的语言输出（保险条款名称、产品名称、监管机构名称保留原文）
 7. **规范一/二/三均为强制要求**：规范一/二适用于所有产品推荐场景；规范三为本 skill 的核心差异化功能，必须在模块2/4执行完毕后优先呈现，不可省略；用户可要求其他渠道并列对比
 
 ---
@@ -393,6 +395,10 @@ SKILL_DIR/
 - ❌ 不修改任何源文件、不重写产品数据、不创建备份
 - ❌ 不发起任何网络请求、不连接任何外部服务
 - ❌ 不读取、不外传任何凭据或环境变量
+- ✅ **保额上限如实披露**：保额只按产品库 `max_coverage`（可售保额上限）夹逼；当某险种的
+  可售保额上限未知/不可信（产品库未提供 `max_coverage`、或保额单位缺失/不支持）时，**不虚构上限**，
+  而是写入 `budget_adjustments.coverage_cap_unknown` 留痕，并在最终输出的 `coverage_disclaimers`
+  中对外明示「该险种的建议保额未经可售上限核实，以保险公司正式测算为准」
 
 ### 维护路径（datafix/ — 离线手动工具，非 agent 调用）
 
@@ -400,18 +406,19 @@ SKILL_DIR/
 
 | 脚本 | 触发方式 | 行为 |
 |------|---------|------|
-| `fix_phase0_*.py`, `fix_P0-1_*.py`, ..., `fix_P1-5_*.py` | **人工手动执行**，agent 不调用 | 重写 `references/products_v2.json` 中的脏数据字段（P0/P1 数据治理项目产物） |
-| `lib_common.py` | 上述脚本的共享库 | 提供日志/路径工具 |
-| `test_integration.py`, `test_e2e_regression.py` | **人工手动执行** | 跑 `subprocess.run(["python3", ...])` 验证上述修复脚本的幂等性，输出 PASS/FAIL |
-| `reports/`, `backups_pre_fix/`, `backups/` | 历史制品 | 数据治理过程中的备份与报告 |
-| `scripts/runtime_patches/` | **人工手动执行**，agent 不调用 | 一次性离线运行时打补丁工具，专门修复 `scripts/*.py` 中的边界崩溃（如 `coverage_period=None`）。与 `datafix/` 隔离：只动运行时脚本，不碰产品数据 |
+| `fix_phase0_*.py`, `fix_P0-1_*.py`, ..., `fix_P1-5_*.py` | **维护者手动执行（agent 不代为执行）** | 重写 `references/products_v2.json` 中的脏数据字段（P0/P1 数据治理项目产物） |
+| `lib_common.py` | **维护者手动执行（agent 不代为执行）** | 提供日志/路径工具 |
+| `test_integration.py`, `test_e2e_regression.py` | **维护者手动执行（agent 不代为执行）** | 跑 `subprocess.run(["python3", ...])` 验证上述修复脚本的幂等性，输出 PASS/FAIL |
+| `reports/`, `backups_pre_fix/`, `backups/` | **维护者手动执行（agent 不代为执行）** | 历史制品 |
+| `scripts/runtime_patches/` | **维护者手动执行（agent 不代为执行）** | 一次性离线运行时打补丁工具，专门修复 `scripts/*.py` 中的边界崩溃（如 `coverage_period=None`）。与 `datafix/` 隔离：只动运行时脚本，不碰产品数据 |
 
 **维护路径承诺（已根据 T07 报告调整）：**
 - ✅ `datafix/` 只触碰产品数据（`references/products*.json`）与备份目录
 - ✅ `runtime_patches/` 只触碰运行时脚本（`scripts/*.py`），与 `datafix/` 严格隔离
 - ✅ 这两类脚本**默认不参与业务对话流程**——它们是开发期一次性维护工具
 - ✅ agent 在保险咨询场景下**不会**主动调用 `datafix/` 或 `runtime_patches/` 下任何脚本
-- ✅ 若用户明确要求运行维护脚本，agent 会先再次确认意图，并仅在用户授权后执行
+- ✅ 维护脚本由**维护者在独立的离线流程中手动执行**；agent 在任何情况下**都不代为执行**
+  （即使用户明确要求），仅可说明其用途、影响范围与运行方式，**不代跑、不代改**
 - ✅ 维护路径仅触碰 `references/products*.json`、`references/backups*/`、`scripts/*.py` 内的边界崩溃修复，不越界到 skill 之外
 
 ### 测试脚本输出卫生（test_integration.py / test_e2e_regression.py）
@@ -425,7 +432,7 @@ SKILL_DIR/
 | 维度 | 声明 |
 |------|------|
 | 文件读取 | 仅 `references/products.json`、`insurance-knowledge.md`、`compliance.md` |
-| 文件写入 | 运行时：无；维护路径：`datafix/` 仅写 `references/products*.json` + `references/backups*/`；`runtime_patches/` 仅写 `scripts/*.py`（均需用户显式授权） |
+| 文件写入 | 运行时：无；维护路径：`datafix/` 仅写 `references/products*.json` + `references/backups*/`；`runtime_patches/` 仅写 `scripts/*.py`（**由维护者在离线流程中手动执行，agent 不代为执行**） |
 | 子进程 | 白名单 `python3 scripts/{needs_analyzer,premium_calculator,plan_designer}.py`；其他一律拒绝 |
 | 网络出口 | 无 |
 | 凭据访问 | 无 |
@@ -617,7 +624,145 @@ fallback 三件套 / SKILL.md 引用 / 联系方式展示策略与本 skill 既�
 
 ---
 
+## 🛡️ ClawHub 安全审计整改记录 · 任务 3（SQP-3 / SDI-3 / SDI-4，2026-11-09）
+
+> 对应审计报告：`https://clawhub.ai/mnetfairy/skills/insurance-advisor-china/security-audit`
+> 官方扫描包：`clawhub scan download insurance-advisor-china --version 2.3.7 --json`
+> 审计时间：2026-11-09 · scanner 2.12.0
+> 官方扫描结论：**issueCount=3 / score=31 / severity=MEDIUM / status=suspicious /
+> inspectionStatus=partial / recommendation=CAUTION**
+> `clawscan.json`：**verdict=suspicious**；`instruction_scope` / `environment_proportionality` /
+> `persistence_privilege` 三个维度为 concern。
+>
+> 对应规格书：`2026-11-09_115500_main_coder_china_ClawHub审计SQP3_SDI3_SDI4整改.md`
+> 上一轮（任务 2 R4/R5/R6/R7 与 F3/F4 代码层）见上文。
+
+### 根因与修法总览
+
+| 编号 | 类别 | 置信度 | 根因 | 修法 |
+|---|---|---|---|---|
+| **SQP-3** | Output Handling | 90% | 「注意事项」第 6 条写死了**无条件、无例外、无 opt-in** 的中文-only 输出要求，不顾用户语言偏好 | 改为「输出语言：**默认**使用中文；当用户**明确要求**其他语言时，按用户指定的语言输出（保险条款名称、产品名称、监管机构名称保留原文）」；模块5 执行方式同步补 opt-in 例外；**大陆保险管辖范围一字不改**（管辖范围与回复语言是两件事） |
+| **SDI-3** | Excessive Agency | 95% | 维护章节指示 agent 在「用户确认后执行维护脚本」—— 把**对话确认**当作调用可修改产品数据 / 可执行脚本的**充分条件**，与 manifest「3 条运行时命令白名单 + 禁文件写入」冲突 | **删除**「用户授权后执行」条款；维护路径表格「触发方式」列统一改为「**维护者手动执行（agent 不代为执行）**」；「权限声明总结」文件写入行、frontmatter 权限注释与 scope 同步如实声明 |
+| **SDI-4** | Excessive Agency | 99% | `scripts/plan_designer.py`：`coverage_unit` **文档↔实现矛盾**（旧 docstring 写「缺省视为元」、旧实现按「万元」×10000）；`_coverage_floor()` 用 `product.get("coverage_unit") or "万元"` **静默兜底**；`_coverage_cap_status()` 对**不支持的单位**静默按 ×1 处理 | 新增 `_coverage_unit_factor()` 作为**单一事实来源**；`_coverage_cap_status()` 与 `_coverage_floor()` **共用**同一合同：显式支持「元」/「万元」；**单位缺失 → 不猜不换算**（`unit_missing` / `unit_untrusted`）；**单位不受支持 → 显式标记**（`unit_unsupported`）—— 两者**不静默套任何乘数** |
+
+### 各项修法明细
+
+**SQP-3（Output Handling，90%）**
+- 根因位置：`SKILL.md`「注意事项」第 6 条（原为无条件中文-only 表述）+ 模块 5 执行方式（原「用中文清晰解释」）。
+- 修法：两处均改为「默认中文 + 用户明确要求时按用户指定语言输出」；补充「保险条款名称、产品名称、监管机构名称**保留原文**」例外。
+- ⚠️ **管辖范围独立于回复语言**（官方 remediation 明确要求）：frontmatter `description`（`中国大陆AI保险顾问`）、`scope`、正文「目标用户：中国大陆有保险需求的个人、家庭」**一字未改**。
+- 行为影响：**零**（仅输出语言措辞，非计算逻辑）。
+
+**SDI-3（Excessive Agency，95%）**
+- 根因位置：`SKILL.md`「维护路径承诺」中把「用户确认」当作执行维护脚本的**充分条件**的那一条。
+- 修法（官方 remediation 首选路径：**移除 agent 执行例外** + 指向独立人工流程）：
+  - 该条替换为「维护脚本由**维护者在独立的离线流程中手动执行**；agent 在任何情况下**都不代为执行**（即使用户明确要求），仅可说明其用途、影响范围与运行方式，**不代跑、不代改**」；
+  - 维护路径表格「触发方式」列**每一行**统一为「维护者手动执行（agent 不代为执行）」；
+  - 「权限声明总结」文件写入行同步声明「**由维护者在离线流程中手动执行，agent 不代为执行**」；
+  - frontmatter `permissions.filesystem.write` 注释块与 `scope` 补同一句（**其余字段一字不动**）。
+- 行为影响：**零**（维护脚本本就**不随发布产物分发**、**不在运行时白名单内**；本轮只是把文档里的「对话确认即可执行」口子关上）。
+- ⚠️ 本 skill **未**新增任何独立的 agent 辅助维护权限 profile —— 维护路径**完全不在**运行时白名单内。
+
+**SDI-4（Excessive Agency，99%）**
+- 根因位置：`scripts/plan_designer.py` 的 `_coverage_floor()` / `_coverage_cap_status()` / `_coverage_cap()`。
+- 修法：新增 `_coverage_unit_factor(product) → (factor, status)`（**单一事实来源**）：
+  | `coverage_unit` | factor | status |
+  |---|---|---|
+  | `"万元"` | 10000 | `ok` |
+  | `"元"` | 1 | `ok` |
+  | 缺失 / 空串 / 非字符串 | `None` | `unit_missing` |
+  | 受支持之外的值（如 `"亿元"`） | `None` | `unit_unsupported` |
+  - `_coverage_cap_status()` 复用它：单位缺失 → `(None, "unit_untrusted")`；单位不受支持 → `(None, "unit_unsupported")`（**新增状态**）。
+  - `_coverage_floor()` 复用它：factor 无效 → **不套任何乘数**，`floor = None` → 沿用既有兜底 `current * 0.6`（保持「无法确定下限时用 60% 原保额」的既有语义）。
+  - **禁止项已消除**：函数体内不再出现 `or "万元"` 静默兜底。
+  - `_apply_coverage_cap()` / `_build_coverage_disclaimers()` / `_finalize_plan()` 的 F4 逻辑**保持不变**（`coverage_cap_unknown` 留痕 + 顶层 `coverage_disclaimers` 披露）；**唯一增量**是 `cap_status` 新增取值 `unit_unsupported` + 披露文案补一句「或保额单位不受支持」，**披露出现的条件未变**（仍只在确实存在上限未知的险种时写入）。
+- ⚠️ **口径选择说明（勿擅自改为缺省「元」）**：若把缺省单位改成「元」，实测产品库 2267 条「万元」记录的换算结果会**缩小 10000 倍** → **击穿可售上限夹逼保护**（上限保护失效比「文档↔实现矛盾」更严重）。因此本轮口径 = 显式支持「元」/「万元」，缺失与不支持一律**不换算**。
+
+### 实测数据事实
+
+| 指标 | 实测值 |
+|---|---|
+| `references/products.json` 产品总数 | **2542** 条 |
+| `coverage_unit` 取值分布 | `万元` **2267** 条 / `None` **275** 条 / **无其他取值** |
+| `max_coverage` 有值 | 2266 条（其 `coverage_unit` **全部**为「万元」） |
+| `min_coverage` 有值 | 2267 条 |
+| **有保额上下限但缺 `coverage_unit`** | **0 条** |
+| 非「元 / 万元」的单位取值 | **0 条** |
+| `max_coverage` 缺失但 `min_coverage` 有值 | 1 条（储蓄险，min=1 万元） |
+| `references/products.json` md5 | **`8532edd18b8dc03075493401e4b5f232`**（本轮零字节改动） |
+
+### 本轮红线声明（全部保持）
+
+- **「### 规范三」整段逐字未改**（与 `git show HEAD:SKILL.md` 同名段落**字节级一致**）
+- 客服电话与首选公司两个 token 的出现次数 = **6** 与 **8**（均与 HEAD 基线一致，见上方测试断言）
+- 锁定标记出现次数 = **4**（本章节标题**不含**该标记）；**「锁定标记 + 隐藏展示策略」组合字面串不出现**（本 skill 为「直接展示」策略）
+- `references/products.json` md5 = **`8532edd18b8dc03075493401e4b5f232`**（未改动）
+- `scripts/test_insurance_recommendations.py` **未修改**，仍 **7/7 PASS**
+- 未 `git push`、未 `clawhub publish`；未改 `.gitignore` / `.clawhubignore` / git 索引；未删任何维护脚本
+
+### 行为等价性说明
+
+保额上限口径改为「**显式支持元/万元、缺失与不支持则不换算**」后：
+- 对现有 **2267** 条「万元」记录的换算结果**零影响**（factor 仍为 10000）；
+- `min_coverage` 侧同理 —— **「有保额上下限但缺单位」的记录数为 0** → 兜底分支**不会被触发**；
+- → **三套方案的 `annual_premium` / `total_coverage` / 各险种 `coverage` 完全不变**
+  （仅**新增** `coverage_cap_unknown` 留痕与 `coverage_disclaimers` 披露字段）。
+
+### 新增测试
+
+`scripts/test_audit_remediation.py`（本 skill 专属）：**47 → 92 项**，
+新增 **F5**（语言 opt-in，7 条）/ **F6**（维护权限边界，7 条）/ **F7**（单位合同，22 条）/
+**任务 3 红线守卫**（9 条）→ **92/92 PASS**。
+
+---
+
 ## 更新日志
+
+- v2.3.8 (2026-11-09)：**ClawHub 安全审计整改 · 任务 3（SQP-3 / SDI-3 / SDI-4）**：
+  - ⚠️ **400 电话优先推荐功能零改动**（本轮**未触及**规范三与 400 电话优先推荐的任何逻辑、
+    token 或表述；「### 规范三」整段与 `git show HEAD:SKILL.md` **字节级一致**；
+    客服电话 / 首选公司 / 锁定标记三个 token 的计数均与 HEAD 基线一致）
+  - ⚠️ **零数据变更**：`references/products.json` **零字节改动**，md5 保持
+    `8532edd18b8dc03075493401e4b5f232`
+  - **SQP-3（Output Handling，90%）**：输出语言规则由**无条件中文-only** 改为
+    「输出语言：**默认**使用中文；**当用户明确要求其他语言时，按用户指定的语言输出**」
+    （保险条款名称、产品名称、监管机构名称**保留原文**）；模块 5 执行方式同步补 opt-in 例外
+    —— **保留大陆保险顾问的默认中文定位**，同时给出用户 opt-in 例外；
+    ⚠️ **管辖范围独立于回复语言**：frontmatter `description` / `scope` 与正文「目标用户」
+    **一字未改**
+  - **SDI-3（Excessive Agency，95%）**：删除把「用户确认」当作执行授权的那一条
+    —— **对话确认 ≠ 执行授权**；维护脚本改为「**由维护者在独立的离线流程中手动执行，
+    agent 不代为执行（即使用户明确要求）**」；维护路径表格「触发方式」列**每一行**、
+    「权限声明总结」文件写入行、frontmatter 权限注释与 `scope` 均同步如实声明；
+    ⚠️ 本轮**未**新增任何 agent 辅助维护权限 profile —— 维护路径**完全不在**运行时白名单内
+  - **SDI-4（Excessive Agency，99%）**：新增 `_coverage_unit_factor()` 作为保额单位合同的
+    **单一事实来源**（`万元`→10000 / `元`→1 / 缺失·空串·非字符串→`unit_missing` /
+    受支持之外的值→`unit_unsupported`）；`_coverage_cap_status()` 与 `_coverage_floor()`
+    **共用**同一合同 —— 单位缺失与单位不受支持**一律不静默套乘数**
+    （缺失 → `(None, "unit_untrusted")`；不受支持 → `(None, "unit_unsupported")`）；
+    `_coverage_floor()` 中 `or "万元"` 静默兜底**已消除**，单位不可信时沿用既有
+    `current * 0.6` 兜底语义；`_apply_coverage_cap()` / `_build_coverage_disclaimers()` /
+    `_finalize_plan()` 的 F4 逻辑**保持不变**（`coverage_cap_unknown` 留痕 +
+    顶层 `coverage_disclaimers` 披露），仅 `cap_status` 新增取值 `unit_unsupported`
+    与披露文案补一句「或保额单位不受支持」，**披露出现的条件未变**
+  - ⚠️ **口径选择说明**：**不**把缺省单位改成「元」—— 那会让 2267 条「万元」记录的换算结果
+    **缩小 10000 倍**，直接击穿可售上限夹逼保护（比「文档↔实现矛盾」更严重）；
+    本轮口径 = 显式支持「元」/「万元」，缺失与不支持一律**不换算**
+  - **行为等价性**：单位合同改为「显式支持元/万元、缺失与不支持则不换算」后，
+    对现有 2267 条「万元」记录换算结果**零影响**；「有保额上下限但缺单位」的记录数为 **0**
+    → 兜底分支不会被触发 → **三套方案的 `annual_premium` / `total_coverage` /
+    各险种 `coverage` 完全不变**（仅新增披露字段）
+  - **代码改动范围**：**只改** `scripts/plan_designer.py` 的保额单位处理
+    （新增 `_coverage_unit_factor`；`_coverage_cap_status` / `_coverage_floor` 复用它；
+    `_coverage_cap` docstring 对齐；披露文案补「不受支持」）；
+    **未改**：保费计算公式、需求分析口径、产品选品逻辑、预算硬约束与降保额/移除险种逻辑、
+    `total_coverage` 出口重算、`coverage_capped` 触顶记录
+  - **测试**：`scripts/test_audit_remediation.py` 47 → **92 项**（新增 F5/F6/F7 + 任务 3 红线守卫
+    共 45 条断言）→ **92/92 PASS**；`test_insurance_recommendations` 7/7 ·
+    `test_budget_compliance` 149/149 · `test_discontinued_filter` 13/13 ·
+    `test_data_hygiene` 22/22
+  - **红线**：未 `git push`、未 `clawhub publish`；未改 `products.json` / `.gitignore` /
+    `.clawhubignore` / git 索引；未删任何维护脚本；`test_insurance_recommendations.py` 未修改仍 7/7
 
 - v2.0.203 (2026-11-08)：**ClawHub 安全审计整改 · 任务 1（R1/R2/R3 发布面收敛与维护工具隔离）**：
   - ⚠️ **本版零数据变更**：`references/products.json` md5 保持 `5ecc1184af29ee9b141a0d7b4da8e04a`（未改动）

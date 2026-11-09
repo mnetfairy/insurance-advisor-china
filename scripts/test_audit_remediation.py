@@ -15,6 +15,12 @@ ClawHub 安全审计整改 · 任务 2 测试（R4/R5/R6/R7）
   R7.1 报价池无 is_duplicate=True；eligible_products == len(load_products())
   A    400 红线守卫（400-860-0058 / 安盛天平 / 无「🔒 待确认后展示」/ 三件套）
 
+对应整改规格《2026-11-09_115500_main_coder_china_ClawHub审计SQP3_SDI3_SDI4整改.md》的断言表：
+  F5   SQP-3 输出语言 opt-in（不再无条件强制全中文；默认中文 + 用户 opt-in + 保留原文例外）
+  F6   SDI-3 维护脚本权限边界（对话确认 ≠ 执行授权；agent 不代为执行；运行时承诺披露）
+  F7   SDI-4 保额单位合同（_coverage_unit_factor 单一事实来源；缺失/不支持不静默套乘数）
+  T3   任务 3 红线守卫（token 计数 / 规范三字节级一致 / products.json md5 / frontmatter 版本）
+
 ⚠️ 本文件是 **insurance-advisor-china 专属**测试（基线与其他 skill 不同），
    不复用 ai-insurance-advisor 的同名文件。
 
@@ -155,6 +161,109 @@ def test_r4_4_no_cap_no_fake_upper_bound():
         {"name": "x", "coverage_unit": "元", "max_coverage": 50}) == 50
     check("_coverage_cap: 缺 max_coverage → None / 万元×10000 / 元不换算", ok and ok2 and ok3 and ok4)
     return ok and ok2 and ok3 and ok4
+
+
+# ---------------------------------------------------------------------------
+# F3/F4 — ClawHub 安全审计（2026-11-09）回归守卫
+#
+# F3 Excessive Agency : _coverage_cap 的 docstring 不得再声称「缺省视为元」；
+#                       max_coverage 有值但 coverage_unit 缺失时不得静默按万元换算
+# F4 Excessive Agency : 上限未知（cap is None）必须留痕 coverage_cap_unknown，
+#                       且最终 JSON 必须含对外披露 coverage_disclaimers
+# ---------------------------------------------------------------------------
+
+
+def test_f3_unit_doc_and_behavior():
+    """F3: docstring 与实现一致；单位缺失不得静默按万元换算"""
+    print("\nTest F3: 单位口径 docstring 与实现一致")
+    doc = plan_designer._coverage_cap.__doc__ or ""
+    ok = "缺省视为元" not in doc
+    check("_coverage_cap docstring 不再声称「缺省视为元」", ok)
+    ok2 = "其他单位（缺省视为元）不换算" not in doc
+    check("_coverage_cap docstring 不再出现「其他单位（缺省视为元）不换算」", ok2)
+    ok3 = ("万元" in doc and "10000" in doc)
+    check("_coverage_cap docstring 明确写出「万元」→ ×10000 换算", ok3)
+    ok4 = ("单位不可信" in doc) or ("缺失/为空" in doc)
+    check("_coverage_cap docstring 明确写出单位缺失 → 不换算/不设上限", ok4)
+    # R4 背景（可售保额上限语义、50 万 = 500,000 元）必须保留
+    ok5 = ("可售保额上限" in doc) and ("500,000" in doc)
+    check("docstring 保留 R4 背景（可售保额上限 + 50 万 = 500,000 元）", ok5)
+
+    # 行为：单位缺失 + max_coverage 有值 → 不得静默按万元换算
+    cap = plan_designer._coverage_cap
+    ok6 = cap({"max_coverage": 50}) is None
+    check("max_coverage 有值但 coverage_unit 缺失 → 不静默按万元换算", ok6,
+          "若为 500000 则说明仍在按万元静默换算")
+    ok7 = cap({"max_coverage": 50, "coverage_unit": ""}) is None
+    check("max_coverage 有值但 coverage_unit 为空串 → 同样不换算", ok7)
+    ok8 = cap({"max_coverage": 50, "coverage_unit": "万元"}) == 500000
+    check("coverage_unit='万元' → ×10000 换算不受影响", ok8)
+    ok9 = cap({"max_coverage": 500000, "coverage_unit": "元"}) == 500000
+    check("coverage_unit='元' → ×1 不换算不受影响", ok9)
+    status = plan_designer._coverage_cap_status
+    ok10 = status({"max_coverage": 50})[1] == "unit_untrusted"
+    check("_coverage_cap_status 能区分 unit_untrusted", ok10)
+    ok11 = status({"max_coverage": 50, "coverage_unit": "万元"})[1] == "ok"
+    check("_coverage_cap_status 对正常记录返回 ok", ok11)
+    return all([ok, ok2, ok3, ok4, ok5, ok6, ok7, ok8, ok9, ok10, ok11])
+
+
+def test_f4_cap_unknown_disclosure():
+    """F4: 上限未知必须留痕 + 在最终 JSON 里对外披露"""
+    print("\nTest F4: 上限未知留痕 + 对外披露")
+
+    # cap=None → 写 coverage_cap_unknown 留痕
+    plan = {}
+    cov, capped = plan_designer._apply_coverage_cap(
+        plan, {"name": "测试产品", "type": "意外险"}, 123456, "意外险", "测试产品")
+    unknown = [a for a in (plan.get("budget_adjustments") or [])
+               if a.get("type") == "coverage_cap_unknown"]
+    ok = bool(unknown)
+    check("cap=None 时写入 coverage_cap_unknown 留痕", ok)
+    if unknown:
+        rec = unknown[0]
+        ok2 = (rec.get("product") == "测试产品"
+               and rec.get("product_type") == "意外险"
+               and rec.get("requested_coverage") == 123456)
+        check("coverage_cap_unknown 含 product / product_type / requested_coverage", ok2)
+        ok3 = bool(rec.get("reason")) and "未经可售上限核实" in rec.get("reason", "")
+        check("coverage_cap_unknown 含说明性 reason", ok3)
+    else:
+        ok2 = ok3 = False
+    ok4 = (cov == 123456 and capped is False)
+    check("cap=None 时保额原样返回（不虚构上限、不擅自下调）", ok4,
+          f"cov={cov} capped={capped}")
+
+    # 最终 JSON 必须含对外披露
+    plans = _plans(500000, 500000)
+    disclosed = [n for n, p in plans.items()
+                 if isinstance(p.get("coverage_disclaimers"), list)
+                 and p["coverage_disclaimers"]]
+    ok5 = bool(disclosed)
+    check("最终方案 JSON 含 coverage_disclaimers 对外披露", ok5, f"含披露：{disclosed}")
+    if disclosed:
+        blob = json.dumps([d for p in plans.values()
+                           for d in (p.get("coverage_disclaimers") or [])],
+                          ensure_ascii=False)
+        ok6 = all(t in blob for t in
+                  ("未经可售上限核实", "可售保额上限", "保险公司正式测算"))
+        check("披露文案含「未经可售上限核实 / 可售保额上限 / 保险公司正式测算」", ok6)
+        rt = json.loads(json.dumps(plans, ensure_ascii=False))
+        ok7 = any(isinstance(rt[n].get("coverage_disclaimers"), list)
+                  and rt[n]["coverage_disclaimers"] for n in rt)
+        check("披露经 JSON 序列化往返后仍存在（真实进入最终输出）", ok7)
+    else:
+        ok6 = ok7 = False
+
+    # 触顶记录 coverage_capped 逻辑不变
+    capped_records = [a for p in plans.values()
+                      for a in (p.get("budget_adjustments") or [])
+                      if a.get("type") == "coverage_capped"]
+    ok8 = bool(capped_records) and all(
+        r.get("capped_to") is not None and r.get("requested_coverage") is not None
+        and r["capped_to"] < r["requested_coverage"] for r in capped_records)
+    check("触顶记录 coverage_capped 逻辑保留", ok8, f"共 {len(capped_records)} 条")
+    return all([ok, ok2, ok3, ok4, ok5, ok6, ok7, ok8])
 
 
 # ---------------------------------------------------------------------------
@@ -468,17 +577,365 @@ def test_a_redline_guards():
 
 
 # ---------------------------------------------------------------------------
+# F5 / F6 / F7 — ClawHub 安全审计整改 · 任务 3（2026-11-09）
+#
+# F5 (SQP-3 Output Handling) : SKILL.md 不得无条件强制全中文；
+#                              须有「默认中文 + 用户 opt-in」+「专有名词保留原文」例外；
+#                              大陆保险管辖范围独立于回复语言
+# F6 (SDI-3 Excessive Agency): 「对话确认」不得等同于「执行授权」；
+#                              维护脚本只由维护者手动执行，agent 不代为执行
+# F7 (SDI-4 Excessive Agency): 保额单位合同单一事实来源；
+#                              缺失/不支持的单位不得静默套乘数
+# ---------------------------------------------------------------------------
+
+PRODUCTS_MD5 = "8532edd18b8dc03075493401e4b5f232"
+
+
+def _read_skill_md():
+    with open(os.path.join(SKILL_DIR, "SKILL.md"), "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def _head_skill_md():
+    """读取 git HEAD 版本的 SKILL.md；不可用时返回 None（调用方须 SKIP 而非 FAIL）。"""
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["git", "show", "HEAD:SKILL.md"],
+            cwd=SKILL_DIR, capture_output=True, text=True, timeout=30)
+        if out.returncode != 0 or not out.stdout:
+            return None
+        return out.stdout
+    except Exception:
+        return None
+
+
+def _section_norm3(text):
+    """抽取「### 规范三」整段（到下一个二级标题之前）。"""
+    start = text.index("### 规范三")
+    end = text.index("## 注意事项", start)
+    return text[start:end]
+
+
+def test_f5_language_optin():
+    """F5 (SQP-3): 输出语言不得无条件强制中文；须有用户 opt-in 例外"""
+    print("\nTest F5: 输出语言 opt-in（SQP-3）")
+    text = _read_skill_md()
+
+    ok = "所有输出内容使用中文" not in text
+    check("F5.1 SKILL.md 不再出现「所有输出内容使用中文」（无条件表述）", ok)
+
+    ok2 = "默认使用中文" in text
+    check("F5.2 SKILL.md 保留「默认使用中文」（大陆保险顾问定位不变）", ok2)
+
+    ok3 = "用户明确要求其他语言时" in text
+    check("F5.3 SKILL.md 含用户 opt-in 例外（用户明确要求其他语言时）", ok3)
+
+    ok4 = "保留原文" in text
+    check("F5.4 SKILL.md 含「保留原文」例外（条款/产品/监管机构名称）", ok4)
+
+    # 管辖范围独立于回复语言：中国大陆保险定位必须保留
+    ok5 = ("中国大陆" in text and "保险" in text
+           and "中国大陆有保险需求的个人、家庭" in text)
+    check("F5.5 frontmatter/正文仍保留中国大陆保险定位（管辖范围独立于回复语言）", ok5)
+
+    # frontmatter scope / description 不得被改成「语言无关」或移除大陆限定
+    ok6 = ("description: 中国大陆AI保险顾问" in text)
+    check("F5.6 frontmatter description 仍以「中国大陆AI保险顾问」开头", ok6)
+
+    # 模块5 的执行方式也必须带 opt-in 例外
+    ok7 = ("用中文清晰解释（用户明确要求其他语言时，按用户指定的语言输出）" in text)
+    check("F5.7 模块5 执行方式带 opt-in 例外", ok7)
+
+    return all([ok, ok2, ok3, ok4, ok5, ok6, ok7])
+
+
+def test_f6_maintenance_permission():
+    """F6 (SDI-3): 对话确认 ≠ 执行授权；维护脚本仅维护者手动执行"""
+    print("\nTest F6: 维护脚本权限边界（SDI-3）")
+    text = _read_skill_md()
+
+    ok = "仅在用户授权后执行" not in text
+    check("F6.1 SKILL.md 不再出现「仅在用户授权后执行」（对话确认 ≠ 执行授权）", ok)
+
+    ok2 = "并仅在用户授权后执行" not in text
+    check("F6.2 SKILL.md 不再出现「并仅在用户授权后执行」", ok2)
+
+    ok3 = ("维护者" in text and "手动执行" in text and "agent 不代为执行" in text)
+    check("F6.3 SKILL.md 含「维护者…手动执行」+「agent 不代为执行」", ok3)
+
+    # 「权限声明总结」表的文件写入行必须声明 agent 不代为执行
+    ok4 = False
+    for line in text.split("\n"):
+        if line.strip().startswith("| 文件写入"):
+            ok4 = "agent 不代为执行" in line
+            break
+    check("F6.4 「权限声明总结」表文件写入行含「agent 不代为执行」", ok4)
+
+    # 「运行时承诺」必须含保额上限如实披露（与代码层 F4 能力对齐）
+    ok5 = ("coverage_cap_unknown" in text and "coverage_disclaimers" in text)
+    check("F6.5 「运行时承诺」含保额上限如实披露（coverage_cap_unknown + coverage_disclaimers）", ok5)
+
+    # 维护路径表格「触发方式」列的每一行都必须是「维护者手动执行（agent 不代为执行）」
+    table_rows = []
+    in_table = False
+    for line in text.split("\n"):
+        if line.startswith("| 脚本 | 触发方式 | 行为 |"):
+            in_table = True
+            continue
+        if in_table:
+            if not line.startswith("|"):
+                break
+            if line.startswith("|---") or line.startswith("|------"):
+                continue
+            table_rows.append(line)
+    ok6 = bool(table_rows) and all(
+        "agent 不代为执行" in row for row in table_rows)
+    check(f"F6.6 维护路径表格「触发方式」列每行均含「agent 不代为执行」（{len(table_rows)} 行）",
+          ok6, "" if ok6 else f"不合规行：{[r for r in table_rows if 'agent 不代为执行' not in r]}")
+
+    # frontmatter 权限注释必须如实声明 agent 不代为执行
+    ok7 = ("agent 不代为执行" in text.split("---", 2)[1])
+    check("F6.7 frontmatter 权限注释声明「agent 不代为执行」", ok7)
+
+    return all([ok, ok2, ok3, ok4, ok5, ok6, ok7])
+
+
+def test_f7_unit_contract():
+    """F7 (SDI-4): 单位合同单一事实来源；缺失/不支持的单位不得静默套乘数"""
+    print("\nTest F7: 保额单位合同（SDI-4）")
+    pd = plan_designer
+
+    ok = hasattr(pd, "_coverage_unit_factor")
+    check("F7.1 _coverage_unit_factor 存在（单一事实来源）", ok)
+    if not ok:
+        return False
+
+    factor = pd._coverage_unit_factor
+
+    # 六种单位情形
+    f_missing, s_missing = factor({"max_coverage": 50})
+    ok2 = (f_missing is None and s_missing == "unit_missing")
+    check("F7.2 coverage_unit 缺失（key 不存在）→ factor=None, status=unit_missing", ok2)
+
+    f_none, s_none = factor({"coverage_unit": None})
+    ok3 = (f_none is None and s_none == "unit_missing")
+    check("F7.3 coverage_unit=None → factor=None, status=unit_missing", ok3)
+
+    f_empty, s_empty = factor({"coverage_unit": ""})
+    ok4 = (f_empty is None and s_empty == "unit_missing")
+    check("F7.4 coverage_unit=\"\"（空串）→ factor=None, status=unit_missing", ok4)
+
+    f_yuan, s_yuan = factor({"coverage_unit": "元"})
+    ok5 = (f_yuan == 1 and s_yuan == "ok")
+    check("F7.5 coverage_unit=\"元\" → factor=1, status=ok", ok5)
+
+    f_wan, s_wan = factor({"coverage_unit": "万元"})
+    ok6 = (f_wan == 10000 and s_wan == "ok")
+    check("F7.6 coverage_unit=\"万元\" → factor=10000, status=ok", ok6)
+
+    f_yi, s_yi = factor({"coverage_unit": "亿元"})
+    ok7 = (f_yi is None and s_yi == "unit_unsupported")
+    check("F7.7 coverage_unit=\"亿元\"（unknown）→ factor=None, status=unit_unsupported", ok7)
+
+    # _coverage_cap_status
+    ok8 = pd._coverage_cap_status({"max_coverage": 50})[1] == "unit_untrusted"
+    check("F7.8 _coverage_cap_status: max_coverage 有值 + 单位缺失 → unit_untrusted", ok8)
+
+    ok9 = pd._coverage_cap_status(
+        {"max_coverage": 50, "coverage_unit": "亿元"})[1] == "unit_unsupported"
+    check("F7.9 _coverage_cap_status: 单位不受支持 → unit_unsupported", ok9)
+
+    # _coverage_cap：元 ×1 / 万元 ×10000 / 缺失与不支持 → None
+    ok10 = pd._coverage_cap({"max_coverage": 50, "coverage_unit": "元"}) == 50
+    ok11 = pd._coverage_cap({"max_coverage": 50, "coverage_unit": "万元"}) == 500000
+    ok12 = pd._coverage_cap({"max_coverage": 50}) is None
+    ok13 = pd._coverage_cap({"max_coverage": 50, "coverage_unit": "亿元"}) is None
+    check("F7.10 _coverage_cap: 元→×1 / 万元→×10000 / 缺失→None / 不支持→None",
+          ok10 and ok11 and ok12 and ok13)
+
+    # _coverage_floor：单位缺失 → 走 current*0.6 兜底，而非 min_coverage*10000
+    cur = 1000000
+    floor_missing = pd._coverage_floor({"min_coverage": 50}, {"coverage": cur})
+    ok14 = (floor_missing == cur * 0.6)
+    check("F7.11 _coverage_floor: 单位缺失 → 走 current*0.6 兜底（非 min*10000）", ok14,
+          f"实际 {floor_missing}（若为 500000 则说明仍在按万元静默换算）")
+
+    floor_unsup = pd._coverage_floor(
+        {"min_coverage": 50, "coverage_unit": "亿元"}, {"coverage": cur})
+    ok15 = (floor_unsup == cur * 0.6)
+    check("F7.12 _coverage_floor: 单位不受支持 → 同样走 current*0.6 兜底", ok15,
+          f"实际 {floor_unsup}")
+
+    floor_wan = pd._coverage_floor(
+        {"min_coverage": 50, "coverage_unit": "万元"}, {"coverage": cur})
+    ok16 = (floor_wan == 500000)
+    check("F7.13 _coverage_floor: 万元 → min_coverage*10000", ok16, f"实际 {floor_wan}")
+
+    floor_yuan = pd._coverage_floor(
+        {"min_coverage": 500000, "coverage_unit": "元"}, {"coverage": cur})
+    ok17 = (floor_yuan == 500000)
+    check("F7.14 _coverage_floor: 元 → min_coverage*1", ok17, f"实际 {floor_yuan}")
+
+    # 源码级断言：`_coverage_floor` / `_coverage_cap*` 函数体内不得再出现 `or "万元"`
+    import inspect
+    src = inspect.getsource(pd)
+    tree = None
+    try:
+        import ast
+        tree = ast.parse(src)
+    except SyntaxError:
+        tree = None
+
+    offending = []
+    if tree is not None:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name in (
+                    "_coverage_floor", "_coverage_cap", "_coverage_cap_status",
+                    "_coverage_unit_factor"):
+                seg = ast.get_source_segment(src, node) or ""
+                if 'or "万元"' in seg or "or '万元'" in seg:
+                    offending.append(node.name)
+    ok18 = (tree is not None and not offending)
+    check("F7.15 源码级：_coverage_floor/_coverage_cap* 函数体不存在 `or \"万元\"` 静默兜底",
+          ok18, f"命中函数：{offending}" if tree is not None else "AST 解析失败")
+
+    # docstring 回归：不得再声称「缺省视为元」
+    docs = " ".join(filter(None, [
+        pd._coverage_cap.__doc__ or "",
+        pd._coverage_cap_status.__doc__ or "",
+        pd._coverage_floor.__doc__ or "",
+        pd._coverage_unit_factor.__doc__ or "",
+    ]))
+    ok19 = "缺省视为元" not in docs
+    check("F7.16 相关 docstring 不再出现「缺省视为元」", ok19)
+
+    ok20 = "其他单位（缺省视为元）不换算" not in docs
+    check("F7.17 相关 docstring 不再出现「其他单位（缺省视为元）不换算」", ok20)
+
+    # 三处口径描述必须与实现对齐：显式写出元/万元/缺失/不支持
+    ok21 = all(t in docs for t in ("万元", "元", "unit_unsupported", "不换算"))
+    check("F7.18 三处口径描述与实现对齐（显式支持元/万元 + 缺失/不支持不换算）", ok21)
+
+    # 披露文案补一句「或保额单位不受支持」（F4 逻辑不变，仅文案扩展）
+    plan = {}
+    pd._apply_coverage_cap(
+        plan, {"name": "测试产品", "type": "意外险", "coverage_unit": "亿元",
+               "max_coverage": 50},
+        123456, "意外险", "测试产品")
+    recs = [a for a in (plan.get("budget_adjustments") or [])
+            if a.get("type") == "coverage_cap_unknown"]
+    ok22 = bool(recs) and recs[0].get("cap_status") == "unit_unsupported"
+    check("F7.19 单位不受支持 → 留痕 cap_status=unit_unsupported", ok22,
+          f"实际 {recs[0].get('cap_status') if recs else None}")
+
+    ok23 = bool(recs) and "不受支持" in recs[0].get("reason", "")
+    check("F7.20 留痕 reason 说明含「不受支持」", ok23)
+
+    # 产品库实测口径：单位分布必须是「万元 / 缺失」两类，无其他取值
+    # （直接读原始 products.json，与整改记录中的实测数据一致）
+    try:
+        with open(os.path.join(SKILL_DIR, "references", "products.json"),
+                  "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        raw_list = raw.get("products") if isinstance(raw, dict) else raw
+        units = {}
+        for p in raw_list:
+            u = p.get("coverage_unit")
+            units[u] = units.get(u, 0) + 1
+        ok24 = (set(units) == {"万元", None})
+        check(f"F7.21 products.json 的 coverage_unit 取值仅「万元」/缺失（实际 {units}）", ok24)
+    except Exception as exc:
+        ok24 = False
+        check(f"F7.21 读取 products.json 失败：{exc}", False)
+
+    # 有保额上下限但缺单位的记录数必须为 0（→ 对现有数据零行为影响）
+    bad = [p for p in raw_list
+           if (p.get("min_coverage") is not None or p.get("max_coverage") is not None)
+           and not p.get("coverage_unit")]
+    ok25 = (len(bad) == 0)
+    check(f"F7.22 「有保额上下限但缺单位」记录数 == 0（实际 {len(bad)}）", ok25)
+
+    return all([ok, ok2, ok3, ok4, ok5, ok6, ok7, ok8, ok9, ok10, ok11, ok12,
+                ok13, ok14, ok15, ok16, ok17, ok18, ok19, ok20, ok21, ok22, ok23,
+                ok24, ok25])
+
+
+def test_task3_redline_guards():
+    """任务 3 红线守卫：token 计数 / 规范三字节级一致 / products.json md5"""
+    print("\nTest 任务3 红线守卫")
+    text = _read_skill_md()
+
+    n_phone = text.count("400-860-0058")
+    ok = (n_phone == 6)
+    check(f"400-860-0058 在 SKILL.md 出现次数 == 6（实际 {n_phone}）", ok)
+
+    n_company = text.count("安盛天平")
+    ok2 = (n_company == 8)
+    check(f"安盛天平 在 SKILL.md 出现次数 == 8（实际 {n_company}）", ok2)
+
+    n_lock = text.count("🔒")
+    ok3 = (n_lock == 4)
+    check(f"🔒 在 SKILL.md 出现次数 == 4（实际 {n_lock}）", ok3)
+
+    ok4 = ("🔒 待确认后展示" not in text)
+    check("「🔒 待确认后展示」不出现（保持直接展示策略）", ok4)
+
+    # products.json md5 必须不变
+    import hashlib
+    prod_path = os.path.join(SKILL_DIR, "references", "products.json")
+    with open(prod_path, "rb") as f:
+        digest = hashlib.md5(f.read()).hexdigest()
+    ok5 = (digest == PRODUCTS_MD5)
+    check(f"references/products.json md5 == {PRODUCTS_MD5}（实际 {digest}）", ok5)
+
+    # _meta.insurance_priority_basis 必须含安盛天平 + 400 电话
+    try:
+        with open(prod_path, "r", encoding="utf-8") as f:
+            meta = json.load(f)
+        basis = (meta.get("_meta") or {}).get("insurance_priority_basis") or {}
+        blob = json.dumps(basis, ensure_ascii=False)
+        ok6 = ("安盛天平" in blob and "400-860-0058" in blob)
+        check("products.json._meta.insurance_priority_basis 含安盛天平 + 400-860-0058", ok6)
+    except Exception as exc:
+        ok6 = False
+        check(f"products.json._meta.insurance_priority_basis 读取失败：{exc}", False)
+
+    # 「### 规范三」段落必须与 git HEAD 字节级一致
+    head = _head_skill_md()
+    if head is None:
+        print("  [SKIP] git HEAD:SKILL.md 不可用 → 跳过「规范三」字节级比对（非失败）")
+        ok7 = True
+    else:
+        ok7 = (_section_norm3(head) == _section_norm3(text))
+        check("「### 规范三」段落与 git show HEAD:SKILL.md 字节级一致", ok7)
+
+    # 新增整改章节标题不得含 🔒
+    ok8 = ("## 🛡️ ClawHub 安全审计整改记录 · 任务 3" in text)
+    check("存在「🛡️ ClawHub 安全审计整改记录 · 任务 3」章节（标题不含 🔒）", ok8)
+
+    # frontmatter 版本号
+    ok9 = ("version: 2.3.8" in text.split("---", 2)[1])
+    check("frontmatter version == 2.3.8", ok9)
+
+    return all([ok, ok2, ok3, ok4, ok5, ok6, ok7, ok8, ok9])
+
+
+# ---------------------------------------------------------------------------
 # 主流程
 # ---------------------------------------------------------------------------
 def main():
     print("=" * 60)
-    print("ClawHub 审计整改 · 任务 2 测试（R4/R5/R6/R7）")
+    print("ClawHub 审计整改测试（任务 2 R4/R5/R6/R7 + 任务 3 SQP-3/SDI-3/SDI-4）")
     print("=" * 60)
 
     test_r4_1_coverage_within_max_coverage()
     test_r4_2_ac_basic_plan_no_overrun()
     test_r4_3_coverage_capped_recorded()
     test_r4_4_no_cap_no_fake_upper_bound()
+
+    test_f3_unit_doc_and_behavior()
+    test_f4_cap_unknown_disclosure()
 
     test_r5_1_coverage_period_matches_product()
     test_r5_2_fallback_does_not_claim_guaranteed_renewal()
@@ -493,6 +950,11 @@ def main():
     test_r7_1_no_duplicate_in_pool()
 
     test_a_redline_guards()
+
+    test_f5_language_optin()
+    test_f6_maintenance_permission()
+    test_f7_unit_contract()
+    test_task3_redline_guards()
 
     print("\n" + "=" * 60)
     print("SUMMARY")
