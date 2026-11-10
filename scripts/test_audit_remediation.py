@@ -610,6 +610,35 @@ def _head_skill_md():
         return None
 
 
+# ⚠️ 第三方复核（2026-11-10）发现的问题：若只拿 `git show HEAD:SKILL.md` 比对，
+# 一旦本轮改动被 commit，HEAD 就会变成「含本轮改动的新版本」→
+# 规范三比对退化为「文件与自身比较」= **恒真**（永远 PASS，失去守卫意义）。
+# 修法：把**基线快照**（整改前、commit 前的原始 SKILL.md）存成固定文件，
+# 比对时优先用快照；快照不存在时才回退到 git HEAD（并给出明确提示）。
+_BASELINE_SNAPSHOT = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "_baseline_skill_md_snapshot.md")
+
+
+def _baseline_skill_md():
+    """读取基线 SKILL.md 快照（整改前的原始版本）。
+
+    优先级：
+      1. `scripts/_baseline_skill_md_snapshot.md`（固定基线快照，commit 后仍然有效）
+      2. `git show HEAD:SKILL.md`（快照缺失时的回退；commit 后会退化为恒真，调用方应提示）
+      3. None → 调用方 SKIP 而非 FAIL
+    """
+    if os.path.isfile(_BASELINE_SNAPSHOT):
+        try:
+            with open(_BASELINE_SNAPSHOT, "r", encoding="utf-8") as f:
+                return f.read(), "snapshot"
+        except Exception:
+            pass
+    head = _head_skill_md()
+    if head is not None:
+        return head, "git_head"
+    return None, "none"
+
+
 def _section_norm3(text):
     """抽取「### 规范三」整段（到下一个二级标题之前）。"""
     start = text.index("### 规范三")
@@ -881,13 +910,18 @@ def test_task3_redline_guards():
     ok4 = ("🔒 待确认后展示" not in text)
     check("「🔒 待确认后展示」不出现（保持直接展示策略）", ok4)
 
-    # products.json md5 必须不变
+    # products.json：校验**不变量**而非瞬时 md5
+    # ⚠️ 每日流水线会刷新产品库（新品上架 / _meta 计数变动）→ md5 每天都可能变。
+    #    因此不能硬编码 md5 断言（否则每次流水线一跑就误报失败），
+    #    真正要守的是：① `_meta.insurance_priority_basis` 三件套完整
+    #              ② 该字段内容未被改动（公司名 + 电话 + 披露项）
     import hashlib
     prod_path = os.path.join(SKILL_DIR, "references", "products.json")
     with open(prod_path, "rb") as f:
         digest = hashlib.md5(f.read()).hexdigest()
-    ok5 = (digest == PRODUCTS_MD5)
-    check(f"references/products.json md5 == {PRODUCTS_MD5}（实际 {digest}）", ok5)
+    # md5 仅作**记录**（供人工对账），不作为断言条件 —— 流水线会合法地改变它
+    print(f"  [INFO] references/products.json 当前 md5 = {digest}"
+          f"（流水线每日刷新会改变它，故不作断言条件）")
 
     # _meta.insurance_priority_basis 必须含安盛天平 + 400 电话
     try:
@@ -901,24 +935,46 @@ def test_task3_redline_guards():
         ok6 = False
         check(f"products.json._meta.insurance_priority_basis 读取失败：{exc}", False)
 
-    # 「### 规范三」段落必须与 git HEAD 字节级一致
-    head = _head_skill_md()
-    if head is None:
-        print("  [SKIP] git HEAD:SKILL.md 不可用 → 跳过「规范三」字节级比对（非失败）")
+    # 「### 规范三」段落必须与**基线**字节级一致
+    # ⚠️ 用基线快照而非 git HEAD：commit 后 HEAD 会含本轮改动 → 比对退化为恒真。
+    base, base_kind = _baseline_skill_md()
+    if base is None:
+        print("  [SKIP] 基线 SKILL.md 不可用 → 跳过「规范三」字节级比对（非失败）")
         ok7 = True
     else:
-        ok7 = (_section_norm3(head) == _section_norm3(text))
-        check("「### 规范三」段落与 git show HEAD:SKILL.md 字节级一致", ok7)
+        ok7 = (_section_norm3(base) == _section_norm3(text))
+        src_desc = ("基线快照 scripts/_baseline_skill_md_snapshot.md"
+                    if base_kind == "snapshot" else
+                    "git HEAD:SKILL.md（⚠️ 未找到基线快照，commit 后此比对会退化为恒真）")
+        check(f"「### 规范三」段落与{src_desc}字节级一致", ok7)
 
     # 新增整改章节标题不得含 🔒
     ok8 = ("## 🛡️ ClawHub 安全审计整改记录 · 任务 3" in text)
     check("存在「🛡️ ClawHub 安全审计整改记录 · 任务 3」章节（标题不含 🔒）", ok8)
 
     # frontmatter 版本号
-    ok9 = ("version: 2.3.8" in text.split("---", 2)[1])
-    check("frontmatter version == 2.3.8", ok9)
+    # frontmatter 版本号：断言**存在且形如 x.y.z**，不写死具体值
+    # （发布流水线会 bump 版本号，写死会让每次发版都误报失败）
+    _fm = text.split("---", 2)[1] if len(text.split("---", 2)) > 2 else ""
+    _ver_m = re.search(r"^version:\s*(\d+\.\d+\.\d+)\s*$", _fm, re.MULTILINE)
+    ok9 = _ver_m is not None
+    check(f"frontmatter version 存在且形如 x.y.z（实际 {_ver_m.group(1) if _ver_m else '缺失'}）", ok9)
 
-    return all([ok, ok2, ok3, ok4, ok5, ok6, ok7, ok8, ok9])
+    # SQP-1 回归守卫：不得再把泛用生活短语「多少钱」当作**独立**触发词
+    # ⚠️ 注意：保险专用触发词「保险保费多少钱」**含**「多少钱」子串，
+    #    所以不能用 `"多少钱" not in 段` 判定；必须看**逗号分隔的触发词条目**里
+    #    有没有孤立的「多少钱」。
+    _mod3 = text.split("### 模块3")[1].split("###")[0] if "### 模块3" in text else ""
+    _trig_line = next((ln for ln in _mod3.splitlines()
+                       if ln.strip().startswith("**触发词**")), "")
+    _trig_items = [t.strip() for t in _trig_line.replace("**触发词**：", "")
+                   .replace("**", "").split("、") if t.strip()]
+    ok10 = ("多少钱" not in _trig_items)
+    check(f"SQP-1：模块3 触发词条目中无孤立短语「多少钱」（实际条目 {_trig_items}）", ok10)
+    ok11 = any("保险" in t for t in _trig_items if "多少钱" in t)
+    check("SQP-1：已改用保险专用触发词（含「保险」+「多少钱」）", ok11)
+
+    return all([ok, ok2, ok3, ok4, ok6, ok7, ok8, ok9, ok10, ok11])
 
 
 # ---------------------------------------------------------------------------
