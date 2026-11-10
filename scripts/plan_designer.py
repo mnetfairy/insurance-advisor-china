@@ -119,15 +119,22 @@ def _renewal_duration_years(product):
       4. `coverage_period_is_lifetime is True` → None（终身）。
     """
     notes = _parse_notes_list(product)
+    # ⚠️ SDI-4 整改 2026-11-10（v2.4.1）：**必须分两轮扫描，且 long_term 轮在前**。
+    #
+    # 审计原文：「The loop returns immediately upon finding a numeric renewal marker,
+    # so a later long-term marker never receives its documented precedence.
+    # For example, notes ordered as ['guaranteed_renewable_1年',
+    # 'long_term_with_guaranteed_renewable'] cause the tool to report one-year
+    # guaranteed renewal rather than long-term guaranteed renewal, making
+    # customer-facing insurance advice depend on list order.」
+    #
+    # 修法：**先扫完整张 notes 列表找 long_term 标记**（只要有一个就返回 None，
+    # 长期保证续保不按年限计）；**没有 long_term 标记时**再扫数值型标记。
+    # → 结果不再依赖 notes 的排列顺序。
     for note in notes:
-        # ⚠️ SDI-4 整改 2026-11-10：**long_term 标记必须优先于数值标记与 duration_value**。
-        # 旧实现只匹配 `guaranteed_renewable_N年` 数值标记，遇到
-        # 'long_term_with_guaranteed_renewable' 会**穿透**到 duration_value 分支 →
-        # 把「保险期间 1 年」当成「保证续保 1 年」返回，与 docstring 声明的
-        # 「长期，不按年限计 → None」**相反** → 对外文案会错报「1年保证续保」。
-        # 修法：先扫 long_term 标记 → 直接返回 None（长期，不按年限计）。
         if _RE_LONG_TERM_MARK.search(note):
             return None
+    for note in notes:
         m = _RE_GUARANTEED_YEARS.search(note)
         if m:
             return int(m.group(1))

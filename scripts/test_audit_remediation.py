@@ -965,7 +965,34 @@ def test_f8_renewal_long_term_precedence():
     doc = plan_designer._renewal_duration_years.__doc__ or ""
     ok4 = ("long_term_with_guaranteed_renewable" in doc)
     check("_renewal_duration_years docstring 保留 long_term 标记说明", ok4)
-    return allok and ok1 and ok2 and ok3 and ok4
+
+    # ---- 顺序无关性（v2.4.1 官方复扫追加）----
+    # 审计原文：notes = ['guaranteed_renewable_1年', 'long_term_with_guaranteed_renewable']
+    # 时，数值标记在前会让循环**立即返回** → 漏掉后面的 long_term 标记 → 错报「1年保证续保」
+    # → 结果依赖 notes 排列顺序。修法：先全表扫 long_term，再扫数值。
+    order_cases = [
+        ("long_term 在前", ["long_term_with_guaranteed_renewable", "guaranteed_renewable_20年"]),
+        ("数值 在前", ["guaranteed_renewable_1年", "long_term_with_guaranteed_renewable"]),
+        ("数值 在前(20年)", ["guaranteed_renewable_20年", "long_term_with_guaranteed_renewable"]),
+    ]
+    ok5 = True
+    for label, notes in order_cases:
+        got = rdy(dict(base, coverage_period_parse_notes=notes))
+        good = (got is None)
+        ok5 = ok5 and good
+        check(f"标记顺序无关：{label} → None（实得 {got}）", good)
+    ok6 = (rdy(dict(base, coverage_period_parse_notes=["guaranteed_renewable_20年"])) == 20)
+    check("仅数值标记仍返回 20（long_term 优先不影响纯数值场景）", ok6)
+    # 源码级：long_term 扫描循环必须在数值扫描循环【之前】且【独立成环】
+    src = open(os.path.join(SKILL_DIR, "scripts", "plan_designer.py"), encoding="utf-8").read()
+    m = re.search(r"^def _renewal_duration_years\(.*?(?=^def |\Z)", src, re.DOTALL | re.MULTILINE)
+    body = m.group(0) if m else ""
+    i_lt = body.find("_RE_LONG_TERM_MARK.search")
+    i_num = body.find("_RE_GUARANTEED_YEARS.search")
+    ok7 = (i_lt != -1 and i_num != -1 and i_lt < i_num)
+    check("源码级：long_term 扫描在数值扫描之前（顺序无关）", ok7,
+          f"lt@={i_lt} num@={i_num}")
+    return allok and ok1 and ok2 and ok3 and ok4 and ok5 and ok6 and ok7
 
 
 def test_f9_global_trigger_insurance_context():
