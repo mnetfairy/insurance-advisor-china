@@ -890,6 +890,145 @@ def test_f7_unit_contract():
                 ok24, ok25])
 
 
+def test_f8_renewal_long_term_precedence():
+    """F8 (SDI-4, 2.3.9 复扫): long_term 标记必须优先于数值标记与 duration_value
+
+    审计原文：_renewal_duration_years 只识别数值型保证续保标记，
+    忽略了 long_term_with_guaranteed_renewable 标记，就回落到保险期间时长
+    → 对外会把「保险期间 1 年」错报成「1年保证续保」。
+    """
+    print("\nTest F8: 长期保证续保标记优先级（SDI-4 · 2.3.9 复扫）")
+
+    base = {
+        "coverage_period_duration_unit": "year",
+        "coverage_period_duration_value": 1,
+        "coverage_period_is_lifetime": False,
+        "coverage_period_guaranteed_renewable": True,
+    }
+    rdy = plan_designer._renewal_duration_years
+
+    cases = [
+        ("long_term 标记 + duration=1 → None（长期，不按年限计）",
+         dict(base, coverage_period_parse_notes=["long_term_with_guaranteed_renewable"]), None),
+        ("数值标记 20 年 → 20",
+         dict(base, coverage_period_parse_notes=["guaranteed_renewable_20年"]), 20),
+        ("数值标记 6 年 → 6",
+         dict(base, coverage_period_parse_notes=["guaranteed_renewable_6年"]), 6),
+        ("long_term 与数值标记并存 → None（long_term 优先）",
+         dict(base, coverage_period_parse_notes=["long_term_with_guaranteed_renewable",
+                                                "guaranteed_renewable_20年"]), None),
+        ("无标记且 unit=long_term → None",
+         dict(base, coverage_period_parse_notes=None,
+              coverage_period_duration_unit="long_term"), None),
+        ("无标记且 duration=1 → 1（保险期间原值仍可用）",
+         dict(base, coverage_period_parse_notes=None), 1),
+    ]
+    allok = True
+    for label, prod, want in cases:
+        got = rdy(prod)
+        ok = (got == want)
+        allok = allok and ok
+        check(label, ok, f"实得 {got}，期望 {want}")
+
+    # 对外文案：long_term 不得被说成「1年保证续保」
+    lt = dict(base, coverage_period_parse_notes=["long_term_with_guaranteed_renewable"])
+    cp = plan_designer.derive_medical_coverage_period(lt)
+    ok1 = ("长期保证续保" in cp) and ("1年保证续保" not in cp)
+    check(f"derive_medical_coverage_period 输出「长期保证续保」（实际 {cp}）", ok1)
+    kb = plan_designer.derive_medical_key_benefits(lt, "长期医疗保障")
+    ok2 = ("长期保证续保" in kb) and ("1年保证续保" not in kb)
+    check(f"derive_medical_key_benefits 不出现「1年保证续保」（实际 {kb}）", ok2)
+
+    # 选品口径：long_term 产品仍应满足「保证续保 ≥ N 年」筛选
+    sel = plan_designer.select_medical_product(
+        [dict(lt, name="长期保证续保产品", type="医疗险")], min_guaranteed_years=20)
+    chosen = sel[0] if isinstance(sel, tuple) else sel
+    ok3 = (chosen is not None and chosen.get("name") == "长期保证续保产品")
+    check("long_term 产品可满足「保证续保≥20年」筛选", ok3)
+
+    # 数据事实：产品库中 long_term 标记与 duration_value=1 的记录数应为 0（防御性）
+    notes_lt = 0
+    lt_dur1 = 0
+    for p in (plan_designer.load_products() if hasattr(plan_designer, "load_products") else []):
+        n = p.get("coverage_period_parse_notes")
+        if isinstance(n, str):
+            n = [n]
+        if not n:
+            continue
+        if any("long_term_with_guaranteed_renewable" in str(x) for x in n):
+            notes_lt += 1
+            if p.get("coverage_period_duration_value") == 1:
+                lt_dur1 += 1
+    check(f"产品库 long_term 标记记录数 = {notes_lt}（其中 duration=1 的 = {lt_dur1}）",
+          True, "仅作数据留痕")
+
+    doc = plan_designer._renewal_duration_years.__doc__ or ""
+    ok4 = ("long_term_with_guaranteed_renewable" in doc)
+    check("_renewal_duration_years docstring 保留 long_term 标记说明", ok4)
+    return allok and ok1 and ok2 and ok3 and ok4
+
+
+def test_f9_global_trigger_insurance_context():
+    """F9 (SQP-1, 2.3.9 复扫): 触发词必须带保险语境约束
+
+    审计原文：全局激活词含「话术」「需求分析」等泛用短语，且语境限制只作用于模块 3
+    → 可能因无关请求而激活本 skill，进而收集财务/家庭信息或主动商业推荐。
+    官方 remediation：保险语境要求须覆盖【整个 skill 与每个模块】。
+    """
+    print("\nTest F9: 全局/模块触发词的保险语境约束（SQP-1 · 2.3.9 复扫）")
+    text = _read_skill_md()
+
+    # ① 全局激活词表：泛用词必须出现在带保险语境的条目里
+    #    ⚠️ 不能用 "保险" + 泛用词的精确前缀判断 —— 「保险销售话术」是合规的保险语境条目，
+    #    但前缀是「保险销售」而非「保险」。改为判断该条目是否含任一保险语境标记。
+    global_line = next((ln for ln in text.splitlines()
+                        if ln.startswith("保险咨询、保险配置")), "")
+    generic = ["话术", "需求分析", "保障缺口"]
+    ctx_markers = ("保险", "重疾险", "医疗险", "寿险", "意外险", "储蓄险", "年金险", "两全险")
+    bad_global = []
+    for item in [x.strip() for x in global_line.replace("保险咨询、", "").split("、") if x.strip()]:
+        for g in generic:
+            if g in item and not any(m in item for m in ctx_markers):
+                bad_global.append((item, g))
+    check(f"全局触发词表无脱离保险语境的泛用词（检查 {generic}）", not bad_global,
+          f"仍孤立出现：{bad_global}")
+
+    # ② 每个模块的触发词行都不得含脱离保险语境的泛用词
+    import re as _re
+    generic_mod = ["话术", "需求分析", "保障缺口", "产品对比", "设计方案",
+                   "合规", "核保", "拒赔", "理赔", "等待期", "现金价值", "健康告知"]
+    bad_rows = []
+    for ln in text.splitlines():
+        m = _re.match(r"\*\*触发词\*\*：(.+)$", ln.strip())
+        if not m:
+            continue
+        for item in [x.strip() for x in m.group(1).split("、")]:
+            for g in generic_mod:
+                if g in item and "保险" not in item and "重疾险" not in item \
+                        and "医疗险" not in item:
+                    bad_rows.append((item, g))
+    check(f"所有模块触发词均带保险语境（检查 {len(generic_mod)} 个泛用词）",
+          not bad_rows, f"越界条目：{bad_rows}")
+
+    # ③ 必须存在全局语境约束声明
+    ok3 = ("触发词作用域" in text) and ("全局" in text) and ("澄清" in text)
+    check("存在全局触发词作用域声明（含语境不明时先澄清）", ok3)
+
+    # ④ 模块 3 的语境约束仍在
+    ok4 = ("仅在**明确的保险语境**" in text)
+    check("模块 3 的保险语境约束保留", ok4)
+
+    # ⑤ 「多少钱」不得作为独立触发词
+    mod3 = text.split("### 模块3")[1].split("###")[0] if "### 模块3" in text else ""
+    trig = next((ln for ln in mod3.splitlines()
+                 if ln.strip().startswith("**触发词**")), "")
+    items = [t.strip() for t in trig.replace("**触发词**：", "")
+             .replace("**", "").split("、") if t.strip()]
+    ok5 = ("多少钱" not in items)
+    check(f"模块3 触发词条目中无孤立短语「多少钱」（实际条目 {items}）", ok5)
+    return all([not bad_global, not bad_rows, ok3, ok4, ok5])
+
+
 def test_task3_redline_guards():
     """任务 3 红线守卫：token 计数 / 规范三字节级一致 / products.json md5"""
     print("\nTest 任务3 红线守卫")
@@ -1010,6 +1149,8 @@ def main():
     test_f5_language_optin()
     test_f6_maintenance_permission()
     test_f7_unit_contract()
+    test_f8_renewal_long_term_precedence()
+    test_f9_global_trigger_insurance_context()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)

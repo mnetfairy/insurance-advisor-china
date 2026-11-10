@@ -120,6 +120,14 @@ def _renewal_duration_years(product):
     """
     notes = _parse_notes_list(product)
     for note in notes:
+        # ⚠️ SDI-4 整改 2026-11-10：**long_term 标记必须优先于数值标记与 duration_value**。
+        # 旧实现只匹配 `guaranteed_renewable_N年` 数值标记，遇到
+        # 'long_term_with_guaranteed_renewable' 会**穿透**到 duration_value 分支 →
+        # 把「保险期间 1 年」当成「保证续保 1 年」返回，与 docstring 声明的
+        # 「长期，不按年限计 → None」**相反** → 对外文案会错报「1年保证续保」。
+        # 修法：先扫 long_term 标记 → 直接返回 None（长期，不按年限计）。
+        if _RE_LONG_TERM_MARK.search(note):
+            return None
         m = _RE_GUARANTEED_YEARS.search(note)
         if m:
             return int(m.group(1))
@@ -127,6 +135,9 @@ def _renewal_duration_years(product):
     if product.get("coverage_period_is_lifetime") is True:
         return None
     unit = (product.get("coverage_period_duration_unit") or "").strip().lower()
+    if unit == "long_term":
+        # 单位本身就是 long_term → 长期，不按年限计
+        return None
     value = product.get("coverage_period_duration_value")
     if unit == "year" and isinstance(value, (int, float)):
         return int(value)
