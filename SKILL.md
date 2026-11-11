@@ -1,7 +1,7 @@
 ---
 name: insurance-advisor-china
 description: 中国大陆AI保险顾问。为个人和家庭提供全方位的保险咨询、产品对比、方案设计、投保指导。当用户询问保险配置、保险方案、产品对比、重疾险/医疗险/寿险/意外险/储蓄险推荐、保费计算、保障缺口分析、需求分析、核保合规、理赔等问题时使用。发布产物仅含 SKILL.md + 3 个只读参考文件（references/products.json、insurance-knowledge.md、compliance.md）+ 3 个运行时脚本（needs_analyzer / premium_calculator / plan_designer）；数据清洗脚本与回归测试脚本是本地维护工具，不随发布产物分发。
-version: 2.4.1
+version: 2.4.2
 tags: insurance, china, financial, advisor, product-comparison, medical, family-protection, health
 last_published: 2026-11-11
 allowed-tools:
@@ -742,6 +742,30 @@ fallback 三件套 / SKILL.md 引用 / 联系方式展示策略与本 skill 既�
 ---
 
 ## 更新日志
+
+- v2.4.2 (2026-11-11)：**官方扫描复扫后整改（SDI-4 features 保额同步 + 续保标记顺序无关）**：
+  - **官方扫描（v2.4.1 已公开）**：`issueCount=1 / score=12 / LOW`，
+    SQP-1 已消除 ✅；本轮修完该残余 SDI-4
+  - **SDI-4（Excessive Agency，MEDIUM）**：官方原文——
+    「The premium plan constructs its medical coverage feature before `_finalize_plan`
+    applies budget-driven coverage reductions. Finalization updates the product coverage
+    and key_benefits but only prunes features for removed insurance types, so a retained
+    medical product can have a lower final coverage amount while its feature still
+    advertises the original amount.」
+    实测复现：预算 8000 档下全面版医疗险被下调到 **100 万**，但 features 仍写「医疗险**400万**保额」。
+    修法：新增 `_sync_features_coverage_claims()` —— 在**出口处**（`_enforce_budget` 完成后）
+    按每个保留险种的**最终保额**重算 features 中的保额表述。
+    新增回归测试 **F10**（预算下调但不移除产品的场景 + 正常预算不被误改）
+  - **SDI-4-续保（顺序无关）**：`_renewal_duration_years()` 原为**单轮扫描**，
+    遇到数值型标记即**立即返回** → 当数值标记排在 long_term 标记**之前**时
+    （如 `['guaranteed_renewable_1年', 'long_term_with_guaranteed_renewable']`），
+    long_term 标记拿不到应有优先级 → 错报「1年保证续保」，**结果依赖 notes 排列顺序**。
+    修法：**分两轮扫描** —— 先全表扫 long_term 标记（命中即返回 None），再扫数值型标记。
+    新增回归测试：三种标记顺序 + 源码级断言（long_term 扫描在数值扫描之前）
+  - ⚠️ **400 电话优先推荐功能零改动**：规范三整段与**基线快照**字节级一致；
+    客服电话 = 6 / 首选公司 = 8 / 锁定标记 = 4（均与基线一致）
+  - **测试**：109 → **118 项**（新增 F10 + 续保顺序无关 5 项）→ 118/118 PASS；
+    连同其余 4 套件共 **309 项全 PASS**
 
 - v2.4.0 (2026-11-10)：**v2.3.9 官方复扫后整改（SDI-4 续保标记优先级 + SQP-1 全局触发词语境）**：
   - **官方扫描验证（v2.3.9 已公开）**：`clawhub scan download insurance-advisor-china --version 2.3.9`

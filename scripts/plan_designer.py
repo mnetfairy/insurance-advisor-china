@@ -753,6 +753,57 @@ def _prune_plan_features(plan, features):
     return kept
 
 
+def _sync_features_coverage_claims(plan):
+    """按各险种的**最终保额**重算 features 中的保额表述。
+
+    ⚠️ SDI-4 整改 2026-11-11（v2.4.2）：features 是在**设计期**生成的，
+    早于 `_enforce_budget()` 的预算下调与产品上限夹逼；出口处只校正了
+    `key_benefits`，features 里的保额数字仍停留在调整前的值 →
+    对外出现「实际保额 100 万、卖点写 400 万」的虚报。
+
+    修法：在**出口处**（所有调整完成后）按每个保留产品的最终保额，
+    重写 features 中与该险种相关的保额表述。
+
+    实现要点：
+      - 先用 `_prune_plan_features` 剔除已移除险种的卖点；
+      - 再对每条 feature：若它提及某个**仍保留**的险种，
+        且包含「数字+万」形态的保额表述，则用该险种**最终保额**重算；
+      - 未能确定对应险种的 feature 原样保留（不做猜测式替换）。
+    """
+    feats = _prune_plan_features(plan, plan.get("features") or [])
+    if not feats:
+        return feats
+
+    # 险种关键词 → 该险种最终保额（取第一个匹配项的保额）
+    type_words = {
+        "医疗险": "医疗险", "意外险": "意外险", "重疾险": "重疾险",
+        "定期寿险": "定期寿险", "寿险": "定期寿险", "储蓄险": "储蓄险",
+    }
+    cov_by_type = {}
+    for e in plan.get("products", []):
+        t = e.get("type")
+        if t and t not in cov_by_type:
+            cov_by_type[t] = e.get("coverage") or 0
+
+    out = []
+    for feat in feats:
+        if not isinstance(feat, str):
+            out.append(feat)
+            continue
+        # 找出该 feature 提到的、且仍在方案中的险种
+        matched = None
+        for word, ptype in type_words.items():
+            if word in feat and ptype in cov_by_type:
+                matched = cov_by_type[ptype]
+                break
+        if matched is None:
+            out.append(feat)
+            continue
+        # 按该险种的最终保额重算本条中的保额表述
+        out.append(_normalize_coverage_claim(feat, matched))
+    return out
+
+
 def _enforce_budget(plan, budget, annual_income, age=None, gender=None,
                     product_index=None, removal_order=None):
     """把方案年保费压到年度保费上限以内。
@@ -1385,6 +1436,17 @@ def _finalize_plan(plan, budget, annual_income, ratio, age, gender, products,
         _cov = _entry.get("coverage") or 0
         _entry["key_benefits"] = _normalize_coverage_claim(
             _entry.get("key_benefits"), _cov)
+    # ⚠️ SDI-4 整改 2026-11-11（v2.4.2）：**features 里的保额数字也必须与最终保额一致**。
+    #    官方扫描原文：
+    #    「The premium plan constructs its medical coverage feature before _finalize_plan
+    #     applies budget-driven coverage reductions. Finalization updates the product coverage
+    #     and key_benefits but only prunes features for removed insurance types, so a retained
+    #     medical product can have a lower final coverage amount while its feature still
+    #     advertises the original amount.」
+    #    实测复现：全面版医疗险因预算被下调到 100 万，但 features 仍写「医疗险400万保额」。
+    #    修法：在**出口处**（预算调整已完成后）按各险种的**最终保额**重算 features 中的保额表述。
+    if plan.get("features"):
+        plan["features"] = _sync_features_coverage_claims(plan)
     # ⚠️ F4 整改 2026-11-09：把「可售保额上限未核实」的险种汇总为**对外披露**。
     #    必须写在**出口处**（与 total_coverage 重算同一位置），
     #    否则上限未知的保额会以一种「看起来很具体」但未经核实的形式呈现给用户。
