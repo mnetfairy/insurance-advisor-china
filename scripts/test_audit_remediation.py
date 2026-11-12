@@ -1125,6 +1125,110 @@ def test_f10_features_coverage_claim_sync():
     return allok and ok2 and ok3 and ok4
 
 
+def test_f11_income_multiple_claim_sync():
+    """F11 (SDI-4, 2.4.3 官方复扫): 「年收入 N 倍」卖点必须随最终保额同步
+
+    官方扫描原文（insurance-advisor-china 2.4.3）：
+    「Final coverage synchronization leaves the premium plan's income-multiple
+     coverage claim unchanged.」
+
+    根因：出口同步 `_sync_features_coverage_claims()` / `_normalize_coverage_claim()`
+    只处理「数字+万」形态；「重疾险保额高达年收入5倍」不含「万」→ 完全不被校正。
+
+    实测复现（budget=8000，annual_income=500000）：全面版重疾险被预算下调到
+    105,717 元（≈0.21× 年收入），但 features 仍宣称「重疾险保额高达年收入5倍」。
+
+    断言：
+      ① 预算受限场景：features 中的倍数 ≤ 实际保额 / 年收入（不得虚报）；
+      ② 不残留与实际保额不符的硬编码「年收入5倍」；
+      ③ 正常场景（实际倍数 ≥ 5）表述保持原样（不得弱化、不得「5倍 → 5.0倍」）；
+      ④ 同步函数幂等。
+    """
+    print("\nTest F11: features「年收入 N 倍」与最终保额一致（SDI-4 · 2.4.3 复扫）")
+    import re as _re
+
+    _MULT_RE = _re.compile(r"年收入(\d+(?:\.\d+)?)倍")
+
+    def _claims(plan):
+        """提取该方案 features 中所有「年收入 N 倍」表述。"""
+        return [(f, float(_MULT_RE.search(f).group(1)))
+                for f in (plan.get("features") or [])
+                if isinstance(f, str) and _MULT_RE.search(f)]
+
+    def _ci_coverage(plan):
+        e = next((x for x in (plan.get("products") or []) if x.get("type") == "重疾险"), None)
+        return (e.get("coverage") or 0) if e else None
+
+    # ---- ① 预算受限场景：倍数不得超过实际保额 / 年收入 ----
+    income = 500000
+    plans = plan_designer.generate_all_plans(
+        35, "男", income, 8000,
+        {"death": 2000000, "critical_illness": 1500000, "hospital": 4000000})
+    over = []
+    checked = 0
+    for name, p in plans.items():
+        cov = _ci_coverage(p)
+        if cov is None:
+            continue
+        ratio = cov / income
+        for f, mult in _claims(p):
+            checked += 1
+            if mult > ratio + 1e-9:
+                over.append(f"{name}: 倍数 {mult} > 实际 {ratio:.4f}（{f}）")
+    check("预算受限场景（budget=8000）：features 倍数 ≤ 实际保额/年收入",
+          not over, "; ".join(over[:3]) if over else f"校验 {checked} 条倍数表述")
+
+    # ---- ② 不得残留与实际保额不符的硬编码「年收入5倍」 ----
+    full = plans.get("全面版") or {}
+    cov = _ci_coverage(full)
+    ratio = (cov / income) if cov else 0
+    stale = [f for f, mult in _claims(full) if mult > ratio + 1e-9]
+    check("预算受限场景：不残留虚报的「年收入5倍」硬编码倍数",
+          not stale, "; ".join(stale[:3]) if stale else
+          (f"实际保额={cov}（{ratio:.4f}× 年收入），倍数表述已同步"))
+
+    # ---- ③ 正常场景：实际倍数 ≥ 5 时表述保持原样（不弱化、无无意义 diff）----
+    # income=100000 且重疾险保额 500000 → 恰好 5× 年收入 → 原文案必须原样保留
+    plans_ok = plan_designer.generate_all_plans(
+        35, "男", 100000, 100000, {"death": 100000, "hospital": 1000000})
+    ok_claims = _claims(plans_ok.get("全面版") or {})
+    check("正常场景（实际倍数=5）：表述保持原样「重疾险保额高达年收入5倍」",
+          any("重疾险保额高达年收入5倍" == f for f, _ in ok_claims),
+          str([f for f, _ in ok_claims]))
+
+    # 正常场景不得出现「5.0倍」这类无意义改写
+    no_dot = [f for f, _ in ok_claims if "5.0倍" in f]
+    check("正常场景：不得出现「5.0倍」无意义 diff", not no_dot, str(no_dot))
+
+    # 正常场景（收入 500000，重疾险 500000 = 1×）必须同步下调，不得仍宣称 5 倍
+    plans_norm = plan_designer.generate_all_plans(
+        35, "男", 500000, 500000,
+        {"death": 2000000, "critical_illness": 1500000, "hospital": 4000000})
+    norm_claims = _claims(plans_norm.get("全面版") or {})
+    ok_norm = bool(norm_claims) and all(m <= 1.0 + 1e-9 for _, m in norm_claims)
+    check("预算充足场景：倍数同样必须与实际保额一致（1× 年收入 → 不得宣称 5 倍）",
+          ok_norm, str([f for f, _ in norm_claims]))
+
+    # ---- ④ 幂等性：连续同步结果一致 ----
+    p1 = dict(plans.get("全面版") or {})
+    p1 = {"features": list(p1.get("features") or []), "products": p1.get("products") or []}
+    a1 = plan_designer._sync_features_income_multiple_claims(p1, income)
+    a2 = plan_designer._sync_features_income_multiple_claims(
+        {"features": a1, "products": p1["products"]}, income)
+    a3 = plan_designer._sync_features_income_multiple_claims(
+        {"features": a2, "products": p1["products"]}, income)
+    check("同步函数幂等（连续 3 次同步结果一致）", a1 == a2 == a3)
+
+    # ---- ⑤ 源码级：出口必须调用新同步函数 ----
+    src = open(os.path.join(SKILL_DIR, "scripts", "plan_designer.py"), encoding="utf-8").read()
+    ok_src = "_sync_features_income_multiple_claims(plan, annual_income)" in src
+    check("源码：_finalize_plan 出口调用 _sync_features_income_multiple_claims", ok_src)
+    ok_has = hasattr(plan_designer, "_sync_features_income_multiple_claims")
+    check("_sync_features_income_multiple_claims 函数存在", ok_has)
+
+    return (not over) and (not stale) and ok_norm and (a1 == a2 == a3) and ok_src and ok_has
+
+
 def test_task3_redline_guards():
     """任务 3 红线守卫：token 计数 / 规范三字节级一致 / products.json md5"""
     print("\nTest 任务3 红线守卫")
@@ -1248,6 +1352,7 @@ def main():
     test_f8_renewal_long_term_precedence()
     test_f9_global_trigger_insurance_context()
     test_f10_features_coverage_claim_sync()
+    test_f11_income_multiple_claim_sync()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)

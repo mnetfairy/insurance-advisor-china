@@ -23,6 +23,7 @@
 """
 
 import json
+import math
 import os
 import re
 import sys
@@ -804,6 +805,117 @@ def _sync_features_coverage_claims(plan):
     return out
 
 
+# ---------------------------------------------------------------------------
+# SDI-4 整改 2026-11-13：「年收入 N 倍」形态的卖点必须随最终保额同步
+# ---------------------------------------------------------------------------
+# ⚠️ 根因（官方复扫 insurance-advisor-china 2.4.3）：
+#    出口同步 `_sync_features_coverage_claims()` 只处理「数字+万」形态的保额表述，
+#    而 `_normalize_coverage_claim()` 的所有正则都围绕 `(\d+(?:\.\d+)?)万` 展开 ——
+#    「年收入5倍」**不含「万」→ 根本不匹配** → 出口同步对它完全无效。
+#    结果：预算下调（_enforce_budget）/ 上限夹逼（_apply_coverage_cap）之后，
+#    重疾险实际保额可能远低于 annual_income × 5，卖点却仍宣称 5 倍 → **虚报保额**。
+#    官方原文：
+#    「Final coverage synchronization leaves the premium plan's income-multiple
+#     coverage claim unchanged.」
+
+# 「X险保额[高达|可达|达|为]年收入N倍」形态的卖点表述。
+_INCOME_MULTIPLE_CLAIM_RE = re.compile(
+    r"(?P<ptype>定期寿险|储蓄险|重疾险|医疗险|意外险|寿险)保额"
+    r"(?:高达|可达|达|为)?年收入(?P<mult>\d+(?:\.\d+)?)倍")
+
+# 险种关键词 → 方案产品表中的 type（与 _sync_features_coverage_claims 同口径）
+_FEATURE_TYPE_WORDS = {
+    "医疗险": "医疗险", "意外险": "意外险", "重疾险": "重疾险",
+    "定期寿险": "定期寿险", "寿险": "定期寿险", "储蓄险": "储蓄险",
+}
+
+
+def _format_income_multiple(value):
+    """倍数的对外表述：1 位小数，去掉多余的 .0（5.0 → 5；4.6 → 4.6）。"""
+    if abs(value - round(value)) < 1e-9:
+        return str(int(round(value)))
+    return f"{value:.1f}"
+
+
+def _income_multiple_fallback(ptype, coverage):
+    """倍数无法给出时的如实表述：直接说明实际保额（复用库内单位单一事实来源）。
+
+    ⚠️ 绝对金额一律走 `_coverage_claim_text()` —— 不另立换算规则（F5/F7 铁律）。
+    """
+    claim = _coverage_claim_text(coverage)
+    if claim == "保额较低":
+        # 避免出现「重疾险保额保额较低」这类重复表述
+        return f"{ptype}保额较低"
+    return f"{ptype}保额{claim}"
+
+
+def _sync_features_income_multiple_claims(plan, annual_income):
+    """按**最终保额**重算 features 中「年收入 N 倍」形态的卖点表述。
+
+    ⚠️ SDI-4 整改 2026-11-13（官方 2.4.3 复扫）：
+       「重疾险保额高达年收入5倍」是**设计期写死**的卖点，而出口同步只处理
+       「数字+万」形态 → 该表述在预算下调 / 上限夹逼后仍宣称 5 倍（虚报保额）。
+
+    修法：在**出口处**（`_enforce_budget` 完成后）按最终保额重算倍数：
+      - 倍数 = 最终保额 / 年收入（两者同为「元」，比值与单位无关 → 无需换算；
+        绝对金额的对外渲染一律走 `_coverage_claim_text()`，沿用库内单位单一事实来源）；
+      - 实际倍数 ≥ 原文案声明的倍数 → **保持原样**（不得弱于原文案，
+        且不产生「5倍 → 5.0倍」这类无意义 diff）；
+      - 实际倍数 < 原文案 → 按实际倍数重写（**向下**取到 1 位小数，
+        保证对外表述永远不大于实际值 —— 宁可少说不可多说）；
+      - 年收入缺失 / 为 0 → **不写倍数**，改用实际保额表述。
+
+    Args:
+        plan: 方案 dict（`products` 为最终保额的唯一事实来源）
+        annual_income: 年收入（元）
+
+    Returns:
+        list[str]: 同步后的 features（幂等）。
+    """
+    feats = plan.get("features") or []
+    if not feats:
+        return feats
+
+    # 各险种最终保额（取第一个匹配项，与 _sync_features_coverage_claims 同口径）
+    cov_by_type = {}
+    for e in plan.get("products", []):
+        t = e.get("type")
+        if t and t not in cov_by_type:
+            cov_by_type[t] = e.get("coverage") or 0
+    if not cov_by_type:
+        return feats
+
+    def _rewrite(text):
+        def _one(m):
+            ptype = _FEATURE_TYPE_WORDS.get(m.group("ptype"))
+            if ptype is None or ptype not in cov_by_type:
+                # 该险种不在最终方案里 → 交由 _prune_plan_features 处理，不在此重复剔除
+                return m.group(0)
+            coverage = cov_by_type[ptype]
+            claimed = float(m.group("mult"))
+            if not annual_income or annual_income <= 0:
+                # 年收入缺失 / 为 0 → **不写倍数**，改为如实表述实际保额
+                return _income_multiple_fallback(m.group("ptype"), coverage)
+            ratio = coverage / annual_income
+            if ratio >= claimed:
+                # 实际倍数仍 ≥ 原文案 → **保持原样**（不得弱于原文案）
+                return m.group(0)
+            # 实际倍数 < 原文案 → 按实际倍数重写。先按 1 位小数四舍五入，
+            # 若四舍五入会**超过**真实倍数，则改为向下取整 —— 对外表述永远
+            # 不大于实际值（宁可少说不可多说）。
+            new_mult = round(ratio, 1)
+            if new_mult > ratio:
+                new_mult = math.floor(ratio * 10) / 10
+            if new_mult < 0.1:
+                # 倍数过小，倍数形态已无参考意义 → 改为如实表述实际保额
+                return _income_multiple_fallback(m.group("ptype"), coverage)
+            return (f"{m.group('ptype')}保额为年收入"
+                    f"{_format_income_multiple(new_mult)}倍")
+        return _INCOME_MULTIPLE_CLAIM_RE.sub(_one, text)
+
+    return [_rewrite(f) if isinstance(f, str) else f for f in feats]
+
+
 def _enforce_budget(plan, budget, annual_income, age=None, gender=None,
                     product_index=None, removal_order=None):
     """把方案年保费压到年度保费上限以内。
@@ -1447,6 +1559,18 @@ def _finalize_plan(plan, budget, annual_income, ratio, age, gender, products,
     #    修法：在**出口处**（预算调整已完成后）按各险种的**最终保额**重算 features 中的保额表述。
     if plan.get("features"):
         plan["features"] = _sync_features_coverage_claims(plan)
+    # ⚠️ SDI-4 整改 2026-11-13（官方 2.4.3 复扫）：**「年收入 N 倍」形态的卖点
+    #    同样必须随最终保额同步**。
+    #    官方原文（insurance-advisor-china 2.4.3）：
+    #    「Final coverage synchronization leaves the premium plan's income-multiple
+    #     coverage claim unchanged.」
+    #    根因：`_sync_features_coverage_claims()` / `_normalize_coverage_claim()`
+    #    只认「数字+万」形态 → 「重疾险保额高达年收入5倍」不被校正，
+    #    保额被下调/夹逼后仍宣称 5 倍（虚报保额）。
+    #    修法：在**出口处**按重疾险**最终保额**重算收入倍数（幂等，
+    #    正常场景不产生「5倍 → 5.0倍」的无意义 diff）。
+    if plan.get("features"):
+        plan["features"] = _sync_features_income_multiple_claims(plan, annual_income)
     # ⚠️ F4 整改 2026-11-09：把「可售保额上限未核实」的险种汇总为**对外披露**。
     #    必须写在**出口处**（与 total_coverage 重算同一位置），
     #    否则上限未知的保额会以一种「看起来很具体」但未经核实的形式呈现给用户。
