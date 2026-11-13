@@ -262,6 +262,9 @@ def derive_medical_key_benefits(product, base_benefits, coverage_period=None):
     benefits = base_benefits
     if not product:
         return benefits
+    # ⚠️ SDI-4 残余整改 2026-11-13：治疗手段**只认产品真实字段**
+    #    （key_benefits 元素 + highlights 字符串）；base 文本里不得再写死。
+    benefits = f"{benefits}{_medical_treatment_suffix(product)}"
     if _is_guaranteed_renewable(product):
         years = _renewal_duration_years(product)
         if years is not None:
@@ -271,6 +274,72 @@ def derive_medical_key_benefits(product, base_benefits, coverage_period=None):
         return f"{benefits}，保证续保"
     # 无保证续保：不得使用「保证续保N年」措辞；如实表述为「续保条件以产品条款为准」
     return f"{benefits}，续保条件以产品条款为准"
+
+
+# ----------------------------------------------------------------------
+# 医疗险对外宣称的事实源派生（SDI-4 残余整改 2026-11-13）
+#
+# 官方 ClawHub 2.4.6 复扫 finding（SDI-4 · MEDIUM · 置信 0.99）：
+#   「The comprehensive plan assigns the claim "质子重离子与 CAR-T 治疗" to the
+#     selected medical product without verifying those benefits against its actual terms.」
+#
+# 根因：key_benefits 的 base 文本**写死**了「质子重离子与 CAR-T 治疗」
+#      「不限社保」「进口药/靶向药均可报销」等治疗手段 → 与选中产品的真实条款无关；
+#      选品只查「类型 + 续保」，从不校验治疗手段是否被该产品真实条款授权。
+#
+# 修法：治疗手段**只认产品真实字段**；无授权就不宣称（如实降级，不虚构卖点）。
+# ----------------------------------------------------------------------
+_TREATMENT_CLAIMS = ("质子重离子", "CAR-T", "靶向药", "外购药", "特药", "进口药")
+
+
+def _medical_fact_text(product):
+    """医疗险条款事实源文本：key_benefits 元素 + highlights 字符串。
+
+    ⚠️ key_benefits 是 **list** → 必须元素级匹配（`"质子重离子" in list` 恒 False）。
+    ⚠️ highlights 是 **str** → 子串匹配有效。
+    ⚠️ notes / suitable_for / competitive_edge 是营销软文 → **不**作事实源。
+    """
+    if not product:
+        return ""
+    parts = []
+    kb = product.get("key_benefits")
+    if isinstance(kb, (list, tuple)):
+        parts.extend(str(x) for x in kb)
+    elif isinstance(kb, str):
+        parts.append(kb)
+    hl = product.get("highlights")
+    if isinstance(hl, str):
+        parts.append(hl)
+    return " ".join(parts)
+
+
+def _medical_treatment_claims(product):
+    """该产品真实字段里出现过的治疗手段关键词（固定顺序）。"""
+    blob = _medical_fact_text(product)
+    if not blob:
+        return []
+    return [kw for kw in _TREATMENT_CLAIMS if kw in blob]
+
+
+def _medical_treatment_suffix(product):
+    """治疗手段后缀（仅当产品真实字段授权时才有；无授权返回空串）。"""
+    claims = _medical_treatment_claims(product)
+    if not claims:
+        return ""
+    return "，含" + "、".join(claims) + "治疗"
+
+
+def _medical_form_claim(product):
+    """医疗险形态宣称：只认 subtype（如「百万医疗」）。无 subtype 返回空串。"""
+    if not product:
+        return ""
+    return (product.get("subtype") or "").strip()
+
+
+def _medical_base_claim(product):
+    """医疗险卖点基底：只由产品真实字段（subtype）决定，不含未经授权的治疗手段。"""
+    form = _medical_form_claim(product)
+    return f"{form}保障" if form else "医疗保障"
 
 
 # ----------------------------------------------------------------------
@@ -1284,7 +1353,7 @@ def design_basic_plan(age, gender, annual_income, annual_budget, coverage_needs,
                 "payment_term": "年交",
                 "coverage_period": mi_coverage_period,
                 "key_benefits": derive_medical_key_benefits(
-                    mi_product, "百万医疗，不限社保，进口药/靶向药均可报销", mi_coverage_period)
+                    mi_product, _medical_base_claim(mi_product), mi_coverage_period)
             })
             plan["annual_premium"] += mi_premium
             plan["total_coverage"] += mi_coverage
@@ -1391,7 +1460,7 @@ def design_standard_plan(age, gender, annual_income, annual_budget, coverage_nee
             "payment_term": "年交",
             "coverage_period": mi_coverage_period,
             "key_benefits": derive_medical_key_benefits(
-                mi_product, "长期医疗保障", mi_coverage_period)
+                mi_product, _medical_base_claim(mi_product), mi_coverage_period)
         })
         plan["annual_premium"] += mi_premium
         plan["total_coverage"] += mi_coverage
@@ -1431,7 +1500,7 @@ def design_standard_plan(age, gender, annual_income, annual_budget, coverage_nee
     # features 中的医疗险描述由**真实选中产品**派生（R5 整改 2026-11-08）
     mi_entry = next((e for e in plan["products"] if e["type"] == "医疗险"), None)
     if mi_entry:
-        mi_feature = f"医疗险{mi_entry['coverage_period']}，长期稳定"
+        mi_feature = f"医疗险{mi_entry['coverage_period']}"
     else:
         mi_feature = "本方案未包含医疗险"
     plan["features"] = [
@@ -1549,7 +1618,7 @@ def design_premium_plan(age, gender, annual_income, annual_budget, coverage_need
             "payment_term": "年交",
             "coverage_period": mi_coverage_period,
             "key_benefits": derive_medical_key_benefits(
-                mi_product, "600万高保额，含质子重离子、CAR-T治疗", mi_coverage_period)
+                mi_product, f"{_coverage_claim_text(mi_coverage)}高保额", mi_coverage_period)
         })
         plan["annual_premium"] += mi_premium
         plan["total_coverage"] += mi_coverage
@@ -1614,7 +1683,8 @@ def design_premium_plan(age, gender, annual_income, annual_budget, coverage_need
     mi_entry = next((e for e in plan["products"] if e["type"] == "医疗险"), None)
     if mi_entry:
         mi_feature = (f"医疗险{mi_entry['coverage'] // 10000}万保额，"
-                      f"{mi_entry['coverage_period']}，涵盖最新治疗手段")
+                      f"{mi_entry['coverage_period']}"
+                      f"{_medical_treatment_suffix(mi_product)}")
     else:
         mi_feature = "本方案未包含医疗险"
     plan["features"] = [
