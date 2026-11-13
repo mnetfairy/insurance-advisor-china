@@ -1473,6 +1473,123 @@ def test_f12_crx_claim_derivation():
           not mult_claims, "; ".join(mult_claims[:3]))
 
     return True
+
+
+# ---------------------------------------------------------------------------
+# F13 — SDI-4 官方 2.4.7 复扫：治疗手段宣称的「否定语境」回归守卫
+# ---------------------------------------------------------------------------
+def test_f13_treatment_negation_context():
+    """F13 (SDI-4, 官方 2.4.7 复扫): 治疗手段宣称必须感知**否定语境**
+
+    官方原文（scanner 2.12.0 · SDI-4 · Excessive Agency · MEDIUM · 置信 0.99）：
+    「Treatment claims are presented as covered benefits based on keyword presence,
+      even when the source excludes them.」
+
+    根因：`_medical_treatment_claims` 只判「关键词是否出现」（`kw in blob`），
+         **不判**「这次出现是否被条款排除」→ 「不含CAR-T」「质子重离子不予报销」
+         也会被转成「，含CAR-T治疗」的**承保宣称**（纯除外条款被误读为承保）。
+
+    修法：逐次出现判定 —— 每次出现都取上下文窗口判断是否落在否定/除外语境；
+         同一关键词全部出现皆为否定 → 不计入 claims；
+         存在非否定出现（肯定 + 否定并存）→ 仍计入。
+
+    覆盖：6 个对抗场景 + 1 条源码级断言（防止否定判断被删回无条件判定）。
+    """
+    print("\nTest F13: 治疗手段宣称的否定语境感知（SDI-4 · 官方 2.4.7 复扫）")
+    PD = plan_designer
+
+    # ==================================================================
+    # ① 6 个对抗场景
+    # ==================================================================
+    # (名称, 产品字典, 期望 claims, 期望 suffix)
+    scenarios = [
+        ("肯定：质子重离子治疗",
+         {"key_benefits": ["质子重离子治疗"], "highlights": ""},
+         ["质子重离子"], "，含质子重离子治疗"),
+        ("纯否定：不含CAR-T",
+         {"key_benefits": ["不含CAR-T"], "highlights": ""},
+         [], ""),
+        ("纯否定：质子重离子不予报销",
+         {"key_benefits": [], "highlights": "质子重离子不予报销"},
+         [], ""),
+        ("肯定+否定并存：含CAR-T / 不含CAR-T",
+         {"key_benefits": ["含CAR-T", "不含CAR-T"], "highlights": ""},
+         ["CAR-T"], "，含CAR-T治疗"),
+        ("跨字段纯否定：key_benefits 进口药 + highlights 不予报销",
+         {"key_benefits": ["进口药"], "highlights": "进口药不予报销"},
+         [], ""),
+        ("空 blob",
+         {"key_benefits": [], "highlights": ""},
+         [], ""),
+    ]
+    for name, product, expect_claims, expect_suffix in scenarios:
+        got_claims = PD._medical_treatment_claims(product)
+        got_suffix = PD._medical_treatment_suffix(product)
+        ok_claims = (got_claims == expect_claims)
+        ok_suffix = (got_suffix == expect_suffix)
+        check(f"F13.1 对抗场景「{name}」：claims == {expect_claims}",
+              ok_claims, f"实际 {got_claims}")
+        check(f"F13.1 对抗场景「{name}」：suffix == {expect_suffix!r}",
+              ok_suffix, f"实际 {got_suffix!r}")
+
+    # 纯否定场景的关键语义：suffix 不得出现「含<关键词>治疗」
+    for kw in ("CAR-T", "质子重离子", "进口药"):
+        bad = []
+        for product in ({"key_benefits": [f"不含{kw}"], "highlights": ""},
+                        {"key_benefits": [], "highlights": f"{kw}不予报销"},
+                        {"key_benefits": [f"{kw}"], "highlights": f"{kw}不予报销"}):
+            suffix = PD._medical_treatment_suffix(product)
+            if f"含{kw}" in suffix:
+                bad.append(suffix)
+        check(f"F13.2 纯否定「{kw}」不得被转成承保宣称（suffix 不含「含{kw}」）",
+              not bad, "; ".join(bad[:3]))
+
+    # 肯定+否定并存仍算有授权（产品既承保又排除某手段的正常写法）
+    both = PD._medical_treatment_claims(
+        {"key_benefits": ["含CAR-T", "不含CAR-T"], "highlights": ""})
+    check("F13.3 肯定+否定并存：有非否定出现 → 该关键词仍计入 claims",
+          "CAR-T" in both, f"实际 {both}")
+
+    # ==================================================================
+    # ② 源码级断言：不得再出现无条件 `kw in blob` 直接判定
+    # ==================================================================
+    src = open(os.path.join(THIS_DIR, "plan_designer.py"), encoding="utf-8").read()
+    fn_m = re.search(
+        r"^def _medical_treatment_claims\(product\):\n(?P<body>(?:[ \t].*\n|\n)*)",
+        src, re.MULTILINE)
+    if fn_m is None:
+        check("F13.4 源码级：定位到 _medical_treatment_claims 函数体", False)
+        return False
+    body = fn_m.group("body")
+    ok_src = not re.search(r"\bkw\s+in\s+blob\b", body)
+    check("F13.4 源码级：_medical_treatment_claims 函数体内不得出现无条件 `kw in blob` 判定",
+          ok_src, "命中无条件子串判定" if not ok_src else "")
+    ok_neg = ("_keyword_is_negated" in body)
+    check("F13.5 源码级：_medical_treatment_claims 走否定语境判定（_keyword_is_negated）",
+          ok_neg)
+
+    # 事实源口径与关键词集合不得被改动
+    fact_m = re.search(
+        r"^def _medical_fact_text\(product\):\n(?P<body>(?:[ \t].*\n|\n)*)",
+        src, re.MULTILINE)
+    fact_body = fact_m.group("body") if fact_m else ""
+    # 去掉 docstring（docstring 里会**提到** notes / suitable_for / competitive_edge
+    # 是「不作事实源」的说明，不是代码引用）→ 只对**实际代码**断言
+    fact_code = re.sub(r'"""[\s\S]*?"""', "", fact_body, count=1)
+    ok_fact = (("key_benefits" in fact_code) and ("highlights" in fact_code)
+               and ("notes" not in fact_code) and ("suitable_for" not in fact_code)
+               and ("competitive_edge" not in fact_code))
+    check("F13.6 事实源口径未变：_medical_fact_text 仍只用 key_benefits + highlights",
+          ok_fact)
+
+    kw_m = re.search(r"^_TREATMENT_CLAIMS\s*=\s*\(([^)]*)\)", src, re.MULTILINE)
+    kw_set = tuple(re.findall(r'"([^"]+)"', kw_m.group(1))) if kw_m else ()
+    ok_kw = kw_set == ("质子重离子", "CAR-T", "靶向药", "外购药", "特药", "进口药")
+    check("F13.7 _TREATMENT_CLAIMS 关键词集合未被改动", ok_kw, f"实际 {kw_set}")
+
+    return True
+
+
 def main():
     print("=" * 60)
     print("ClawHub 审计整改测试（任务 2 R4/R5/R6/R7 + 任务 3 SQP-3/SDI-3/SDI-4）")
@@ -1508,6 +1625,7 @@ def main():
     test_f10_features_coverage_claim_sync()
     test_f11_income_multiple_claim_sync()
     test_f12_crx_claim_derivation()
+    test_f13_treatment_negation_context()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)
