@@ -1319,6 +1319,155 @@ def test_task3_redline_guards():
 # ---------------------------------------------------------------------------
 # 主流程
 # ---------------------------------------------------------------------------
+
+def test_f12_crx_claim_derivation():
+    PD = plan_designer
+    """F12 (SDI-4, 官方 2.4.4 复扫): 重疾险对外宣称必须由**产品真实字段**派生
+
+    官方原文：
+    「The comprehensive plan can advertise multiple critical-illness payouts and lifetime
+     protection for a fallback product whose terms have not been verified.」
+
+    根因（两处叠加）：
+      ① 全面版「多次赔付」选品条件恒假（`"多次" in (p.get("core_coverage") or "")`
+         对全部重疾险恒假）→ 永远退化为兜底任意一款 → 公告级 finding
+         「fallback product whose terms have not been verified」；
+      ② `coverage_period` 写死「终身」、`key_benefits` 写死
+         「重疾多次赔付，终身保障」「120种重疾+轻症保障」→ 无论兜底品条款如何照写虚报。
+
+    三类用例：
+      ① **低预算档位**（income=200000, budget=5000）：重疾条目的 `coverage_period`
+         必须等于产品库真实字段（不得写死）；
+      ② **对抗场景**：产品池里所有重疾险换成非多次/非终身的「康宁惠享版（定期）」
+         → 方案**不得**宣称「多次赔付」「终身保障」「轻症」「N种重疾」，
+         且 `coverage_period != "终身"`；
+      ③ **年收入缺失**（income=0）：不得出现「年收入 N 倍」形态的宣称。
+
+    事实源（不依赖 plan_designer 里的派生 helper，直接读产品库原始字段）：
+      - 「多次赔付」← `subtype` 含「多次」
+      - 「终身」     ← `coverage_period_is_lifetime` / `coverage_period == "终身"`
+      - 病种/轻症    ← `highlights` 字符串含「轻症」且能匹配「N种重疾」
+    """
+    print("\nTest F12: 重疾险对外宣称由产品真实字段派生（SDI-4 · 官方 2.4.4 复扫）")
+    import re as _re
+
+    _DISEASE_RE = _re.compile(r"\d+\s*种重疾")
+    _BANNED = ("多次赔付", "终身保障", "轻症")
+
+    products = PD.load_products()
+    index = {(p.get("name"), p.get("company")): p for p in products}
+
+    def _is_lifetime(p):
+        flag = p.get("coverage_period_is_lifetime")
+        if flag is True:
+            return True
+        if flag is False:
+            return False
+        return (p.get("coverage_period") or "").strip() == "终身"
+
+    def _crx_entries(plan):
+        return [e for e in (plan.get("products") or []) if e.get("type") == "重疾险"]
+
+    # ==================================================================
+    # ① 低预算档位：coverage_period 必须等于产品库真实字段
+    # ==================================================================
+    low_plans = PD.generate_all_plans(
+        35, "男", 200000, 5000,
+        {"death": 2000000, "critical_illness": 1500000, "hospital": 4000000})
+    mismatch = []
+    checked = 0
+    for pname, plan in low_plans.items():
+        if not plan:
+            continue
+        for entry in _crx_entries(plan):
+            real = index.get((entry.get("product_name"), entry.get("company")))
+            if real is None:
+                mismatch.append(f"{pname}: 产品库无 {entry.get('product_name')}")
+                continue
+            checked += 1
+            expect = (real.get("coverage_period") or "").strip()
+            got = (entry.get("coverage_period") or "").strip()
+            if got != expect:
+                mismatch.append(f"{pname}: cp={got!r} != 真实 {expect!r}")
+    check("低预算档位（income=200000, budget=5000）：重疾 coverage_period == 产品真实字段",
+          bool(checked) and not mismatch,
+          "; ".join(mismatch[:3]) if mismatch else f"校验 {checked} 条重疾条目")
+
+    # ==================================================================
+    # ② 对抗场景：产品池全为非多次/非终身重疾 → 兜底品必须如实描述
+    # ==================================================================
+    crx_all = [p for p in products if p.get("type") == "重疾险"]
+    adversarial = next(
+        (p for p in crx_all
+         if "多次" not in (p.get("subtype") or "")
+         and not _is_lifetime(p)
+         and "轻症" not in (p.get("highlights") or "")
+         and not _DISEASE_RE.search(p.get("highlights") or "")),
+        None)
+    check("产品库存在可用于对抗场景的重疾险（非多次/非终身/无轻症）",
+          adversarial is not None,
+          adversarial.get("name") if adversarial else "产品库无对抗品")
+
+    if adversarial is not None:
+        adv_pool = [adversarial if p.get("type") == "重疾险" else p for p in products]
+        orig_load = PD.load_products
+        PD.load_products = lambda include_discontinued=False: list(adv_pool)
+        try:
+            adv_plans = PD.generate_all_plans(
+                35, "男", 300000, 200000,
+                {"death": 2000000, "critical_illness": 1500000, "hospital": 4000000})
+        finally:
+            PD.load_products = orig_load
+
+        adv_claims = []
+        adv_cp_bad = []
+        adv_seen = 0
+        for pname, plan in adv_plans.items():
+            if not plan:
+                continue
+            for entry in _crx_entries(plan):
+                adv_seen += 1
+                kb = entry.get("key_benefits") or ""
+                cp = entry.get("coverage_period") or ""
+                text = kb + "\n" + cp
+                for word in _BANNED:
+                    if word in text:
+                        adv_claims.append(f"{pname}: {word} in {text!r}")
+                if _DISEASE_RE.search(text):
+                    adv_claims.append(f"{pname}: 病种数宣称 in {text!r}")
+                if cp.strip() == "终身":
+                    adv_cp_bad.append(f"{pname}: cp={cp!r}")
+                if cp.strip() != (adversarial.get("coverage_period") or "").strip():
+                    adv_cp_bad.append(
+                        f"{pname}: cp={cp!r} != 真实 {(adversarial.get('coverage_period') or '')!r}")
+
+        check("对抗场景：方案产出重疾条目（用例有效）", adv_seen > 0, f"共 {adv_seen} 条")
+        check("对抗场景：不得宣称「多次赔付」「终身保障」「轻症」「N种重疾」",
+              not adv_claims, "; ".join(adv_claims[:3]))
+        check("对抗场景：coverage_period 不得写「终身」且须与产品真实字段一致",
+              not adv_cp_bad, "; ".join(adv_cp_bad[:3]))
+
+    # ==================================================================
+    # ③ 年收入缺失（income=0）：不得出现「年收入 N 倍」形态的宣称
+    # ==================================================================
+    zero_plans = PD.generate_all_plans(
+        35, "男", 0, 100000,
+        {"death": 2000000, "critical_illness": 1500000, "hospital": 4000000})
+    mult_claims = []
+    for pname, plan in zero_plans.items():
+        if not plan:
+            continue
+        for feat in (plan.get("features") or []):
+            if isinstance(feat, str) and _re.search(r"年收入\s*\d+(?:\.\d+)?\s*倍", feat):
+                mult_claims.append(f"{pname}: {feat!r}")
+        for lim in (plan.get("limitations") or []):
+            s = lim if isinstance(lim, str) else json.dumps(lim, ensure_ascii=False)
+            if _re.search(r"年收入\s*\d+(?:\.\d+)?\s*倍", s):
+                mult_claims.append(f"{pname}: limitation {s!r}")
+    check("年收入缺失（income=0）：不得出现「年收入 N 倍」形态的宣称",
+          not mult_claims, "; ".join(mult_claims[:3]))
+
+    return True
 def main():
     print("=" * 60)
     print("ClawHub 审计整改测试（任务 2 R4/R5/R6/R7 + 任务 3 SQP-3/SDI-3/SDI-4）")
@@ -1353,6 +1502,7 @@ def main():
     test_f9_global_trigger_insurance_context()
     test_f10_features_coverage_claim_sync()
     test_f11_income_multiple_claim_sync()
+    test_f12_crx_claim_derivation()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)

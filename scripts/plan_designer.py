@@ -273,6 +273,95 @@ def derive_medical_key_benefits(product, base_benefits, coverage_period=None):
     return f"{benefits}，续保条件以产品条款为准"
 
 
+# ----------------------------------------------------------------------
+# 重疾险对外宣称的事实源派生（SDI-4 整改 2026-11-13）
+# ----------------------------------------------------------------------
+def _crx_is_multi(product):
+    """「多次赔付」的唯一权威来源是产品库 subtype 字段。
+
+    ⚠️ 不可用 key_benefits / highlights 判定：实测 660 款重疾险中有 84 款
+       key_benefits、76 款 highlights 写着「多次赔付」但 subtype 不含「多次」
+       （真实口径是单次赔付型）→ 抄原文会把属性说反。
+    """
+    if not product:
+        return False
+    return "多次" in (product.get("subtype") or "")
+
+
+def _crx_is_lifetime(product):
+    """「终身」判定：coverage_period_is_lifetime 优先，其次 coverage_period 文本。"""
+    if not product:
+        return False
+    flag = product.get("coverage_period_is_lifetime")
+    if flag is True:
+        return True
+    if flag is False:
+        return False
+    return (product.get("coverage_period") or "").strip() == "终身"
+
+
+def _crx_coverage_period(product):
+    """重疾险保障期对外表述：原样取产品库 coverage_period（strip 后），不拼接不改写。
+
+    为空时返回空串（与产品库字段严格一致）→ 由调用方记录 limitation。
+    """
+    if not product:
+        return ""
+    return (product.get("coverage_period") or "").strip()
+
+
+def _crx_disease_claim(product):
+    """重疾病种/轻症宣称：只认 highlights 字符串（须含「轻症」且能提取到「N种重疾」）。
+
+    ⚠️ key_benefits 是 list → 元素级 "轻症" in list 恒 False → 不可作事实源。
+    """
+    if not product:
+        return ""
+    hl = product.get("highlights")
+    if not isinstance(hl, str) or "轻症" not in hl:
+        return ""
+    m = re.search(r"(\d+)\s*种重疾", hl)
+    if not m:
+        return ""
+    return f"{m.group(1)}种重疾+轻症保障"
+
+
+def _crx_key_benefits(product, coverage, style="standard"):
+    """按产品真实字段派生重疾险对外卖点文案。
+
+    style="standard" → 「{病种轻症}，确诊即赔付{n}万」（无轻症来源时降级为「重疾保障，确诊即赔付{n}万」）
+    style="premium"  → 「{重疾多次赔付?}{，终身保障?}，保额{n}万」（两项均无授权时 → 「重疾保障，保额{n}万」）
+    """
+    coverage = int(coverage or 0)
+    amount = coverage // 10000
+    multi = _crx_is_multi(product)
+    lifetime = _crx_is_lifetime(product)
+
+    if style == "premium":
+        parts = []
+        if multi:
+            parts.append("重疾多次赔付")
+        if lifetime:
+            parts.append("终身保障")
+        if parts:
+            return "，".join(parts) + f"，保额{amount}万"
+        return f"重疾保障，保额{amount}万"
+
+    disease = _crx_disease_claim(product)
+    if disease:
+        return f"{disease}，确诊即赔付{amount}万"
+    return f"重疾保障，确诊即赔付{amount}万"
+
+
+def _crx_feature(product):
+    """标准版 features 中的重疾卖点：按真实选中产品派生，不写死「终身保障」。"""
+    if not product:
+        return "重疾保障按实际需求配置"
+    if _crx_is_lifetime(product):
+        return "重疾险提供终身保障，确诊即赔付"
+    return "重疾险确诊即赔付"
+
+
 def select_products(products, product_type, criteria="recommended"):
     """按类型筛选产品"""
     filtered = [p for p in products if p["type"] == product_type]
@@ -1254,10 +1343,17 @@ def design_standard_plan(age, gender, annual_income, annual_budget, coverage_nee
     plan["annual_premium"] += tl_premium
     plan["total_coverage"] += tl_coverage
 
-    # 重疾险 - 推荐平安福或国寿福
+    # 重疾险 - 推荐平安福或国寿福（SDI-4 整改 2026-11-13）
     crx_products = [p for p in products if p["type"] == "重疾险"]
+    # 兜底优先取 coverage_period 非空的产品（空值无法对外表述保障期）
+    crx_products_nonempty = [p for p in crx_products
+                              if (p.get("coverage_period") or "").strip()]
+    crx_product = None
     if crx_products:
-        crx_product = next((p for p in crx_products if "福" in p["name"] and "终身" in (p.get("coverage_period") or "")), crx_products[0])
+        crx_product = next(
+            (p for p in crx_products
+             if "福" in p["name"] and "终身" in (p.get("coverage_period") or "")),
+            (crx_products_nonempty or crx_products)[0])
         crx_coverage = min(coverage_needs.get("critical_illness", annual_income * 3), 500000)
         # ⚠️ R4 整改 2026-11-08：保额不得超产品可售上限（max_coverage）
         crx_coverage, _capped = _apply_coverage_cap(
@@ -1270,8 +1366,10 @@ def design_standard_plan(age, gender, annual_income, annual_budget, coverage_nee
             "coverage": crx_coverage,
             "annual_premium": crx_premium,
             "payment_term": "20年",
-            "coverage_period": "终身",
-            "key_benefits": f"120种重疾+轻症保障，确诊即赔付{crx_coverage//10000}万"
+            # ⚠️ SDI-4 整改 2026-11-13：保障期由**产品真实字段**派生，不写死
+            "coverage_period": _crx_coverage_period(crx_product),
+            # ⚠️ SDI-4 整改 2026-11-13：病种/轻症宣称须有 highlights 来源
+            "key_benefits": _crx_key_benefits(crx_product, crx_coverage, "standard")
         })
         plan["annual_premium"] += crx_premium
         plan["total_coverage"] += crx_coverage
@@ -1338,7 +1436,8 @@ def design_standard_plan(age, gender, annual_income, annual_budget, coverage_nee
         mi_feature = "本方案未包含医疗险"
     plan["features"] = [
         "保障全面：寿险+重疾+医疗+意外",
-        "重疾险提供终身保障，确诊即赔付",
+        # ⚠️ SDI-4 整改 2026-11-13：重疾卖点由**真实选中产品**派生（原写死「终身保障」）
+        _crx_feature(crx_product),
         mi_feature,
         "定期寿险覆盖家庭经济责任期",
         "年保费已按年度保费上限（min(年度预算, 年收入×15%））校验"
@@ -1382,10 +1481,19 @@ def design_premium_plan(age, gender, annual_income, annual_budget, coverage_need
     plan["annual_premium"] += tl_premium
     plan["total_coverage"] += tl_coverage
 
-    # 重疾险 - 多次赔付型
-    crx_products = [p for p in products if p["type"] == "重疾险" and "多次" in (p.get("core_coverage") or "")]
+    # 重疾险 - 多次赔付型（SDI-4 整改 2026-11-13）
+    # ⚠️ 原条件 "多次" in (p.get("core_coverage") or "") 对 660 款重疾险**恒为假**
+    #    （core_coverage 全空）→ 永远退化成兜底任意一款 → 官方 finding 的
+    #    「fallback product whose terms have not been verified」根源。
+    #    修法：口径改为权威字段 subtype（含「多次」的在售 27 款）。
+    crx_products = [p for p in products if p["type"] == "重疾险"
+                    and _crx_is_multi(p)]
+    crx_multi_selected = bool(crx_products)
     if not crx_products:
         crx_products = [p for p in products if p["type"] == "重疾险"]
+        crx_products_nonempty = [p for p in crx_products
+                                  if (p.get("coverage_period") or "").strip()]
+        crx_products = crx_products_nonempty or crx_products
     if crx_products:
         crx_product = crx_products[0]
         crx_coverage = min(coverage_needs.get("critical_illness", annual_income * 5), 500000)
@@ -1400,11 +1508,23 @@ def design_premium_plan(age, gender, annual_income, annual_budget, coverage_need
             "coverage": crx_coverage,
             "annual_premium": crx_premium,
             "payment_term": "20年",
-            "coverage_period": "终身",
-            "key_benefits": f"重疾多次赔付，终身保障，保额{crx_coverage//10000}万"
+            # ⚠️ SDI-4 整改 2026-11-13：保障期由**产品真实字段**派生，不写死
+            "coverage_period": _crx_coverage_period(crx_product),
+            # ⚠️ SDI-4 整改 2026-11-13：多次赔付/终身保障须分别按 subtype / is_lifetime 授权
+            "key_benefits": _crx_key_benefits(crx_product, crx_coverage, "premium")
         })
         plan["annual_premium"] += crx_premium
         plan["total_coverage"] += crx_coverage
+        if not crx_multi_selected:
+            # 无多次赔付型合格品 → 如实报告限制，不谎称已满足
+            # ⚠️ 文案刻意不用「多次赔付」字样，避免与对外宣称混淆
+            plan.setdefault("limitations", []).append({
+                "type": "coverage_limit",
+                "product_type": "重疾险",
+                "product": crx_product["name"],
+                "requirement": "含多次给付责任的重疾险",
+                "reason": "当前产品库在售重疾险中无符合该责任结构的产品，已选保障范围最接近者",
+            })
 
     # 医疗险 - 600万高保额
     # ⚠️ R5 整改 2026-11-08：选品规则（600 万偏好）保持原样，

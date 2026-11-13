@@ -743,6 +743,25 @@ fallback 三件套 / SKILL.md 引用 / 联系方式展示策略与本 skill 既�
 
 ## 更新日志
 
+- v2.4.5 (2026-11-13)：**官方 2.4.4 复扫后整改（SDI-4 重疾声明派生）**：
+  - **SDI-4（Excessive Agency，MEDIUM）**：官方原文——
+    「The comprehensive plan can advertise multiple critical-illness payouts and lifetime
+     protection for a fallback product whose terms have not been verified.」
+  - **根因 1（选品恒假）**：全面版多次赔付选品条件 `"多次" in (p.get("core_coverage") or "")`
+    对 660 款重疾险**恒为假**（`core_coverage` 全空）→ 永远退化为兜底任意一款 →
+    公告级 finding「fallback product whose terms have not been verified」。
+    → 口径改为**权威字段 `subtype`**（在售含「多次」27 款），命中即真实选品，非兜底。
+  - **根因 2（文案写死）**：`coverage_period` 写死「终身」、`key_benefits` 写死
+    「重疾多次赔付，终身保障」「120种重疾+轻症保障」→ 无论兜底品实际条款如何，照写虚报。
+    → 新增 `_crx_is_multi()` / `_crx_is_lifetime()` / `_crx_coverage_period()` /
+    `_crx_disease_claim()` / `_crx_key_benefits()` / `_crx_feature()`：
+    **「多次赔付」只认 `subtype`**（实测 84 款产品 `key_benefits` 写「多次赔付」但 `subtype` 不含，
+    抄原文会把属性说反）、**「终身」只认 `coverage_period_is_lifetime` / `coverage_period`**、
+    **病种/轻症只认 `highlights` 字符串**（`key_benefits` 是 list，元素级匹配恒 False）。
+  - **兜底如实报告**：无多次给付合格品时在 `limitations` 记一条 `coverage_limit`，
+    不再谎称已满足。
+  - **回归**：新增低预算档位 + 对抗场景（产品池全为非多次/非终身重疾）+ 年收入缺失 三类用例。
+
 - v2.4.2 (2026-11-11)：**官方扫描复扫后整改（SDI-4 features 保额同步 + 续保标记顺序无关）**：
   - **官方扫描（v2.4.1 已公开）**：`issueCount=1 / score=12 / LOW`，
     SQP-1 已消除 ✅；本轮修完该残余 SDI-4
