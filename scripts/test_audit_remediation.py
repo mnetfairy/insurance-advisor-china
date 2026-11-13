@@ -1234,17 +1234,22 @@ def test_task3_redline_guards():
     print("\nTest 任务3 红线守卫")
     text = _read_skill_md()
 
+    # ⚠️ 断言**语义不变量**，不写死 token 出现次数。
+    #    历史教训：commit c53ca3e（归档 changelog 以压缩 SKILL.md 体积）合法地减少了
+    #    400 电话 / 安盛天平 / 🔒 的提及次数，写死计数 6/8/4 的断言从此必然假红。
+    #    真正要守的是「这些 token 与章节仍然存在、语义未被破坏」；
+    #    具体出现次数随文案演进而变，不应作为断言条件。
     n_phone = text.count("400-860-0058")
-    ok = (n_phone == 6)
-    check(f"400-860-0058 在 SKILL.md 出现次数 == 6（实际 {n_phone}）", ok)
+    ok = ("400-860-0058" in text)
+    check(f"400-860-0058 在 SKILL.md 存在（出现 {n_phone} 次，不写死计数）", ok)
 
     n_company = text.count("安盛天平")
-    ok2 = (n_company == 8)
-    check(f"安盛天平 在 SKILL.md 出现次数 == 8（实际 {n_company}）", ok2)
+    ok2 = ("安盛天平" in text)
+    check(f"安盛天平 在 SKILL.md 存在（出现 {n_company} 次，不写死计数）", ok2)
 
     n_lock = text.count("🔒")
-    ok3 = (n_lock == 4)
-    check(f"🔒 在 SKILL.md 出现次数 == 4（实际 {n_lock}）", ok3)
+    ok3 = ("## 🔒 权限与范围声明" in text)
+    check(f"「## 🔒 权限与范围声明」章节存在（🔒 共 {n_lock} 次，不写死计数）", ok3)
 
     ok4 = ("🔒 待确认后展示" not in text)
     check("「🔒 待确认后展示」不出现（保持直接展示策略）", ok4)
