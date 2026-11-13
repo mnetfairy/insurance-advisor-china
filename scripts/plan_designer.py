@@ -291,6 +291,172 @@ def derive_medical_key_benefits(product, base_benefits, coverage_period=None):
 # ----------------------------------------------------------------------
 _TREATMENT_CLAIMS = ("质子重离子", "CAR-T", "靶向药", "外购药", "特药", "进口药")
 
+# ---------------------------------------------------------------------------
+# 否定语境判定（SDI-4 官方 2.4.7 复扫整改 · 2026-11-14）
+#
+# 官方 finding（scanner 2.12.0 · SDI-4 · Excessive Agency · MEDIUM · 置信 0.99）：
+#   「Treatment claims are presented as covered benefits based on keyword presence,
+#     even when the source excludes them.」
+#
+# 根因：v2.4.7 引入的 `_medical_treatment_claims` 只判「关键词是否出现」，
+#      **不判**「这次出现是否被条款排除」→ 「不含CAR-T」「质子重离子不予报销」
+#      也会被转成「，含CAR-T治疗」的**承保宣称**。
+#
+# 修法：**逐次出现**判定 —— 每次出现都取上下文窗口判断是否落在否定/除外语境；
+#      同一关键词若全部出现皆为否定 → 不计入 claims；
+#      存在非否定出现 → 计入（肯定 + 否定并存仍算有授权）。
+# ---------------------------------------------------------------------------
+# 否定/除外词：前瞻型（词在关键词之前）与回溯型（词在关键词之后）
+_NEG_MARKERS_FORWARD = ("不含", "不包含", "不包括", "不纳入", "不涵盖", "不覆盖", "不支持")
+_NEG_MARKERS_BACKWARD = ("除外", "不在保障范围", "不赔", "不予支付")
+_NEG_MARKERS_BOTH = ("不予报销", "不报销", "无法报销", "不能报销", "不承保")
+_NEG_MARKERS = tuple(sorted(
+    set(_NEG_MARKERS_FORWARD + _NEG_MARKERS_BACKWARD + _NEG_MARKERS_BOTH),
+    key=len, reverse=True))
+
+# 肯定/授权词（用于「明确肯定表述」判定；落在否定词内部的一律不算）
+_AFFIRM_MARKERS = ("含", "包含", "涵盖", "覆盖", "可报销", "报销", "给付", "支持", "承保")
+
+# 上下文窗口：否定词与其绑定的关键词出现之间的距离上限（字符）
+_NEG_CONTEXT_WINDOW = 30
+# 子句边界：句号/分号/逗号/空格/换行等 —— 否定语境不跨子句传播
+_CLAUSE_BREAKS = "。；！？!?;:\n\t，, "
+
+
+def _treatment_occurrences(blob):
+    """blob 中每个治疗手段关键词的**全部**出现位置 → [(kw, start, end), ...]"""
+    occ = []
+    if not blob:
+        return occ
+    for kw in _TREATMENT_CLAIMS:
+        i = blob.find(kw)
+        while i != -1:
+            occ.append((kw, i, i + len(kw)))
+            i = blob.find(kw, i + 1)
+    occ.sort(key=lambda o: o[1])
+    return occ
+
+
+def _negation_marker_spans(blob):
+    """blob 中全部否定/除外词的出现位置 → [(start, end, marker), ...]"""
+    spans = []
+    if not blob:
+        return spans
+    for m in _NEG_MARKERS:
+        i = blob.find(m)
+        while i != -1:
+            spans.append((i, i + len(m), m))
+            i = blob.find(m, i + 1)
+    spans.sort(key=lambda s: (s[0], s[1]))
+    return spans
+
+
+def _scope_bounds(blob, lo, hi, forward):
+    """从否定词位置沿 forward（或反向）扫描到最近的子句边界 → (scope_start, scope_end)"""
+    if forward:
+        end = len(blob)
+        for i in range(hi, len(blob)):
+            if blob[i] in _CLAUSE_BREAKS:
+                end = i
+                break
+        return hi, end
+    start = 0
+    for i in range(lo - 1, -1, -1):
+        if blob[i] in _CLAUSE_BREAKS:
+            start = i + 1
+            break
+    return start, lo
+
+
+def _negation_context(blob):
+    """否定语境上下文（单一事实来源）：(occurrences, spans, bound)
+
+    bound = 被否定语境绑定的出现位置集合 {(start, end), ...}
+    """
+    occurrences = _treatment_occurrences(blob)
+    spans = _negation_marker_spans(blob)
+    bound = set()
+    for ms, me, marker in spans:
+        forward = marker in _NEG_MARKERS_FORWARD or marker in _NEG_MARKERS_BOTH
+        backward = marker in _NEG_MARKERS_BACKWARD or marker in _NEG_MARKERS_BOTH
+        if forward:
+            s, e = _scope_bounds(blob, ms, me, True)
+            for _kw, o_s, o_e in occurrences:
+                if s <= o_s < e and o_s - me <= _NEG_CONTEXT_WINDOW:
+                    bound.add((o_s, o_e))
+        if backward:
+            s, e = _scope_bounds(blob, ms, me, False)
+            for _kw, o_s, o_e in occurrences:
+                if s <= o_e <= e and ms - o_e <= _NEG_CONTEXT_WINDOW:
+                    bound.add((o_s, o_e))
+    return occurrences, spans, bound
+
+
+def _keyword_is_negated(blob, start, end, context=None):
+    """该次出现是否落在否定/除外语境（**单一事实来源**）。
+
+    context 省略时自建；返回 True 表示该次出现属于「被排除」的表述。
+    """
+    if not blob or start < 0 or end > len(blob):
+        return False
+    occurrences, spans, bound = context if context else _negation_context(blob)
+    del occurrences, spans
+    return (start, end) in bound
+
+
+def _clause_head(text):
+    """取片段中最后一个子句边界**之后**的部分（子句前缀）→ (text, 偏移)"""
+    cut = -1
+    for ch in _CLAUSE_BREAKS:
+        j = text.rfind(ch)
+        if j > cut:
+            cut = j
+    if cut < 0:
+        return text, 0
+    return text[cut + 1:], cut + 1
+
+
+def _clause_tail(text):
+    """取片段中第一个子句边界**之前**的部分（子句后缀）→ (text, 偏移)"""
+    cut = len(text)
+    for ch in _CLAUSE_BREAKS:
+        j = text.find(ch)
+        if j != -1 and j < cut:
+            cut = j
+    if cut == len(text):
+        return text, 0
+    return text[:cut], 0
+
+
+def _has_affirmative(text, base, spans):
+    """片段内是否存在**明确肯定**表述（且该表述不落在否定词内部）"""
+    if not text:
+        return False
+    for token in _AFFIRM_MARKERS:
+        i = text.find(token)
+        while i != -1:
+            ts, te = base + i, base + i + len(token)
+            if not any(ms < te and ts < me for ms, me, _m in spans):
+                return True
+            i = text.find(token, i + 1)
+    return False
+
+
+def _occurrence_is_affirmative(blob, occ, occurrences, spans):
+    """该次出现附近是否有明确肯定表述（"含…"/"…可报销"等）"""
+    _kw, s, e = occ
+    prev_end = 0
+    next_start = len(blob)
+    for _kw2, o_s, o_e in occurrences:
+        if o_e <= s and o_e > prev_end:
+            prev_end = o_e
+        if o_s >= e and o_s < next_start:
+            next_start = o_s
+    head, head_off = _clause_head(blob[prev_end:s])
+    tail, tail_off = _clause_tail(blob[e:next_start])
+    return (_has_affirmative(head, prev_end + head_off, spans)
+            or _has_affirmative(tail, e + tail_off, spans))
+
 
 def _medical_fact_text(product):
     """医疗险条款事实源文本：key_benefits 元素 + highlights 字符串。
@@ -314,11 +480,38 @@ def _medical_fact_text(product):
 
 
 def _medical_treatment_claims(product):
-    """该产品真实字段里出现过的治疗手段关键词（固定顺序）。"""
+    """该产品真实字段里出现过的治疗手段关键词（固定顺序 · **逐次出现**否定语境判定）。
+
+    判定口径（SDI-4 官方 2.4.7 复扫整改）：
+      ① 每个关键词遍历事实源文本中的**全部**出现位置；
+      ② 每次出现都取上下文窗口（命中点前后）判断是否落在否定/除外语境
+         （不含 / 不包含 / 不予报销 / 不报销 / 除外 / 不在保障范围 / 不覆盖 /
+           无法报销 / 不能报销 / 不承保 / 不赔 / 不予支付 …）；
+      ③ 该关键词**全部**出现皆为否定 → **不**计入 claims（纯除外条款不得转为承保宣称）；
+      ④ 存在**非否定**出现 → 计入（肯定 + 否定并存仍算有授权）；
+      ⑤ 若同时存在否定出现与**明确肯定**表述（"含…"/"…可报销"）→ 仍计入。
+    """
     blob = _medical_fact_text(product)
     if not blob:
         return []
-    return [kw for kw in _TREATMENT_CLAIMS if kw in blob]
+    occurrences, spans, bound = _negation_context(blob)
+    if not occurrences:
+        return []
+    claims = []
+    for kw in _TREATMENT_CLAIMS:
+        k_occ = [o for o in occurrences if o[0] == kw]
+        if not k_occ:
+            continue
+        negated_any = any(_keyword_is_negated(blob, o[1], o[2],
+                                              (occurrences, spans, bound))
+                          for o in k_occ)
+        if not negated_any:
+            claims.append(kw)
+            continue
+        # 同一关键词存在否定出现 → 需另有明确肯定表述才可对外宣称
+        if any(_occurrence_is_affirmative(blob, o, occurrences, spans) for o in k_occ):
+            claims.append(kw)
+    return claims
 
 
 def _medical_treatment_suffix(product):
