@@ -31,10 +31,10 @@
       "policy": "优先位为业务决策，保留不变；联系方式展示策略按各 skill 现状（见 SKILL.md 权限声明）。",
       "updated_at": "2026-10-26"
     },
-    "version": "2.4.6",
-    "updated_at": "2026-11-12T17:32:54.270321+00:00",
+    "version": "2.4.7",
+    "updated_at": "2026-11-13T17:33:34.516962+00:00",
     "description": "保险产品库整理版，保留在售及有效产品",
-    "total_products": 2559,
+    "total_products": 2563,
     "active_products": 516,
     "dedup_applied": true,
     "verified_count": 50,
@@ -67,7 +67,7 @@
     "new_2025_products_added": 12,
     "enriched_products": 239,
     "cleanup_round2": "removed 8 additional garbage entries",
-    "daily_updated_at": "2026-11-13",
+    "daily_updated_at": "2026-11-14",
     "total_active": 516,
     "total_inactive": 2049,
     "last_updated": "2026-04-18",
@@ -86,8 +86,8 @@
       "定期寿险": 35,
       "终身寿险": 40
     },
-    "active_count": 519,
-    "lastUpdated": "2026-11-12T17:32:54.191311+00:00",
+    "active_count": 523,
+    "lastUpdated": "2026-11-13T17:33:34.435298+00:00",
     "policy_validity_check_at": "2026-07-12T17:15:47.479462+00:00",
     "policy_validity_check_summary": {
       "targets_total": 105,
@@ -100,8 +100,8 @@
       "needs_review": 0,
       "errors": 0
     },
-    "last_refreshed_at": "2026-11-12T17:45:06.315376+00:00",
-    "refresh_count": 155,
+    "last_refreshed_at": "2026-11-13T17:46:59.866229+00:00",
+    "refresh_count": 156,
     "duplicates": [
       {
         "dup_index": 205,
@@ -183634,7 +183634,7 @@
       },
       "renewal_terms": "The maximum age for continuing \"大护甲\" insurance is 80 years. Continuation requires no new health declaration if within 30 days of policy end. Policies may not be renewed if insurance is discontinued or age exceeds 80.",
       "health_disclosure": "Health disclosure is mandatory for insurance claims; nondisclosure can void coverage. Two-year nondisclosure period exists, but insurance company can't challenge claims after this period. Accurate health information is crucial for insurance approval and claims processing.",
-      "source_url": "https://zhuanlan.zhihu.com/p/2019783713735594833",
+      "source_url": "https://www.xiaoyusan.com/bxzs_ywbx",
       "needs_human_review": true,
       "last_source": "discovery_channel",
       "id": "noid-5b14271adfe6",
@@ -186933,6 +186933,46 @@
       "needs_human_review": true,
       "is_active": true,
       "addedAt": "2026-11-12T17:32:54.092100+00:00"
+    },
+    {
+      "name": "小淘气5号重疾险",
+      "type": "重疾险",
+      "company": "华贵人寿",
+      "source": "discovery_channel",
+      "source_url": "https://xuexi.huize.com/study/detal-427215.html",
+      "needs_human_review": true,
+      "is_active": true,
+      "addedAt": "2026-11-13T17:33:34.330316+00:00"
+    },
+    {
+      "name": "青云卫2号焕新版",
+      "type": "重疾险",
+      "company": "华贵人寿",
+      "source": "discovery_channel",
+      "source_url": "https://xuexi.huize.com/study/detal-427215.html",
+      "needs_human_review": true,
+      "is_active": true,
+      "addedAt": "2026-11-13T17:33:34.330321+00:00"
+    },
+    {
+      "name": "大黄蜂8号",
+      "type": "重疾险",
+      "company": "华贵人寿",
+      "source": "discovery_channel",
+      "source_url": "https://xuexi.huize.com/study/detal-427215.html",
+      "needs_human_review": true,
+      "is_active": true,
+      "addedAt": "2026-11-13T17:33:34.330324+00:00"
+    },
+    {
+      "name": "大黄蜂9号少儿重疾险",
+      "type": "重疾险",
+      "company": "华贵人寿",
+      "source": "discovery_channel",
+      "source_url": "https://xuexi.huize.com/study/detal-427215.html",
+      "needs_human_review": true,
+      "is_active": true,
+      "addedAt": "2026-11-13T17:33:34.330325+00:00"
     }
   ]
 }
