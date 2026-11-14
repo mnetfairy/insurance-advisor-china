@@ -48,6 +48,13 @@ scripts/sanitize_products_json.py
 scripts/test_*.py
 scripts/_baseline_skill_md_snapshot.md
 
+# ---- 临时/工作副本（防御性规则）----
+# 起因（2026-11-14）：本地校验脚本曾把 HEAD 版 plan_designer.py 写成
+#   scripts/_head_pd_tmp.py（104KB 副本）→ 位于发布面 → 会被一并上传。
+#   即使已修复写入方，仍保留通配规则兜底：任何 scripts/_ 前缀文件都不随产物分发。
+scripts/_*.py
+scripts/_*
+
 # ---- 历史数据与分析报告 ----
 references/products_v2.json
 references/_repo_analysis_*.md
