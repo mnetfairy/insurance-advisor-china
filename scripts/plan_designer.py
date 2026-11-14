@@ -428,8 +428,103 @@ def _clause_tail(text):
     return text[:cut], 0
 
 
-def _has_affirmative(text, base, spans):
-    """片段内是否存在**明确肯定**表述（且该表述不落在否定词内部）"""
+def _negation_scope_map(blob, occurrences=None, spans=None, owner=None):
+    """否定**作用域**映射：{(occ_start, occ_end): [(scope_start, scope_end, field_id), ...]}
+
+    ⚠️ 为什么必须单独建这个映射（2026-11-14 官方 2.4.8 复扫 SDI-4 新变体）：
+    否定**作用域**与否定**词字符跨度**是两个不同的东西。
+    「不含CAR-T治疗费用报销」里，否定词「不含」的字符跨度只有 (0,2)，
+    但它的作用域是 (2, 13) —— 「报销」就在这个作用域内，
+    属于除外条款自己的一部分，**不得**当作对 CAR-T 的承保授权。
+
+    官方 remediation 原文：
+      「Require affirmative evidence to apply to the same treatment occurrence
+        and to lie outside its entire exclusion scope, not merely outside the
+        negation marker's character span.」
+    """
+    occurrences = occurrences if occurrences is not None else _treatment_occurrences(blob)
+    spans = spans if spans is not None else _negation_marker_spans(blob)
+    out = {}
+    for ms, me, marker in spans:
+        f_m = owner[ms] if (owner is not None and ms < len(owner)) else -1
+        forward = marker in _NEG_MARKERS_FORWARD or marker in _NEG_MARKERS_BOTH
+        backward = marker in _NEG_MARKERS_BACKWARD or marker in _NEG_MARKERS_BOTH
+        if forward:
+            s, e = _scope_bounds(blob, ms, me, True)
+            for _kw, o_s, o_e in occurrences:
+                if s <= o_s < e and o_s - me <= _NEG_CONTEXT_WINDOW:
+                    out.setdefault((o_s, o_e), []).append((s, e, f_m))
+        if backward:
+            s, e = _scope_bounds(blob, ms, me, False)
+            for _kw, o_s, o_e in occurrences:
+                if s <= o_e <= e and ms - o_e <= _NEG_CONTEXT_WINDOW:
+                    out.setdefault((o_s, o_e), []).append((s, e, f_m))
+    return out
+
+
+def _medical_fact_owner_map(product):
+    """事实源文本的**字段归属映射** → (blob, owner)
+
+    owner[i] = blob 第 i 个字符所属的字段 id（0 = key_benefits，1 = highlights，
+    -1 = 字段之间的分隔空格）。
+
+    ⚠️ 必须与 `_medical_fact_text` 口径**完全一致**（同样的字段、同样的顺序、
+    同样的空格拼接）—— 跨字段的冲突表述（key_benefits 说含、highlights 说不含）
+    必须按「unverified」处理，不得互相授权。
+    """
+    if not product:
+        return "", []
+    parts = []
+    owners = []
+    kb = product.get("key_benefits")
+    if isinstance(kb, (list, tuple)):
+        for x in kb:
+            parts.append(str(x))
+            owners.append(0)
+    elif isinstance(kb, str):
+        parts.append(kb)
+        owners.append(0)
+    hl = product.get("highlights")
+    if isinstance(hl, str):
+        parts.append(hl)
+        owners.append(1)
+    blob = ""
+    owner = []
+    for i, (p, f) in enumerate(zip(parts, owners)):
+        if i:
+            blob += " "
+            owner.append(-1)
+        blob += p
+        owner.extend([f] * len(p))
+    return blob, owner
+
+
+def _scope_has_affirmative(blob, negated_occ, scope_map):
+    """除外作用域内是否出现**肯定字样** → 该除外表述自相矛盾 → 按 unverified 处理
+
+    官方 remediation：「Treat conflicting or ambiguous coverage statements as
+    unverified rather than emitting unconditional coverage claims.」
+    """
+    for o in negated_occ:
+        for (sc, ec, _f) in scope_map.get((o[1], o[2]), ()):
+            if sc >= ec:
+                continue
+            seg = blob[sc:ec]
+            if any(tok in seg for tok in _AFFIRM_MARKERS):
+                return True
+    return False
+
+
+def _has_affirmative(text, base, spans, excluded=()):
+    """片段内是否存在**有效的**明确肯定表述
+
+    有效性两条硬要求（都要满足）：
+      ① 不落在否定词**字符跨度**内（「不含」里的「含」不算肯定）；
+      ② 不落在该次出现的**否定作用域**内 —— 官方 2.4.8 SDI-4 remediation：
+         肯定证据必须落在整个除外作用域之外，而不只是否定词字符跨度之外。
+
+    excluded = [(scope_start, scope_end, field_id), ...] —— 该次出现的除外作用域。
+    """
     if not text:
         return False
     for token in _AFFIRM_MARKERS:
@@ -437,13 +532,19 @@ def _has_affirmative(text, base, spans):
         while i != -1:
             ts, te = base + i, base + i + len(token)
             if not any(ms < te and ts < me for ms, me, _m in spans):
-                return True
+                if not any(sc <= ts and te <= ec for sc, ec, _f in excluded):
+                    return True
             i = text.find(token, i + 1)
     return False
 
 
-def _occurrence_is_affirmative(blob, occ, occurrences, spans):
-    """该次出现附近是否有明确肯定表述（"含…"/"…可报销"等）"""
+def _occurrence_is_affirmative(blob, occ, occurrences, spans, scope_map=None):
+    """该次出现附近是否有**有效的**明确肯定表述（"含…"/"…可报销"等）
+
+    ⚠️ excluded = 该次出现的**否定作用域** —— 作用域内的「报销」「给付」等字样
+    属于除外条款本身，**不得**作为承保授权（官方 2.4.8 SDI-4 原文要求：
+    肯定证据必须落在整个除外作用域之外，而不只是否定词字符跨度之外）。
+    """
     _kw, s, e = occ
     prev_end = 0
     next_start = len(blob)
@@ -454,8 +555,9 @@ def _occurrence_is_affirmative(blob, occ, occurrences, spans):
             next_start = o_s
     head, head_off = _clause_head(blob[prev_end:s])
     tail, tail_off = _clause_tail(blob[e:next_start])
-    return (_has_affirmative(head, prev_end + head_off, spans)
-            or _has_affirmative(tail, e + tail_off, spans))
+    excluded = tuple((sc, ec, f) for (sc, ec, f) in (scope_map or {}).get((s, e), ()))
+    return (_has_affirmative(head, prev_end + head_off, spans, excluded)
+            or _has_affirmative(tail, e + tail_off, spans, excluded))
 
 
 def _medical_fact_text(product):
@@ -494,22 +596,44 @@ def _medical_treatment_claims(product):
     blob = _medical_fact_text(product)
     if not blob:
         return []
+    owner_blob, owner = _medical_fact_owner_map(product)
+    assert owner_blob == blob, "事实源口径漂移：owner map 与 _medical_fact_text 不一致"
     occurrences, spans, bound = _negation_context(blob)
     if not occurrences:
         return []
+    scope_map = _negation_scope_map(blob, occurrences, spans, owner)
     claims = []
     for kw in _TREATMENT_CLAIMS:
         k_occ = [o for o in occurrences if o[0] == kw]
         if not k_occ:
             continue
-        negated_any = any(_keyword_is_negated(blob, o[1], o[2],
-                                              (occurrences, spans, bound))
-                          for o in k_occ)
-        if not negated_any:
+        negated = [o for o in k_occ
+                   if _keyword_is_negated(blob, o[1], o[2],
+                                          (occurrences, spans, bound))]
+        if not negated:
             claims.append(kw)
             continue
-        # 同一关键词存在否定出现 → 需另有明确肯定表述才可对外宣称
-        if any(_occurrence_is_affirmative(blob, o, occurrences, spans) for o in k_occ):
+        # ⑦ 除外表述**自身**含肯定字样（如「不含CAR-T治疗费用报销」里的「报销」）
+        #    → 该表述自相矛盾 → 按官方口径「conflicting statements as unverified」
+        #    处理，**不**对外宣称。
+        if _scope_has_affirmative(blob, negated, scope_map):
+            continue
+        # ⑧ 授权证据必须与除外条款**同字段**（key_benefits ↔ highlights
+        #    跨字段冲突 → unverified，不宣称）。
+        neg_fields = set()
+        for o in negated:
+            if o[1] < len(owner):
+                neg_fields.add(owner[o[1]])
+        ok = False
+        for o in k_occ:
+            if (o[1], o[2]) in bound:
+                continue                      # 这次出现本身落在除外语境里
+            if owner[o[1]] not in neg_fields:
+                continue                      # 跨字段冲突 → unverified
+            if _occurrence_is_affirmative(blob, o, occurrences, spans, scope_map):
+                ok = True
+                break
+        if ok:
             claims.append(kw)
     return claims
 
