@@ -1590,6 +1590,130 @@ def test_f13_treatment_negation_context():
     return True
 
 
+def test_f14_treatment_negation_scope():
+    """F14 (SDI-4 变体 · 官方 2.4.8 复扫): 肯定回退不得越过**除外作用域**
+
+    官方 finding 原文（scanner 2.12.0 · SDI-4 · Excessive Agency · MEDIUM · 置信 0.99）：
+    「Excluded treatments can still be advertised as covered, contradicting the
+      documented prohibition on converting exclusions into coverage claims.」
+
+    官方 explanation 原文：
+    「The treatment-claim logic can override a detected exclusion because
+      _occurrence_is_affirmative does not require the treatment occurrence or its
+      affirmative wording to be outside the negated scope. For example,
+      "不包含CAR-T治疗费用给付" marks CAR-T as excluded, but the nearby "给付"
+      satisfies the affirmative check, causing _medical_treatment_suffix to
+      advertise "含CAR-T治疗".」
+
+    根因：否定**词字符跨度** ≠ 否定**作用域**。
+    「不含」的字符跨度只有 (0,2)，但它的作用域一直延伸到子句末尾 ——
+    作用域内的「报销」「给付」属于除外条款自身，**不得**当作对 CAR-T 的承保授权。
+
+    修法：肯定证据必须 (a) 落在该次出现之外、(b) 落在**整个除外作用域**之外、
+         (c) 与除外条款**同字段**（跨字段冲突 → 官方口径「unverified」不宣称）。
+
+    覆盖：8 个对抗场景 + 源码级断言（防改回）+ F13 全场景交叉验证。
+    """
+    print("\nTest F14: 除外作用域内的肯定词不得授权承保宣称（SDI-4 变体 · 官方 2.4.8 复扫）")
+    PD = plan_designer
+
+    # ==================================================================
+    # ① 8 个对抗场景（期望值是手写常量，不从实现推导）
+    # ==================================================================
+    scenarios = [
+        ("官方 finding 原文场景：不含CAR-T治疗费用报销",
+         {"key_benefits": ["不含CAR-T治疗费用报销"], "highlights": ""},
+         [], ""),
+        ("官方 finding 原文场景：不包含CAR-T治疗费用给付",
+         {"key_benefits": ["不包含CAR-T治疗费用给付"], "highlights": ""},
+         [], ""),
+        ("纯肯定：质子重离子治疗费用报销",
+         {"key_benefits": ["质子重离子治疗费用报销"], "highlights": ""},
+         ["质子重离子"], "，含质子重离子治疗"),
+        ("肯定+否定并存：含CAR-T / 不含CAR-T",
+         {"key_benefits": ["含CAR-T", "不含CAR-T"], "highlights": ""},
+         ["CAR-T"], "，含CAR-T治疗"),
+        ("别子句的肯定词不得授权 CAR-T：不含CAR-T，质子重离子可报销",
+         {"key_benefits": ["不含CAR-T，质子重离子可报销"], "highlights": ""},
+         ["质子重离子"], "，含质子重离子治疗"),
+        ("跨字段纯否定：kb 进口药 + highlights 不予报销",
+         {"key_benefits": ["进口药"], "highlights": "进口药不予报销"},
+         [], ""),
+        ("跨字段冲突（kb 肯定 + highlights 否定）→ unverified 不宣称",
+         {"key_benefits": ["含CAR-T"], "highlights": "CAR-T不予报销"},
+         [], ""),
+        ("同字段否定 + 跨字段肯定 → 不得授权",
+         {"key_benefits": ["不含CAR-T治疗"], "highlights": "CAR-T费用可报销"},
+         [], ""),
+    ]
+    for name, product, expect_claims, expect_suffix in scenarios:
+        got_claims = PD._medical_treatment_claims(product)
+        got_suffix = PD._medical_treatment_suffix(product)
+        check(f"F14.1 对抗场景「{name}」：claims == {expect_claims}",
+              got_claims == expect_claims, f"实际 {got_claims}")
+        check(f"F14.1 对抗场景「{name}」：suffix == {expect_suffix!r}",
+              got_suffix == expect_suffix, f"实际 {got_suffix!r}")
+
+    # ==================================================================
+    # ② 源码级断言：不得把「作用域外」这一维改回去
+    # ==================================================================
+    src = open(os.path.join(THIS_DIR, "plan_designer.py"), encoding="utf-8").read()
+
+    aff_m = re.search(
+        r"^def _has_affirmative\((?P<sig>.*?)\):\n(?P<body>(?:[ \t].*\n|\n)*)",
+        src, re.MULTILINE)
+    if aff_m is None:
+        check("F14.2 源码级：定位到 _has_affirmative 函数", False)
+    else:
+        sig = aff_m.group("sig")
+        check("F14.2 源码级：_has_affirmative 签名含 excluded 参数（作用域排除）",
+              "excluded" in sig, f"实际签名 ({sig.strip()})")
+        aff_body = aff_m.group("body")
+        check("F14.3 源码级：_has_affirmative 函数体使用了 excluded",
+              "excluded" in aff_body)
+
+    claims_m = re.search(
+        r"^def _medical_treatment_claims\(product\):\n(?P<body>(?:[ \t].*\n|\n)*)",
+        src, re.MULTILINE)
+    if claims_m is None:
+        check("F14.4 源码级：定位到 _medical_treatment_claims 函数体", False)
+    else:
+        claims_body = claims_m.group("body")
+        check("F14.4 源码级：_medical_treatment_claims 走 _negation_scope_map 作用域判定",
+              "_negation_scope_map" in claims_body)
+        check("F14.5 源码级：_negation_scope_map 函数已定义",
+              "_negation_scope_map" in src)
+
+    # ==================================================================
+    # ③ F13 全场景交叉验证（F14 的改动不得把 F13 打挂）
+    # ==================================================================
+    f13_scenarios = [
+        ("肯定：质子重离子治疗",
+         {"key_benefits": ["质子重离子治疗"], "highlights": ""},
+         ["质子重离子"], "，含质子重离子治疗"),
+        ("纯否定：不含CAR-T",
+         {"key_benefits": ["不含CAR-T"], "highlights": ""}, [], ""),
+        ("纯否定：质子重离子不予报销",
+         {"key_benefits": [], "highlights": "质子重离子不予报销"}, [], ""),
+        ("肯定+否定并存：含CAR-T / 不含CAR-T",
+         {"key_benefits": ["含CAR-T", "不含CAR-T"], "highlights": ""},
+         ["CAR-T"], "，含CAR-T治疗"),
+        ("跨字段纯否定：key_benefits 进口药 + highlights 不予报销",
+         {"key_benefits": ["进口药"], "highlights": "进口药不予报销"}, [], ""),
+        ("空 blob",
+         {"key_benefits": [], "highlights": ""}, [], ""),
+    ]
+    for name, product, expect_claims, expect_suffix in f13_scenarios:
+        got_claims = PD._medical_treatment_claims(product)
+        got_suffix = PD._medical_treatment_suffix(product)
+        check(f"F14.6 F13 交叉验证「{name}」：claims == {expect_claims}",
+              got_claims == expect_claims, f"实际 {got_claims}")
+        check(f"F14.6 F13 交叉验证「{name}」：suffix == {expect_suffix!r}",
+              got_suffix == expect_suffix, f"实际 {got_suffix!r}")
+
+    return True
+
+
 def main():
     print("=" * 60)
     print("ClawHub 审计整改测试（任务 2 R4/R5/R6/R7 + 任务 3 SQP-3/SDI-3/SDI-4）")
@@ -1626,6 +1750,7 @@ def main():
     test_f11_income_multiple_claim_sync()
     test_f12_crx_claim_derivation()
     test_f13_treatment_negation_context()
+    test_f14_treatment_negation_scope()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)
