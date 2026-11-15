@@ -31,10 +31,10 @@
       "policy": "优先位为业务决策，保留不变；联系方式展示策略按各 skill 现状（见 SKILL.md 权限声明）。",
       "updated_at": "2026-10-26"
     },
-    "version": "2.4.11",
-    "updated_at": "2026-11-15T02:52:43.134936+00:00",
+    "version": "2.4.12",
+    "updated_at": "2026-11-15T17:33:06.298060+00:00",
     "description": "保险产品库整理版，保留在售及有效产品",
-    "total_products": 2573,
+    "total_products": 2576,
     "active_products": 516,
     "dedup_applied": true,
     "verified_count": 50,
@@ -67,7 +67,7 @@
     "new_2025_products_added": 12,
     "enriched_products": 239,
     "cleanup_round2": "removed 8 additional garbage entries",
-    "daily_updated_at": "2026-11-15",
+    "daily_updated_at": "2026-11-16",
     "total_active": 516,
     "total_inactive": 2049,
     "last_updated": "2026-04-18",
@@ -86,8 +86,8 @@
       "定期寿险": 35,
       "终身寿险": 40
     },
-    "active_count": 533,
-    "lastUpdated": "2026-11-15T02:52:43.052298+00:00",
+    "active_count": 536,
+    "lastUpdated": "2026-11-15T17:33:06.219154+00:00",
     "policy_validity_check_at": "2026-07-12T17:15:47.479462+00:00",
     "policy_validity_check_summary": {
       "targets_total": 105,
@@ -100,8 +100,8 @@
       "needs_review": 0,
       "errors": 0
     },
-    "last_refreshed_at": "2026-11-15T03:05:21.624435+00:00",
-    "refresh_count": 157,
+    "last_refreshed_at": "2026-11-15T17:45:55.502611+00:00",
+    "refresh_count": 158,
     "duplicates": [
       {
         "dup_index": 205,
@@ -187073,6 +187073,36 @@
       "needs_human_review": true,
       "is_active": true,
       "addedAt": "2026-11-15T02:52:42.922462+00:00"
+    },
+    {
+      "name": "新华增多多10号",
+      "type": "寿险",
+      "company": "新华人寿保险",
+      "source": "discovery_channel",
+      "source_url": "https://www.xiaoyusan.com/shk/wkpage/bxzs/300014289?type=11",
+      "needs_human_review": true,
+      "is_active": true,
+      "addedAt": "2026-11-15T17:33:06.118761+00:00"
+    },
+    {
+      "name": "新蓝医保",
+      "type": "医疗险",
+      "company": "人保养老保险",
+      "source": "discovery_channel",
+      "source_url": "https://zhuanlan.zhihu.com/p/2046189916447684040",
+      "needs_human_review": true,
+      "is_active": true,
+      "addedAt": "2026-11-15T17:33:06.118771+00:00"
+    },
+    {
+      "name": "中国人保大护甲8号高龄版",
+      "type": "意外险",
+      "company": "中国人保健康保险",
+      "source": "discovery_channel",
+      "source_url": "https://zhuanlan.zhihu.com/p/2017893306894417978",
+      "needs_human_review": false,
+      "is_active": true,
+      "addedAt": "2026-11-15T17:33:06.118778+00:00"
     }
   ]
 }
