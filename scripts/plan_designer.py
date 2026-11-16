@@ -515,6 +515,60 @@ def _negation_scope_map(blob, occurrences=None, spans=None, owner=None):
     return out
 
 
+def _element_ordinal_map(owner):
+    """每个字符所属的**字段元素**序号（分隔符 owner == -1 处递增）。
+
+    ⚠️ 官方 SDI-4 残余 E：mixed-negation 分支必须能判断「肯定证据」与
+       「除外证据」是否落在**同一个字段元素**（同一 key_benefits 元素 /
+       同一 highlights 字段）—— 同一元素内既有包含又有除外 → 冲突 →
+       按官方口径 unverified（不宣称）。
+
+    owner[i] == -1（字段之间的分隔空格）处序号 +1 → 同元素的字符序号相同。
+    """
+    if not owner:
+        return []
+    out = []
+    n = 0
+    for f in owner:
+        out.append(n)
+        if f == -1:
+            n += 1
+    return out
+
+
+# 结构化、权威的产品字段（**非**自由文本）—— 若产品用这类字段**逐项**列明
+# 治疗手段的承保责任，则可裁决「包含 / 除外」证据冲突。
+_STRUCTURED_AUTHORITY_FIELDS = ("coverage_items", "covered_treatments",
+                                "treatment_coverage", "treatment_responsibilities")
+
+
+def _structured_authority_resolves(product, keyword):
+    """结构化、权威的产品字段能否裁决该治疗手段的「包含 / 除外」冲突。
+
+    官方 remediation（2.4.15 复扫口径，原文）：
+      「Treat conflicting positive and negative coverage evidence as unverified
+        unless a structured, validated rule resolves the conflict, and
+        suppress unconditional treatment claims in that case.」
+
+    ⚠️ key_benefits / highlights / tags 都是**自由文本**（同一句话里可能既
+       包含又除外），**不得**用来裁决冲突 → 只认**结构化**字段（list / dict
+       逐项列明承保责任）。本产品库实测无此类字段 → 冲突一律 unverified。
+    """
+    if not product:
+        return False
+    for field in _STRUCTURED_AUTHORITY_FIELDS:
+        value = product.get(field)
+        if isinstance(value, (list, tuple)):
+            if any(isinstance(x, str) and keyword in x for x in value):
+                return True
+        elif isinstance(value, dict):
+            if any(isinstance(x, str) and keyword in x for x in value.keys()):
+                return True
+            if any(isinstance(x, str) and keyword in x for x in value.values()):
+                return True
+    return False
+
+
 def _medical_fact_owner_map(product):
     """事实源文本的**字段归属映射** → (blob, owner)
 
@@ -707,6 +761,10 @@ def _medical_treatment_claims(product):
         return []
     owner_blob, owner = _medical_fact_owner_map(product)
     assert owner_blob == blob, "事实源口径漂移：owner map 与 _medical_fact_text 不一致"
+    # 字段元素序号（SDI-4 残余 E）：mixed-negation 分支要判断「肯定证据」与
+    # 「除外证据」是否落在**同一个字段元素**（同一 key_benefits 元素 / 同一
+    # highlights 字段）—— 同元素内既有包含又有除外 → 冲突 → unverified。
+    elem_ord = _element_ordinal_map(owner)
     occurrences, spans, bound = _negation_context(blob, owner)
     if not occurrences:
         return []
@@ -742,21 +800,49 @@ def _medical_treatment_claims(product):
         #    处理，**不**对外宣称。
         if _scope_has_affirmative(blob, negated, scope_map):
             continue
-        # ⑧ 授权证据必须与除外条款**同字段**（key_benefits ↔ highlights
-        #    跨字段冲突 → unverified，不宣称）。
+        # ⑧ mixed-negation 分支：同一关键词既有**肯定**证据又有**除外**证据。
+        #
+        #    官方 remediation（2.4.15 复扫口径，原文）：
+        #      「Pass scope_map, owner, and all_scopes consistently to
+        #        _occurrence_is_affirmative in the mixed-negation branch,
+        #        preserving same-element authorization checks. Treat conflicting
+        #        positive and negative coverage evidence as unverified unless a
+        #        structured, validated rule resolves the conflict, and suppress
+        #        unconditional treatment claims in that case.」
+        #
+        #    落实口径（两库同口径）：
+        #      ① 肯定证据必须与该次出现**同字段**、**同元素** → 传全
+        #         scope_map / owner / all_scopes（与 ⑥ 非否定分支一致）——
+        #         跨字段、跨元素借用授权一律不成立；
+        #      ② 肯定证据与除外证据落在**同一元素**（同一 key_benefits 元素 /
+        #         同一 highlights 字段）→ 同一处既包含又除外 → **冲突**；
+        #      ③ 冲突只有被**结构化、权威**的产品字段逐项裁决时才可宣称，
+        #         否则按官方口径 unverified → **一律不宣称**；
+        #      ④ 跨字段（key_benefits ↔ highlights）冲突 → 无法裁决 → 不宣称。
         neg_fields = set()
+        neg_elems = set()
         for o in negated:
             if o[1] < len(owner):
                 neg_fields.add(owner[o[1]])
+                neg_elems.add((owner[o[1]], elem_ord[o[1]]))
         ok = False
+        conflict_unresolved = False
         for o in k_occ:
             if (o[1], o[2]) in bound:
                 continue                      # 这次出现本身落在除外语境里
             if owner[o[1]] not in neg_fields:
                 continue                      # 跨字段冲突 → unverified
-            if _occurrence_is_affirmative(blob, o, occurrences, spans, scope_map):
-                ok = True
-                break
+            same_elem = (owner[o[1]], elem_ord[o[1]]) in neg_elems
+            if not _occurrence_is_affirmative(blob, o, occurrences, spans,
+                                             scope_map, owner, all_scopes):
+                continue                      # 该次出现没有有效的肯定授权证据
+            if same_elem:
+                conflict_unresolved = True    # 同元素包含/除外冲突 → 待裁决
+                continue
+            ok = True
+            break
+        if not ok and conflict_unresolved and _structured_authority_resolves(product, kw):
+            ok = True                        # 结构化、权威字段裁决适用性
         if ok:
             claims.append(kw)
     return claims

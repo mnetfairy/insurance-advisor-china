@@ -1918,6 +1918,208 @@ def test_f15_whitespace_negation_scope():
 
     return True
 
+# ==================================================================
+# F16 — SDI-4 残余 E（官方 2026-11-16 线上复扫）：mixed-negation 分支
+#       不得跨字段 / 跨元素借用授权
+# ==================================================================
+def test_f16_mixed_negation_authorization(pd=None):
+    """F16 (SDI-4 残余 E · 官方 2026-11-16 线上复扫): 跨字段/跨元素借用授权
+
+    官方 finding 原文（scanner 2.12.0 · SDI-4 · Excessive Agency · MEDIUM · 置信 0.99）：
+      ai-insurance-advisor 2.4.14 →「The mixed-negation branch can borrow unrelated
+        coverage authorization across field elements, contradicting the documented
+        evidence boundaries.」
+        explanation 原文：「... allowing affirmative wording from unrelated field
+        elements to authorize a treatment claim. For example, key_benefits
+        containing ["不含CAR-T", "CAR-T", "包含原位癌"] can borrow "包含" from the
+        third element and incorrectly emit "含CAR-T治疗" despite the explicit
+        exclusion.」
+      insurance-advisor-china 2.4.14 →「The mixed-negation branch can borrow
+        authorization from another field and falsely advertise excluded treatment
+        coverage.」
+        explanation 原文：「... For example, key_benefits=["不含CAR-T", "CAR-T"] and
+        highlights="可报销" can incorrectly produce "含CAR-T治疗" by borrowing
+        authorization from highlights despite the explicit exclusion.」
+
+    官方 remediation 原文（验收按这个口径）：
+      「Pass scope_map, owner, and all_scopes to _occurrence_is_affirmative in the
+        mixed-negation branch, matching the evidence boundaries enforced in the
+        non-negated branch. Treat conflicting inclusion and exclusion statements as
+        unverified unless structured, authoritative policy data resolves their
+        applicability. Add regression tests for cross-element and cross-field
+        authorization borrowing, including treatment variants.」
+
+    修法（两库同口径）：
+      ① ⑧ mixed-negation 分支统一传 scope_map / owner / all_scopes（与 ⑥ 非否定
+         分支一致）→ 跨字段、跨元素借用授权一律不成立；
+      ② 肯定证据与除外证据落在**同一元素**（同一 key_benefits 元素 / 同一
+         highlights 字段）→ 冲突 → unverified（一律不宣称）；
+      ③ 冲突只有被**结构化、权威**的产品字段逐项裁决时才可宣称
+         （`_structured_authority_resolves`）；本产品库无此字段 → 冲突即不宣称；
+      ④ 不得过度收紧：同字段**不同元素**的肯定授权仍然有效（F13/F14/F15 口径）。
+
+    覆盖：18 个对抗场景 + 5 条源码级断言（防改回）+ F13/F14/F15 关键场景交叉验证。
+    """
+    print("\n[F16] mixed-negation 分支不得跨字段/跨元素借用授权（SDI-4 残余 E）")
+    if pd is None:
+        import plan_designer as pd  # china 版：模块已直接 import
+
+    # ==================================================================
+    # ① 对抗场景（期望值是手写常量，不从实现推导）
+    # ==================================================================
+    scenarios = [
+        # ── A. 跨元素借用授权（官方 ai 原例）──
+        ("官方 ai 原例：kb[不含CAR-T, CAR-T, 包含原位癌]",
+         {"key_benefits": ["不含CAR-T", "CAR-T", "包含原位癌"], "highlights": ""},
+         [], ""),
+        ("跨元素变体：kb[不含CAR-T, CAR-T, 涵盖质子重离子]（CAR-T 不得借用第三元素）",
+         {"key_benefits": ["不含CAR-T", "CAR-T", "涵盖质子重离子"], "highlights": ""},
+         ["质子重离子"], "，含质子重离子治疗"),
+        # ── B. 跨字段借用授权（官方 china 原例）──
+        ("官方 china 原例：kb[不含CAR-T, CAR-T] + hl 可报销",
+         {"key_benefits": ["不含CAR-T", "CAR-T"], "highlights": "可报销"},
+         [], ""),
+        ("跨字段变体：kb[不含CAR-T, CAR-T] + hl CAR-T费用可报销",
+         {"key_benefits": ["不含CAR-T", "CAR-T"], "highlights": "CAR-T费用可报销"},
+         [], ""),
+        # ── C. tab / 多空白变体 ──
+        ("tab 变体：kb[不含\tCAR-T, CAR-T] + hl \t可报销",
+         {"key_benefits": ["不含\tCAR-T", "CAR-T"], "highlights": "\t可报销"},
+         [], ""),
+        ("多空白变体：kb[不含   CAR-T, CAR-T] + hl 可报销",
+         {"key_benefits": ["不含   CAR-T", "CAR-T"], "highlights": "可报销"},
+         [], ""),
+        ("全角空格变体：kb[不含\u3000CAR-T, CAR-T] + hl 可报销",
+         {"key_benefits": ["不含\u3000CAR-T", "CAR-T"], "highlights": "可报销"},
+         [], ""),
+        ("tab 跨元素变体：kb[不含\tCAR-T, CAR-T, 包含原位癌]",
+         {"key_benefits": ["不含\tCAR-T", "CAR-T", "包含原位癌"], "highlights": ""},
+         [], ""),
+        # ── D. 同元素冲突 → unverified（一律不宣称）──
+        ("同元素冲突（空格分隔）：含CAR-T治疗 不含CAR-T治疗",
+         {"key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""},
+         [], ""),
+        ("同元素冲突（逗号分隔）：含CAR-T，不含CAR-T治疗费用报销",
+         {"key_benefits": ["含CAR-T，不含CAR-T治疗费用报销"], "highlights": ""},
+         [], ""),
+        # ── E. 不得过度收紧（必须仍然宣称）──
+        ("保留语义：同字段不同元素 kb[含CAR-T, 不含CAR-T]",
+         {"key_benefits": ["含CAR-T", "不含CAR-T"], "highlights": ""},
+         ["CAR-T"], "，含CAR-T治疗"),
+        ("保留语义：枚举列表同子句 kb[质子重离子] + hl 涵盖质子重离子等先进治疗",
+         {"key_benefits": ["质子重离子"], "highlights": "涵盖质子重离子等先进治疗"},
+         ["质子重离子"], "，含质子重离子治疗"),
+        ("保留语义：纯肯定 质子重离子治疗费用报销",
+         {"key_benefits": ["质子重离子治疗费用报销"], "highlights": ""},
+         ["质子重离子"], "，含质子重离子治疗"),
+        # ── F. 跨字段冲突 → 不宣称 ──
+        ("跨字段冲突：kb 含CAR-T + hl CAR-T不予报销",
+         {"key_benefits": ["含CAR-T"], "highlights": "CAR-T不予报销"},
+         [], ""),
+        # ── G. 治疗手段变体（官方 remediation：including treatment variants）──
+        ("治疗变体：kb[不含靶向药, 靶向药] + hl 可报销",
+         {"key_benefits": ["不含靶向药", "靶向药"], "highlights": "可报销"},
+         [], ""),
+        ("治疗变体：kb[不含特药, 特药] + hl 涵盖特药",
+         {"key_benefits": ["不含特药", "特药"], "highlights": "涵盖特药"},
+         [], ""),
+        ("治疗变体：kb[不含外购药, 外购药] + hl 可报销",
+         {"key_benefits": ["不含外购药", "外购药"], "highlights": "可报销"},
+         [], ""),
+        ("治疗变体：kb[不含进口药, 进口药] + hl 覆盖进口药",
+         {"key_benefits": ["不含进口药", "进口药"], "highlights": "覆盖进口药"},
+         [], ""),
+    ]
+    for name, product, expect_claims, expect_suffix in scenarios:
+        got_claims = pd._medical_treatment_claims(product)
+        got_suffix = pd._medical_treatment_suffix(product)
+        check(f"F16.1 对抗场景「{name}」：claims == {expect_claims}",
+              got_claims == expect_claims, f"实际 {got_claims}")
+        check(f"F16.1 对抗场景「{name}」：suffix == {expect_suffix!r}",
+              got_suffix == expect_suffix, f"实际 {got_suffix!r}")
+
+    # 纯否定/借用场景的关键语义：suffix 不得出现「含CAR-T治疗」
+    borrow_cases = [
+        {"key_benefits": ["不含CAR-T", "CAR-T"], "highlights": "可报销"},
+        {"key_benefits": ["不含CAR-T", "CAR-T", "包含原位癌"], "highlights": ""},
+        {"key_benefits": ["不含\tCAR-T", "CAR-T"], "highlights": "\t可报销"},
+        {"key_benefits": ["不含   CAR-T", "CAR-T"], "highlights": "可报销"},
+        {"key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""},
+        {"key_benefits": ["含CAR-T"], "highlights": "CAR-T不予报销"},
+    ]
+    for product in borrow_cases:
+        suffix = pd._medical_treatment_suffix(product)
+        check(f"F16.2 借用/冲突场景不得产出「含CAR-T治疗」（{suffix!r}）",
+              "含CAR-T" not in suffix, suffix)
+
+    # 空白变体与无空白变体口径必须**完全一致**（残余 D 口径不得被破坏）
+    ws_pairs = [
+        (["不含CAR-T", "CAR-T"], ["不含 CAR-T", "CAR-T"]),
+        (["不含CAR-T", "CAR-T"], ["不含\tCAR-T", "CAR-T"]),
+        (["不含CAR-T", "CAR-T"], ["不含   CAR-T", "CAR-T"]),
+    ]
+    for plain, ws in ws_pairs:
+        a = pd._medical_treatment_claims({"key_benefits": plain, "highlights": "可报销"})
+        b = pd._medical_treatment_claims({"key_benefits": ws, "highlights": "可报销"})
+        check(f"F16.3 空白变体 {ws} 与无空白变体 {plain} 口径一致",
+              a == b == [], f"空白版 {a} / 无空白版 {b}")
+
+    # ==================================================================
+    # ② 源码级断言：不得把「owner / all_scopes」改回去
+    # ==================================================================
+    here = os.path.dirname(os.path.abspath(__file__))
+    src = open(os.path.join(here, "plan_designer.py"), encoding="utf-8").read()
+
+    i8 = src.find("# ⑧")
+    seg8 = src[i8:i8 + 3200] if i8 != -1 else ""
+    flat8 = re.sub(r"\s+", " ", seg8)
+    check("F16.4 源码级：定位到 ⑧ mixed-negation 分支", i8 != -1)
+    check("F16.5 源码级：⑧ 分支调用 _occurrence_is_affirmative 必须传 scope_map/owner/all_scopes",
+          "scope_map, owner, all_scopes" in flat8,
+          "⑧ 分支未传全三件套")
+    check("F16.6 源码级：⑧ 分支引用 _structured_authority_resolves（冲突裁决）",
+          "_structured_authority_resolves" in seg8)
+    check("F16.7 源码级：_element_ordinal_map 已定义（元素级冲突判定）",
+          "def _element_ordinal_map(" in src)
+    check("F16.8 源码级：⑥ 非否定分支仍传 scope_map/owner/all_scopes",
+          "scope_map, owner, all_scopes" in re.sub(r"\s+", " ", src))
+
+    # ==================================================================
+    # ③ F13/F14/F15 关键场景交叉验证（不得被本次改动打挂）
+    # ==================================================================
+    cross = [
+        ("裸关键词无肯定授权证据：质子重离子治疗",
+         {"key_benefits": ["质子重离子治疗"], "highlights": ""}, [], ""),
+        ("有明确肯定授权证据：质子重离子治疗费用报销",
+         {"key_benefits": ["质子重离子治疗费用报销"], "highlights": ""},
+         ["质子重离子"], "，含质子重离子治疗"),
+        ("纯否定：不含CAR-T",
+         {"key_benefits": ["不含CAR-T"], "highlights": ""}, [], ""),
+        ("纯否定：质子重离子不予报销",
+         {"key_benefits": [], "highlights": "质子重离子不予报销"}, [], ""),
+        ("肯定+否定并存：含CAR-T / 不含CAR-T",
+         {"key_benefits": ["含CAR-T", "不含CAR-T"], "highlights": ""},
+         ["CAR-T"], "，含CAR-T治疗"),
+        ("官方 F14 场景：不含CAR-T，质子重离子可报销",
+         {"key_benefits": ["不含CAR-T，质子重离子可报销"], "highlights": ""},
+         ["质子重离子"], "，含质子重离子治疗"),
+        ("官方 F15 场景（空格版）：不含 CAR-T治疗费用报销",
+         {"key_benefits": ["不含 CAR-T治疗费用报销"], "highlights": ""}, [], ""),
+        ("官方 F15 场景（制表符版）：不含\tCAR-T治疗费用报销",
+         {"key_benefits": ["不含\tCAR-T治疗费用报销"], "highlights": ""}, [], ""),
+    ]
+    for name, product, expect_claims, expect_suffix in cross:
+        got_claims = pd._medical_treatment_claims(product)
+        got_suffix = pd._medical_treatment_suffix(product)
+        check(f"F16.9 F13/F14/F15 交叉验证「{name}」：claims == {expect_claims}",
+              got_claims == expect_claims, f"实际 {got_claims}")
+        check(f"F16.9 F13/F14/F15 交叉验证「{name}」：suffix == {expect_suffix!r}",
+              got_suffix == expect_suffix, f"实际 {got_suffix!r}")
+
+    return True
+
+
+
 def main():
     print("=" * 60)
     print("ClawHub 审计整改测试（任务 2 R4/R5/R6/R7 + 任务 3 SQP-3/SDI-3/SDI-4）")
@@ -1956,6 +2158,7 @@ def main():
     test_f13_treatment_negation_context()
     test_f14_treatment_negation_scope()
     test_f15_whitespace_negation_scope()
+    test_f16_mixed_negation_authorization()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)
