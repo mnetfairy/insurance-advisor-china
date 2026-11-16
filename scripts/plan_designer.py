@@ -319,8 +319,22 @@ _AFFIRM_MARKERS = ("含", "包含", "涵盖", "覆盖", "可报销", "报销", "
 
 # 上下文窗口：否定词与其绑定的关键词出现之间的距离上限（字符）
 _NEG_CONTEXT_WINDOW = 30
-# 子句边界：句号/分号/逗号/空格/换行等 —— 否定语境不跨子句传播
-_CLAUSE_BREAKS = "。；！？!?;:\n\t，, "
+# 语义子句边界：句号/分号/问号/叹号/冒号/换行/逗号 —— 否定语境不跨子句传播
+#
+# ⚠️ 普通空白（空格/制表符）**不再是**子句边界 —— 官方 SDI-4 残余 D
+#    （2026-11-16 线上复扫 · 2.4.13 · issueCount=1 / score=12 / MEDIUM）：
+#    「不含 CAR-T治疗费用报销」若在空格处截断否定作用域，CAR-T 就落到作用域之外，
+#    紧邻的「报销」会通过肯定授权检查 → 输出「含CAR-T治疗」的**承保宣称**。
+#    官方 remediation 原文：
+#      「Do not treat ordinary whitespace as a semantic boundary for exclusion scope;
+#        normalize spacing while preserving field boundaries, and bind negation to
+#        the relevant treatment across spaces and tabs.」
+#    → 空白在语义上**透明**：作用域扫描时跳过空白，否定作用域跨空格/制表符绑定到
+#      相关治疗手段；**字段边界**（key_benefits ↔ highlights）另由 owner 映射保证。
+_CLAUSE_BREAKS = "。；！？!?;:\n，,"
+
+# 普通空白字符（空格/制表符/全角空格/不换行空格）—— **不是**语义边界
+_WHITESPACE_CHARS = " \t\u3000\xa0"
 
 
 def _treatment_occurrences(blob):
@@ -351,27 +365,58 @@ def _negation_marker_spans(blob):
     return spans
 
 
-def _scope_bounds(blob, lo, hi, forward):
-    """从否定词位置沿 forward（或反向）扫描到最近的子句边界 → (scope_start, scope_end)"""
+def _is_scope_boundary(blob, i, owner=None):
+    """该字符是否为**语义**子句边界 / 字段边界（普通空白**不算**边界）
+
+    官方 SDI-4 残余 D（2026-11-16 线上复扫）remediation 原文：
+      「Do not treat ordinary whitespace as a semantic boundary for exclusion scope;
+        normalize spacing while preserving field boundaries, and bind negation to
+        the relevant treatment across spaces and tabs.」
+
+    ① 普通空白（空格/制表符/全角空格）**不是**边界 —— 不得截断否定作用域；
+    ② **字段边界必须保留**：key_benefits 与 highlights 之间的分隔符
+       （owner == -1）仍然截断作用域 —— 否则「不含」会把**别的字段**里的
+       治疗手段也绑进除外作用域，跨字段冲突口径（unverified）会被破坏。
+    """
+    if i < 0 or i >= len(blob):
+        return True
+    if blob[i] in _CLAUSE_BREAKS:
+        return True
+    if owner is not None and i < len(owner) and owner[i] == -1:
+        return True
+    return False
+
+
+def _scope_bounds(blob, lo, hi, forward, owner=None):
+    """从否定词位置沿 forward（或反向）扫描到最近的**语义**边界 → (scope_start, scope_end)
+
+    ⚠️ 普通空白**不**是边界（官方 SDI-4 残余 D）：否定作用域跨空格/制表符绑定
+       到相关治疗手段（「不含 CAR-T治疗费用报销」必须整体绑定，不能在空格处截断）。
+    ⚠️ owner 给出时，**字段边界**（owner == -1）同样截断作用域。
+    """
     if forward:
         end = len(blob)
         for i in range(hi, len(blob)):
-            if blob[i] in _CLAUSE_BREAKS:
+            if _is_scope_boundary(blob, i, owner):
                 end = i
                 break
         return hi, end
     start = 0
     for i in range(lo - 1, -1, -1):
-        if blob[i] in _CLAUSE_BREAKS:
+        if _is_scope_boundary(blob, i, owner):
             start = i + 1
             break
     return start, lo
 
 
-def _negation_context(blob):
+def _negation_context(blob, owner=None):
     """否定语境上下文（单一事实来源）：(occurrences, spans, bound)
 
     bound = 被否定语境绑定的出现位置集合 {(start, end), ...}
+
+    ⚠️ owner = 字段归属映射（`_medical_fact_owner_map` 产出）—— 给出时
+       **字段边界**会截断否定作用域（跨字段不得互相绑定）；None → 不做字段判定。
+    ⚠️ 普通空白**不**截断作用域（官方 SDI-4 残余 D）。
     """
     occurrences = _treatment_occurrences(blob)
     spans = _negation_marker_spans(blob)
@@ -380,12 +425,12 @@ def _negation_context(blob):
         forward = marker in _NEG_MARKERS_FORWARD or marker in _NEG_MARKERS_BOTH
         backward = marker in _NEG_MARKERS_BACKWARD or marker in _NEG_MARKERS_BOTH
         if forward:
-            s, e = _scope_bounds(blob, ms, me, True)
+            s, e = _scope_bounds(blob, ms, me, True, owner)
             for _kw, o_s, o_e in occurrences:
                 if s <= o_s < e and o_s - me <= _NEG_CONTEXT_WINDOW:
                     bound.add((o_s, o_e))
         if backward:
-            s, e = _scope_bounds(blob, ms, me, False)
+            s, e = _scope_bounds(blob, ms, me, False, owner)
             for _kw, o_s, o_e in occurrences:
                 if s <= o_e <= e and ms - o_e <= _NEG_CONTEXT_WINDOW:
                     bound.add((o_s, o_e))
@@ -405,7 +450,11 @@ def _keyword_is_negated(blob, start, end, context=None):
 
 
 def _clause_head(text):
-    """取片段中最后一个子句边界**之后**的部分（子句前缀）→ (text, 偏移)"""
+    """取片段中最后一个子句边界**之后**的部分（子句前缀）→ (text, 偏移)
+
+    ⚠️ 普通空白**不是**子句边界（官方 SDI-4 残余 D）→ 空白分隔的前后文
+       属于同一语义片段（「含 CAR-T治疗」与「含CAR-T治疗」口径一致）。
+    """
     cut = -1
     for ch in _CLAUSE_BREAKS:
         j = text.rfind(ch)
@@ -417,7 +466,11 @@ def _clause_head(text):
 
 
 def _clause_tail(text):
-    """取片段中第一个子句边界**之前**的部分（子句后缀）→ (text, 偏移)"""
+    """取片段中第一个子句边界**之前**的部分（子句后缀）→ (text, 偏移)
+
+    ⚠️ 普通空白**不是**子句边界（官方 SDI-4 残余 D）→ 空白分隔的前后文
+       属于同一语义片段（「不含 CAR-T治疗费用报销」整体成句）。
+    """
     cut = len(text)
     for ch in _CLAUSE_BREAKS:
         j = text.find(ch)
@@ -450,12 +503,12 @@ def _negation_scope_map(blob, occurrences=None, spans=None, owner=None):
         forward = marker in _NEG_MARKERS_FORWARD or marker in _NEG_MARKERS_BOTH
         backward = marker in _NEG_MARKERS_BACKWARD or marker in _NEG_MARKERS_BOTH
         if forward:
-            s, e = _scope_bounds(blob, ms, me, True)
+            s, e = _scope_bounds(blob, ms, me, True, owner)
             for _kw, o_s, o_e in occurrences:
                 if s <= o_s < e and o_s - me <= _NEG_CONTEXT_WINDOW:
                     out.setdefault((o_s, o_e), []).append((s, e, f_m))
         if backward:
-            s, e = _scope_bounds(blob, ms, me, False)
+            s, e = _scope_bounds(blob, ms, me, False, owner)
             for _kw, o_s, o_e in occurrences:
                 if s <= o_e <= e and ms - o_e <= _NEG_CONTEXT_WINDOW:
                     out.setdefault((o_s, o_e), []).append((s, e, f_m))
@@ -547,6 +600,31 @@ def _has_affirmative(text, base, spans, excluded=(), owner=None, field=None):
     return False
 
 
+def _element_bounds(blob, owner, s, e):
+    """该次出现所属**字段元素**的边界 → (lo, hi)
+
+    字段元素 = key_benefits 的**单个元素** 或 highlights 整个串。
+    `_medical_fact_owner_map` 把元素之间的分隔符标成 owner == -1，
+    这里用它把肯定证据窗口收敛在**同一个元素**内。
+
+    ⚠️ 官方 SDI-4 残余 D：「normalize spacing while preserving field
+       boundaries」—— 空白在元素**内**透明（"含 CAR-T治疗" 与 "含CAR-T治疗"
+       同口径），但**不得**跨元素借用肯定字样：
+       「包含原位癌」里的「含」**不是**对「质子重离子」的承保授权。
+    """
+    lo, hi = 0, len(blob)
+    if owner is not None:
+        for i in range(s - 1, -1, -1):
+            if i < len(owner) and owner[i] == -1:
+                lo = i + 1
+                break
+        for i in range(e, len(blob)):
+            if i < len(owner) and owner[i] == -1:
+                hi = i
+                break
+    return lo, hi
+
+
 def _occurrence_is_affirmative(blob, occ, occurrences, spans, scope_map=None,
                                owner=None, extra_excluded=()):
     """该次出现附近是否有**有效的**明确肯定表述（"含…"/"…可报销"等）
@@ -561,6 +639,9 @@ def _occurrence_is_affirmative(blob, occ, occurrences, spans, scope_map=None,
 
     ⚠️ extra_excluded = 事实源文本中**全部**除外作用域 —— 落在**别的**治疗手段
     除外条款里的「报销」等字样同样**不得**作为承保授权。
+
+    ⚠️ 证据窗口按**字段元素**收敛（官方 SDI-4 残余 D）：空白在元素内透明，
+       但不得跨元素借用肯定字样。
     """
     _kw, s, e = occ
     prev_end = 0
@@ -570,14 +651,17 @@ def _occurrence_is_affirmative(blob, occ, occurrences, spans, scope_map=None,
             prev_end = o_e
         if o_s >= e and o_s < next_start:
             next_start = o_s
-    head, head_off = _clause_head(blob[prev_end:s])
-    tail, tail_off = _clause_tail(blob[e:next_start])
+    el_lo, el_hi = _element_bounds(blob, owner, s, e)
+    win_lo = max(prev_end, el_lo)
+    win_hi = min(next_start, el_hi)
+    head, head_off = _clause_head(blob[win_lo:s])
+    tail, tail_off = _clause_tail(blob[e:win_hi])
     excluded = tuple((sc, ec, f) for (sc, ec, f) in (scope_map or {}).get((s, e), ()))
     excluded = excluded + tuple(extra_excluded or ())
     field = None
     if owner is not None and s < len(owner):
         field = owner[s]
-    return (_has_affirmative(head, prev_end + head_off, spans, excluded, owner, field)
+    return (_has_affirmative(head, win_lo + head_off, spans, excluded, owner, field)
             or _has_affirmative(tail, e + tail_off, spans, excluded, owner, field))
 
 
@@ -623,7 +707,7 @@ def _medical_treatment_claims(product):
         return []
     owner_blob, owner = _medical_fact_owner_map(product)
     assert owner_blob == blob, "事实源口径漂移：owner map 与 _medical_fact_text 不一致"
-    occurrences, spans, bound = _negation_context(blob)
+    occurrences, spans, bound = _negation_context(blob, owner)
     if not occurrences:
         return []
     scope_map = _negation_scope_map(blob, occurrences, spans, owner)

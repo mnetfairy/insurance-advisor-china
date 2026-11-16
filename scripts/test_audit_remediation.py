@@ -1503,8 +1503,11 @@ def test_f13_treatment_negation_context():
     # ==================================================================
     # (名称, 产品字典, 期望 claims, 期望 suffix)
     scenarios = [
-        ("肯定：质子重离子治疗",
+        ("裸关键词无肯定授权证据（残余 C 口径）：质子重离子治疗",
          {"key_benefits": ["质子重离子治疗"], "highlights": ""},
+         [], ""),
+        ("有明确肯定授权证据（残余 C 不得过度收紧）：质子重离子治疗费用报销",
+         {"key_benefits": ["质子重离子治疗费用报销"], "highlights": ""},
          ["质子重离子"], "，含质子重离子治疗"),
         ("纯否定：不含CAR-T",
          {"key_benefits": ["不含CAR-T"], "highlights": ""},
@@ -1688,8 +1691,11 @@ def test_f14_treatment_negation_scope():
     # ③ F13 全场景交叉验证（F14 的改动不得把 F13 打挂）
     # ==================================================================
     f13_scenarios = [
-        ("肯定：质子重离子治疗",
+        ("裸关键词无肯定授权证据（残余 C 口径）：质子重离子治疗",
          {"key_benefits": ["质子重离子治疗"], "highlights": ""},
+         [], ""),
+        ("有明确肯定授权证据（残余 C 不得过度收紧）：质子重离子治疗费用报销",
+         {"key_benefits": ["质子重离子治疗费用报销"], "highlights": ""},
          ["质子重离子"], "，含质子重离子治疗"),
         ("纯否定：不含CAR-T",
          {"key_benefits": ["不含CAR-T"], "highlights": ""}, [], ""),
@@ -1713,6 +1719,204 @@ def test_f14_treatment_negation_scope():
 
     return True
 
+
+# ==================================================================
+# F15 — SDI-4 残余 D（官方 2026-11-16 线上复扫）：空白字符不得截断否定作用域
+# ==================================================================
+def test_f15_whitespace_negation_scope():
+    """F15 (SDI-4 残余 D · 官方 2026-11-16 线上复扫): 空白不得截断否定作用域
+
+    官方 finding 原文（scanner 2.12.0 · SDI-4 · Excessive Agency · MEDIUM · 置信 0.99）：
+      ai-insurance-advisor 2.4.13 →「The mixed positive/exclusion branch can turn
+        reimbursement wording inside another treatment's exclusion into an unsupported
+        CAR-T coverage claim.」
+      insurance-advisor-china 2.4.13 →「The treatment-claim parser can turn an explicit
+        reimbursement exclusion into a covered-treatment claim, contradicting its
+        documented exclusion safeguards.」
+
+    根因（官方 2.4.12 更详细版本 · root cause 原文）：
+      「Spaces and tabs are treated as clause boundaries, so an exclusion such as
+        "不含 CAR-T治疗费用报销" loses its negation scope before reaching "CAR-T";
+        the nearby "报销" then passes the affirmative-evidence check. Consequently,
+        the tool can turn an excluded treatment into the unconditional claim
+        "含CAR-T治疗" in generated insurance plans.」
+
+    官方 remediation 原文（验收按这个口径）：
+      「Do not treat ordinary whitespace as a semantic boundary for exclusion scope;
+        normalize spacing while preserving field boundaries, and bind negation to the
+        relevant treatment across spaces and tabs. Require explicit, unambiguous
+        coverage evidence and suppress claims when exclusion scope or conflicting
+        statements cannot be resolved. Add regression tests for "不含 CAR-T治疗费用报销",
+        tab-separated exclusions, and varied whitespace, verifying that none produces
+        a covered-treatment claim.」
+
+    修法（两库同口径）：
+      ① `_CLAUSE_BREAKS` 不再包含空格/制表符 —— 普通空白**不是**语义边界；
+      ② 否定作用域**跨空格/制表符**绑定到相关治疗手段；
+      ③ **字段边界**（key_benefits ↔ highlights）仍截断作用域（owner == -1）——
+         空白不得吃掉字段边界；
+      ④ 空白变体与无空白变体的口径**完全一致**。
+
+    覆盖：15 个对抗场景 + 6 条源码级断言（防改回）+ F13/F14 场景交叉验证。
+    """
+    print("\n[F15] 空白字符不得截断否定作用域（SDI-4 残余 D · 官方 2026-11-16 线上复扫）")
+    PD = plan_designer
+
+    # ==================================================================
+    # ① 对抗场景（期望值是手写常量，不从实现推导）
+    # ==================================================================
+    scenarios = [
+        # ── A. 空白变体的除外条款 → 不得产出 covered-treatment claim ──
+        ("官方 finding 原文场景（空格版）：不含 CAR-T治疗费用报销",
+         {"key_benefits": ["不含 CAR-T治疗费用报销"], "highlights": ""},
+         [], ""),
+        ("官方 finding 原文场景（制表符版）：不含\tCAR-T治疗费用报销",
+         {"key_benefits": ["不含\tCAR-T治疗费用报销"], "highlights": ""},
+         [], ""),
+        ("官方 finding 原文场景（空格版）：不包含 CAR-T治疗费用给付",
+         {"key_benefits": ["不包含 CAR-T治疗费用给付"], "highlights": ""},
+         [], ""),
+        ("多空格变体：不含   CAR-T治疗费用报销",
+         {"key_benefits": ["不含   CAR-T治疗费用报销"], "highlights": ""},
+         [], ""),
+        ("全角空格变体：不含\u3000CAR-T治疗费用报销",
+         {"key_benefits": ["不含\u3000CAR-T治疗费用报销"], "highlights": ""},
+         [], ""),
+        ("空格 + 无「报销/给付」字样：不含 CAR-T治疗",
+         {"key_benefits": ["不含 CAR-T治疗"], "highlights": ""},
+         [], ""),
+        ("空格 + 纯关键词：不含 CAR-T",
+         {"key_benefits": ["不含 CAR-T"], "highlights": ""},
+         [], ""),
+        ("空格 + 除外条款在 highlights 字段：不含 CAR-T治疗费用报销",
+         {"key_benefits": [], "highlights": "不含 CAR-T治疗费用报销"},
+         [], ""),
+        ("空白不得吃掉字段边界：kb 不含 CAR-T治疗 + highlights CAR-T费用可报销",
+         {"key_benefits": ["不含 CAR-T治疗"], "highlights": "CAR-T费用可报销"},
+         [], ""),
+        ("空白不得吃掉字段边界（反向）：kb CAR-T费用可报销 + highlights 不含 CAR-T治疗",
+         {"key_benefits": ["CAR-T费用可报销"], "highlights": "不含 CAR-T治疗"},
+         [], ""),
+        # ── B. 不得过度收紧：有明确肯定授权证据的必须仍然宣称 ──
+        ("肯定（含空格）：含 CAR-T治疗费用报销",
+         {"key_benefits": ["含 CAR-T治疗费用报销"], "highlights": ""},
+         ["CAR-T"], "，含CAR-T治疗"),
+        ("肯定（含空格 · 仅「含」）：含 CAR-T治疗",
+         {"key_benefits": ["含 CAR-T治疗"], "highlights": ""},
+         ["CAR-T"], "，含CAR-T治疗"),
+        ("肯定（制表符）：含\tCAR-T治疗费用报销",
+         {"key_benefits": ["含\tCAR-T治疗费用报销"], "highlights": ""},
+         ["CAR-T"], "，含CAR-T治疗"),
+        ("纯肯定：质子重离子治疗费用报销",
+         {"key_benefits": ["质子重离子治疗费用报销"], "highlights": ""},
+         ["质子重离子"], "，含质子重离子治疗"),
+        # ── C. 真实子句边界（逗号）仍然截断作用域 ──
+        ("逗号仍截断作用域：不含 CAR-T，质子重离子可报销",
+         {"key_benefits": ["不含 CAR-T，质子重离子可报销"], "highlights": ""},
+         ["质子重离子"], "，含质子重离子治疗"),
+    ]
+    for name, product, expect_claims, expect_suffix in scenarios:
+        got_claims = PD._medical_treatment_claims(product)
+        got_suffix = PD._medical_treatment_suffix(product)
+        check(f"F15.1 对抗场景「{name}」：claims == {expect_claims}",
+              got_claims == expect_claims, f"实际 {got_claims}")
+        check(f"F15.1 对抗场景「{name}」：suffix == {expect_suffix!r}",
+              got_suffix == expect_suffix, f"实际 {got_suffix!r}")
+
+    # 空白变体与无空白变体口径必须**完全一致**（官方 remediation 的核心要求）
+    pairs = [
+        ("不含 CAR-T治疗费用报销", "不含CAR-T治疗费用报销"),
+        ("不包含 CAR-T治疗费用给付", "不包含CAR-T治疗费用给付"),
+        ("不含 CAR-T治疗费用报销", "不含\tCAR-T治疗费用报销"),
+    ]
+    for ws_text, plain_text in pairs:
+        a = PD._medical_treatment_claims({"key_benefits": [ws_text], "highlights": ""})
+        b = PD._medical_treatment_claims({"key_benefits": [plain_text], "highlights": ""})
+        check(f"F15.2 空白变体「{ws_text}」与无空白变体口径一致",
+              a == b == [], f"空白版 {a} / 无空白版 {b}")
+
+    # 空白分隔的除外条款**不得**产出 covered-treatment claim（官方点名场景）
+    for text in ("不含 CAR-T治疗费用报销", "不含\tCAR-T治疗费用报销",
+                 "不包含 CAR-T治疗费用给付", "不含   CAR-T治疗费用报销",
+                 "不含\u3000CAR-T治疗费用报销"):
+        suffix = PD._medical_treatment_suffix({"key_benefits": [text], "highlights": ""})
+        check(f"F15.3 除外条款「{text}」不得产出「含CAR-T治疗」",
+              "含CAR-T" not in suffix, f"实际 {suffix!r}")
+
+    # ==================================================================
+    # ② 源码级断言：不得把「空白是语义边界」改回去
+    # ==================================================================
+    src = open(os.path.join(THIS_DIR, "plan_designer.py"), encoding="utf-8").read()
+
+    brk_m = re.search(r'_CLAUSE_BREAKS\s*=\s*"(?P<body>[^"]*)"', src)
+    if brk_m is None:
+        check("F15.4 源码级：定位到 _CLAUSE_BREAKS 定义", False)
+    else:
+        body = brk_m.group("body")
+        check("F15.4 源码级：_CLAUSE_BREAKS 不得包含空格（普通空白不是语义边界）",
+              " " not in body, f"实际 {body!r}")
+        check("F15.4 源码级：_CLAUSE_BREAKS 不得包含制表符",
+              "\\t" not in body, f"实际 {body!r}")
+
+    sb_m = re.search(
+        r"^def _scope_bounds\((?P<sig>.*?)\):\n(?P<body>(?:[ \t].*\n|\n)*)",
+        src, re.MULTILINE)
+    if sb_m is None:
+        check("F15.5 源码级：定位到 _scope_bounds 函数", False)
+    else:
+        check("F15.5 源码级：_scope_bounds 签名含 owner 参数（字段边界必须保留）",
+              "owner" in sb_m.group("sig"), f"实际签名 ({sb_m.group('sig').strip()})")
+
+    check("F15.5 源码级：_is_scope_boundary 已定义（空白不是边界、字段边界是边界）",
+          "def _is_scope_boundary(" in src)
+
+    nc_m = re.search(
+        r"^def _negation_context\((?P<sig>.*?)\):\n(?P<body>(?:[ \t].*\n|\n)*)",
+        src, re.MULTILINE)
+    if nc_m is None:
+        check("F15.6 源码级：定位到 _negation_context 函数", False)
+    else:
+        check("F15.6 源码级：_negation_context 签名含 owner 参数",
+              "owner" in nc_m.group("sig"), f"实际签名 ({nc_m.group('sig').strip()})")
+
+    claims_m = re.search(
+        r"^def _medical_treatment_claims\(product\):\n(?P<body>(?:[ \t].*\n|\n)*)",
+        src, re.MULTILINE)
+    if claims_m is None:
+        check("F15.6 源码级：定位到 _medical_treatment_claims 函数体", False)
+    else:
+        claims_body = claims_m.group("body")
+        check("F15.6 源码级：_medical_treatment_claims 把 owner 传给 _negation_context",
+              "_negation_context(blob, owner)" in claims_body)
+
+    # ==================================================================
+    # ③ F13 / F14 关键场景交叉验证（本次改动不得把它们打挂）
+    # ==================================================================
+    cross = [
+        ("F14 官方 finding 原文场景：不含CAR-T治疗费用报销",
+         {"key_benefits": ["不含CAR-T治疗费用报销"], "highlights": ""}, [], ""),
+        ("F14 纯否定：不含CAR-T",
+         {"key_benefits": ["不含CAR-T"], "highlights": ""}, [], ""),
+        ("F14 肯定+否定并存：含CAR-T / 不含CAR-T",
+         {"key_benefits": ["含CAR-T", "不含CAR-T"], "highlights": ""},
+         ["CAR-T"], "，含CAR-T治疗"),
+        ("F14 跨字段冲突：kb 含CAR-T + highlights CAR-T不予报销",
+         {"key_benefits": ["含CAR-T"], "highlights": "CAR-T不予报销"}, [], ""),
+        ("F14 同字段否定 + 跨字段肯定 → 不得授权",
+         {"key_benefits": ["不含CAR-T治疗"], "highlights": "CAR-T费用可报销"}, [], ""),
+        ("F14 纯肯定：质子重离子治疗费用报销",
+         {"key_benefits": ["质子重离子治疗费用报销"], "highlights": ""},
+         ["质子重离子"], "，含质子重离子治疗"),
+    ]
+    for name, product, expect_claims, expect_suffix in cross:
+        got_claims = PD._medical_treatment_claims(product)
+        got_suffix = PD._medical_treatment_suffix(product)
+        check(f"F15.7 F13/F14 交叉验证「{name}」：claims == {expect_claims}",
+              got_claims == expect_claims, f"实际 {got_claims}")
+        check(f"F15.7 F13/F14 交叉验证「{name}」：suffix == {expect_suffix!r}",
+              got_suffix == expect_suffix, f"实际 {got_suffix!r}")
+
+    return True
 
 def main():
     print("=" * 60)
@@ -1751,6 +1955,7 @@ def main():
     test_f12_crx_claim_derivation()
     test_f13_treatment_negation_context()
     test_f14_treatment_negation_scope()
+    test_f15_whitespace_negation_scope()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)
