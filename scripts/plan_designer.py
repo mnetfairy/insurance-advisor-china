@@ -319,7 +319,15 @@ _TREATMENT_CLAIMS = ("质子重离子", "CAR-T", "靶向药", "外购药", "特�
 # 否定/除外词：前瞻型（词在关键词之前）与回溯型（词在关键词之后）
 _NEG_MARKERS_FORWARD = ("不含", "不包含", "不包括", "不纳入", "不涵盖", "不覆盖", "不支持")
 _NEG_MARKERS_BACKWARD = ("除外", "不在保障范围", "不赔", "不予支付")
-_NEG_MARKERS_BOTH = ("不予报销", "不报销", "无法报销", "不能报销", "不承保")
+# ⚠ 官方 2026-11-18 线上复扫（2.4.17）SDI-4 remediation 原文：
+#   「recognize constructions such as 「不可报销」 and post-treatment
+#     negation, suppress ambiguous statements」
+# → 「不可报销」「不可支付」「不可赔付」与「不予报销」同口径：**双向**绑定
+#   （否定词在治疗手段**之前** / **之后**都生效 → post-treatment negation）。
+# ⚠ 「报销」本身在 _AFFIRM_MARKERS 里 → 「不可报销」内的「报销」必须被
+#   否定作用域吃掉（不得同时被当成肯定授权证据）——由否定词跨度天然满足。
+_NEG_MARKERS_BOTH = ("不予报销", "不可报销", "不报销", "无法报销", "不能报销",
+                     "不可支付", "不可赔付", "不承保")
 _NEG_MARKERS = tuple(sorted(
     set(_NEG_MARKERS_FORWARD + _NEG_MARKERS_BACKWARD + _NEG_MARKERS_BOTH),
     key=len, reverse=True))
@@ -563,7 +571,8 @@ _STRUCTURED_NEGATION_TOKENS = (
     "noteligible", "notpayable", "notreimbursed", "nocoverage", "uncovered",
     "false",
     "除外", "不承保", "不保", "不含", "不覆盖", "未覆盖", "不在保障范围",
-    "不予报销", "不报销", "无法报销", "不能报销", "不予支付", "不赔",
+    "不予报销", "不可报销", "不报销", "无法报销", "不能报销", "不予支付",
+    "不可支付", "不可赔付", "不赔",
     "拒绝承保", "非承保", "不纳入", "不支持",
 )
 
@@ -659,7 +668,11 @@ def _structured_value_state(value):
         - 各键状态一致（全 affirmative / 全 negative）→ 按一致状态走
         - 各键状态不一致（affirmative+negative / affirmative+ambiguous /
           negative+ambiguous）→ **contradictory**（自相矛盾 → 不得授权 + 压制）
-      · dict 且 affirmative 决定 + 同条目另有否定语义 → ambiguous（不得授权）
+      · dict 且 affirmative 决定 + 同条目另有否定语义 → **contradictory**
+        （官方 2.4.17 复扫原文「treat affirmative decisions accompanied by
+          exclusion evidence as contradictory or negative」→ 必须**压制**，
+          不得是 ambiguous：ambiguous 既不授权**也不**压制 → 自由文本肯定
+          证据照样产出无条件承保宣称）
       · 其它（字符串值 / 未知键 / 畸形）→ ambiguous（**不授权**）
     """
     if value is True:
@@ -688,7 +701,12 @@ def _structured_value_state(value):
         state = states[0]
         if state == "affirmative":
             if _structured_contains_negation(value):
-                return "ambiguous"       # 同一条目另有否定语义 → 不得授权
+                # 官方 2026-11-18 线上复扫（2.4.17）SDI-4 remediation 原文：
+                #   「treat affirmative decisions accompanied by exclusion
+                #     evidence as contradictory or negative」
+                # → affirmative 决定 + 同条目排除证据 → **contradictory**
+                #   （**压制**，不得只是「不授权」）
+                return "contradictory"
             return "affirmative"
         if state == "negative":
             return "negative"
@@ -797,6 +815,15 @@ def _structured_authority_denies(product, keyword):
        本产品上**一律不得**被宣称（无论条款正文怎么写）。
        否定形态：布尔 False / None / 数值 0 / 带否定语义的字符串
        （"excluded" / "not covered" / "除外" / "不承保" …）。
+
+    官方 2026-11-18 线上复扫（2.4.17）SDI-4 remediation 原文：
+      「suppress the claim if any entry is negative, contradictory,
+        ambiguous, or malformed; free text must not override these states.」
+    → 压制集合 = negative / contradictory / **ambiguous**（含未知 / 畸形）。
+      · negative     → 显式否定
+      · contradictory → 自相矛盾（含 affirmative + 同条目排除证据）
+      · ambiguous    → 未知 / 畸形（无决定键、未知值、裸字符串 …）
+    ⚠️ affirmative **不在**压制集合里 → 一致 affirmative 仍可授权。
     """
     if not product:
         return False
@@ -811,7 +838,14 @@ def _structured_authority_denies(product, keyword):
                     continue
                 if _normalize_treatment_identifier(key) != norm_kw:
                     continue
-                if _structured_value_state(val) in ("negative", "contradictory"):
+                # 官方 2026-11-18 线上复扫（2.4.17）SDI-4 remediation 原文：
+                #   「suppress the claim if any entry is negative,
+                #     contradictory, ambiguous, or malformed」
+                # → 压制集合必须覆盖 negative / contradictory / ambiguous
+                #   （ambiguous 同时覆盖「未知」与「畸形」两类）。
+                # ⚠ 不得因此误伤「一致 affirmative」——affirmative 不在集合里。
+                if _structured_value_state(val) in ("negative", "contradictory",
+                                                  "ambiguous"):
                     return True
         elif isinstance(value, (list, tuple)):
             for item in value:
@@ -828,7 +862,9 @@ def _structured_authority_denies(product, keyword):
                     continue
                 if _normalize_treatment_identifier(ident) != norm_kw:
                     continue
-                if _structured_value_state(item) in ("negative", "contradictory"):
+                # 同上：list 形态的匹配条目同样覆盖 ambiguous（畸形）。
+                if _structured_value_state(item) in ("negative", "contradictory",
+                                                   "ambiguous"):
                     return True
     return False
 
@@ -1096,10 +1132,17 @@ def _medical_treatment_claims(product):
         negated = [o for o in k_occ
                    if _keyword_is_negated(blob, o[1], o[2],
                                           (occurrences, spans, bound))]
-        # ⑩-1 结构化权威字段**显式否定** → 主动压制：该治疗手段在本产品上
-        #      **一律不得**被宣称（与条款正文怎么写无关）。
-        if _structured_authority_denies(product, kw):
-            continue
+        # ⑩-1 **结构化压制闸**（官方 2026-11-18 线上复扫 · 2.4.17 · SDI-4
+        #      remediation 原文）：
+        #        「suppress the claim if any entry is negative, contradictory,
+        #          ambiguous, or malformed; free text must not override these
+        #          states」
+        #        「apply this gate to every claim-generation branch」
+        #      → 匹配条目为 negative / contradictory / ambiguous（= 畸形）时，
+        #        该治疗手段在本产品上**一律不得**被宣称（与条款正文怎么写无关）。
+        #      → 该闸在**每一个宣称生成分支**（非否定分支 + mixed-negation
+        #        分支）都必须过 —— 自由文本**不得**覆盖结构化状态。
+        structured_denies = _structured_authority_denies(product, kw)
         # ⑩-2 **记录级**冲突（官方 2.4.15 复扫 SDI-4 #2）：同一治疗手段在
         #      **整条产品记录**内同时存在肯定证据与除外证据 → 一律冲突
         #      （unverified）→ 不宣称，**不论**是否同元素 / 同字段。
@@ -1118,6 +1161,11 @@ def _medical_treatment_claims(product):
                     break
             if ok and record_conflict:
                 # 除外证据出现在**其它字段**（记录级）→ 同样按 unverified 处理
+                ok = False
+            # ⑩-1-1 结构化压制闸（**每一个宣称生成分支**都必须过）：
+            #      自由文本肯定证据**不得**覆盖结构化状态
+            #      （官方 2.4.17 复扫 SDI-4 · free text must not override）。
+            if ok and structured_denies:
                 ok = False
             if ok:
                 claims.append(kw)
@@ -1177,6 +1225,11 @@ def _medical_treatment_claims(product):
             conflict_unresolved = True
         if not ok and conflict_unresolved and _structured_authority_resolves(product, kw):
             ok = True                        # 结构化、权威字段裁决适用性
+        # ⑩-1-2 结构化压制闸（**每一个宣称生成分支**都必须过）：
+        #      自由文本肯定证据**不得**覆盖结构化状态
+        #      （官方 2.4.17 复扫 SDI-4 · free text must not override）。
+        if ok and structured_denies:
+            ok = False
         if ok:
             claims.append(kw)
     return claims

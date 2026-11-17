@@ -2507,6 +2507,242 @@ def test_f18_residual_g_conflicting_decision_keys(pd=None):
     return True
 
 
+# ==================================================================
+# F19 — SDI-4 残余 H（官方 2026-11-18 线上复扫 · 2.4.17）
+#       结构化排除证据未压制宣称 + 明示不报销被当成承保
+# ==================================================================
+def test_f19_residual_h_exclusion_and_reimbursement(pd=None):
+    """F19 (SDI-4 残余 H · 官方 2026-11-18 线上复扫 · 2.4.17): 排除证据压制 + 明示不报销
+
+    官方 finding #1 原文（ai-insurance-advisor · 693-695）：
+      「Structured exclusion evidence can still result in an affirmative
+        treatment-coverage claim.」
+    官方 remediation #1 原文：
+      「Validate structured coverage entries against an explicit schema and treat
+        affirmative decisions accompanied by exclusion evidence as contradictory
+        or negative. Before authorizing any treatment claim, reconcile all
+        matching structured entries and suppress the claim if any entry is
+        negative, contradictory, ambiguous, or malformed; free text must not
+        override these states. Add regression tests for co…」
+
+    官方 finding #2 原文（insurance-advisor-china · 689-691）：
+      「Contradictory structured coverage entries do not reliably suppress
+        treatment claims.」
+    官方 remediation #2 原文：
+      「Reconcile all matching structured entries into one authoritative state
+        before considering free-text claims. Classify affirmative decisions
+        paired with negative metadata as contradictory, and suppress claims
+        whenever a matching entry is ambiguous, malformed, negative, or
+        contradictory; apply this gate to every claim-generation branch. Add
+        regression tests covering contradictory metadata, conflictin…」
+
+    官方 finding #3 原文（insurance-advisor-china · 953-963）：
+      「An explicit reimbursement exclusion can become an affirmative
+        treatment-coverage claim.」
+    官方 remediation #3 原文：
+      「Require validated, typed treatment-coverage decisions before generating
+        affirmative claims; treat free-text evidence as unverified unless its
+        meaning and applicable conditions are established. As an immediate
+        mitigation, recognize constructions such as 「不可报销」 and post-treatment
+        negation, suppress ambiguous statements, and add regression tests proving
+        that reimbursement exclusions never generate af…」
+
+    修法（两库同口径）：
+      ① 结构化侧：affirmative 决定 + 同条目排除证据 → **contradictory**
+         （不得是 ambiguous：ambiguous 既不授权**也不**压制 → 自由文本肯定
+          证据照样产出无条件承保宣称）；
+      ② 压制集合覆盖 negative / contradictory / **ambiguous**（= 未知 / 畸形）；
+      ③ 结构化闸加到**每一个宣称生成分支**（free text must not override）；
+      ④ 自由文本侧：否定词表补齐「不可报销」「不可支付」「不可赔付」→
+         **双向**绑定（否定词在治疗手段**之前** / **之后**都生效 →
+         post-treatment negation）；「不可报销」内的「报销」必须被否定作用域吃掉。
+
+    断言口径（官方原文）：
+      「asserting that no unconditional treatment claim is emitted」
+      → 断言 **CAR-T 不得出现在宣称里**（不得产出无条件宣称），
+        **不**写「claims 必须恰好等于 []」这类过严断言（防过度收紧）。
+    """
+    print("\n[F19] 结构化排除证据必须压制 + 明示不报销不得变成承保"
+          "（SDI-4 残余 H · 官方 2026-11-18 线上复扫 · 2.4.17）")
+    if pd is None:
+        import plan_designer as pd  # china 版：模块已直接 import
+
+    # ==================================================================
+    # ① F19.1 affirmative 决定 + 同条目排除证据 → 不得产出无条件宣称
+    #    （dict 形态 / list 形态；否定语义关键词两种写法）
+    # ==================================================================
+    must_not = [
+        ("H1-1 dict 形态：covered=True + exclusion=除外",
+         {"treatment_coverage": {"CAR-T": {"covered": True, "exclusion": "除外"}},
+          "key_benefits": ["含CAR-T治疗费用报销"], "highlights": ""}),
+        ("H1-2 dict 形态：covered=True + note=不承保（否定语义字符串）",
+         {"treatment_coverage": {"CAR-T": {"covered": True, "note": "不承保"}},
+          "key_benefits": ["含CAR-T治疗费用报销"], "highlights": ""}),
+        ("H1-3 list 形态：元素 covered=True + exclusion=除外",
+         {"treatment_coverage": [{"treatment": "CAR-T", "covered": True,
+                                  "exclusion": "除外"}],
+          "key_benefits": ["含CAR-T治疗费用报销"], "highlights": ""}),
+        ("H1-4 list 形态：元素 covered=True + note=不承保",
+         {"coverage_items": [{"treatment": "CAR-T", "covered": True,
+                              "note": "不承保"}],
+          "key_benefits": ["含CAR-T治疗费用报销"], "highlights": ""}),
+        ("H1-5 跨字段变体：treatment_coverage 有排除证据 + coverage_items 肯定",
+         {"treatment_coverage": {"CAR-T": {"covered": True, "exclusion": "除外"}},
+          "coverage_items": [{"treatment": "CAR-T", "covered": True}],
+          "key_benefits": ["含CAR-T治疗费用报销"], "highlights": ""}),
+    ]
+    for name, product in must_not:
+        got = pd._medical_treatment_claims(product)
+        suffix = pd._medical_treatment_suffix(product)
+        check(f"F19.1 不得产出无条件宣称「{name}」：CAR-T 不在宣称里",
+              "CAR-T" not in got, f"实际 claims={got}")
+        check(f"F19.1 不得产出无条件宣称「{name}」：suffix 不含「含CAR-T」",
+              "含CAR-T" not in suffix, f"实际 suffix={suffix!r}")
+
+    # ==================================================================
+    # ② F19.2 矛盾 / 畸形 / ambiguous 条目 → denies=True（且不得授权）
+    # ==================================================================
+    deny_cases = [
+        ("H2-1 contradictory：covered=True + is_covered=False",
+         {"treatment_coverage": {"CAR-T": {"covered": True, "is_covered": False}}}),
+        ("H2-2 contradictory：covered=True + 同条目排除证据",
+         {"treatment_coverage": {"CAR-T": {"covered": True, "exclusion": "除外"}}}),
+        ("H2-3 contradictory：list 元素 covered=True + 同条目排除证据",
+         {"coverage_items": [{"treatment": "CAR-T", "covered": True,
+                              "exclusion": "除外"}]}),
+        ("H2-4 malformed：条目无任何承保决定键",
+         {"treatment_coverage": {"CAR-T": {"foo": "bar"}}}),
+        ("H2-5 malformed：条目值是 list（未知类型）",
+         {"treatment_coverage": {"CAR-T": ["CAR-T"]}}),
+        ("H2-6 ambiguous：条目值是未知字符串",
+         {"treatment_coverage": {"CAR-T": "待定"}}),
+        ("H2-7 ambiguous：list 元素无承保决定键",
+         {"coverage_items": [{"treatment": "CAR-T", "remark": "待定"}]}),
+    ]
+    for name, product in deny_cases:
+        check(f"F19.2 压制生效「{name}」：_structured_authority_denies 为真",
+              pd._structured_authority_denies(product, "CAR-T") is True)
+        check(f"F19.2 不得授权「{name}」：_structured_authority_resolves 为假",
+              pd._structured_authority_resolves(product, "CAR-T") is False)
+
+    # ==================================================================
+    # ③ F19.3 明示不报销 / 不支付 / 不赔付 → 不得产出承保宣称
+    # ==================================================================
+    reimbursement = [
+        ("H3-1 不可报销（含肯定字样「含」+「报销」）",
+         "含CAR-T治疗费用不可报销"),
+        ("H3-2 不可支付",
+         "含CAR-T治疗费用不可支付"),
+        ("H3-3 不可赔付",
+         "含CAR-T治疗费用不可赔付"),
+        ("H3-4 前置否定：不可报销CAR-T治疗费用",
+         "不可报销CAR-T治疗费用"),
+    ]
+    for name, text in reimbursement:
+        product = {"key_benefits": [text], "highlights": ""}
+        got = pd._medical_treatment_claims(product)
+        suffix = pd._medical_treatment_suffix(product)
+        check(f"F19.3 明示不报销不得宣称「{name}」：CAR-T 不在宣称里",
+              "CAR-T" not in got, f"实际 claims={got}")
+        check(f"F19.3 明示不报销不得宣称「{name}」：suffix 不含「含CAR-T」",
+              "含CAR-T" not in suffix, f"实际 suffix={suffix!r}")
+
+    # ==================================================================
+    # ④ F19.4 post-treatment negation（否定词在治疗手段**之后**）
+    # ==================================================================
+    post_neg = [
+        ("H3-5 后置否定：CAR-T治疗不可报销",
+         "CAR-T治疗不可报销"),
+        ("H3-6 后置否定：CAR-T治疗费用不可支付",
+         "CAR-T治疗费用不可支付"),
+        ("H3-7 后置否定：CAR-T治疗不可赔付",
+         "CAR-T治疗不可赔付"),
+        ("H3-8 后置否定 + 前置肯定字样：报销CAR-T治疗费用不可报销",
+         "报销CAR-T治疗费用不可报销"),
+    ]
+    for name, text in post_neg:
+        product = {"key_benefits": [text], "highlights": ""}
+        got = pd._medical_treatment_claims(product)
+        suffix = pd._medical_treatment_suffix(product)
+        check(f"F19.4 post-treatment negation 不得宣称「{name}」：CAR-T 不在宣称里",
+              "CAR-T" not in got, f"实际 claims={got}")
+        check(f"F19.4 post-treatment negation 不得宣称「{name}」：suffix 不含「含CAR-T」",
+              "含CAR-T" not in suffix, f"实际 suffix={suffix!r}")
+
+    # ==================================================================
+    # ⑤ F19.5 不得过度收紧：一致 affirmative → 仍须 claims == ['CAR-T']
+    # ==================================================================
+    must_keep = [
+        ("一致 affirmative（两个决定键都是 True）",
+         {"treatment_coverage": {"CAR-T": {"covered": True, "is_covered": True}},
+          "key_benefits": ["含CAR-T治疗"], "highlights": ""}),
+        ("显式类型化肯定（treatment_coverage={'CAR-T': True}）",
+         {"treatment_coverage": {"CAR-T": True},
+          "key_benefits": ["含CAR-T治疗"], "highlights": ""}),
+        ("list dict covered=True",
+         {"coverage_items": [{"treatment": "CAR-T", "covered": True}],
+          "key_benefits": ["含CAR-T治疗"], "highlights": ""}),
+        ("一致 affirmative + 正文冲突（可解决记录级冲突）",
+         {"treatment_coverage": {"CAR-T": {"covered": True, "is_covered": True}},
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}),
+    ]
+    for name, product in must_keep:
+        got = pd._medical_treatment_claims(product)
+        check(f"F19.5 不得过度收紧「{name}」：claims == ['CAR-T']", got == ["CAR-T"],
+              f"实际 {got}")
+
+    # ==================================================================
+    # ⑥ F19.6 源码级断言（防改回）
+    # ==================================================================
+    here = os.path.dirname(os.path.abspath(__file__))
+    src = open(os.path.join(here, "plan_designer.py"), encoding="utf-8").read()
+
+    # 否定词表：必须含「不可报销」「不可支付」「不可赔付」（post-treatment negation）
+    i = src.find("_NEG_MARKERS_BOTH = (")
+    nbody = src[i:src.find(")", i)] if i != -1 else ""
+    check("F19.6 源码级：否定词表含「不可报销」", "不可报销" in nbody,
+          "" if "不可报销" in nbody else "未找到")
+    check("F19.6 源码级：否定词表含「不可支付」", "不可支付" in nbody,
+          "" if "不可支付" in nbody else "未找到")
+    check("F19.6 源码级：否定词表含「不可赔付」", "不可赔付" in nbody,
+          "" if "不可赔付" in nbody else "未找到")
+    check("F19.6 源码级：三者必须在双向否定词表 _NEG_MARKERS_BOTH"
+          "（否定词在治疗手段之前 / 之后都生效 → post-treatment negation）",
+          all(t in nbody for t in ("不可报销", "不可支付", "不可赔付")))
+
+    # _structured_value_state：affirmative + 同条目否定语义 → 必须 contradictory
+    i = src.find("if _structured_contains_negation(value):")
+    seg = ""
+    if i != -1:
+        j = src.find('return "affirmative"', i)
+        seg = src[i:j] if j != -1 else src[i:i + 300]
+    _ok_vs = ('return "contradictory"' in seg) and ('return "ambiguous"' not in seg)
+    check("F19.6 源码级：affirmative + 同条目否定语义 → 必须判 contradictory"
+          "（不得再是 ambiguous）", _ok_vs,
+          "" if _ok_vs else "该分支仍返回 ambiguous 或未找到该分支")
+
+    # 压制集合：必须覆盖 contradictory / ambiguous
+    i = src.find("def _structured_authority_denies(")
+    j = src.find("\ndef ", i + 1)
+    dbody = src[i:j if j != -1 else len(src)]
+    check("F19.6 源码级：denies 判定集合必须覆盖 contradictory",
+          '"contradictory"' in dbody)
+    check("F19.6 源码级：denies 判定集合必须覆盖 ambiguous（未知 / 畸形）",
+          '"ambiguous"' in dbody)
+
+    # 结构化闸必须落在**每一个宣称生成分支**
+    i = src.find("def _medical_treatment_claims(")
+    j = src.find("\ndef ", i + 1)
+    mbody = src[i:j if j != -1 else len(src)]
+    _ok_gate = ("structured_denies" in mbody
+                and mbody.count("if ok and structured_denies:") >= 2)
+    check("F19.6 源码级：结构化压制闸必须加到每一个宣称生成分支"
+          "（free text must not override structured states）", _ok_gate,
+          "" if _ok_gate else "宣称生成分支未全部过结构化闸")
+
+    return True
+
+
 def main():
     print("=" * 60)
     print("ClawHub 审计整改测试（任务 2 R4/R5/R6/R7 + 任务 3 SQP-3/SDI-3/SDI-4）")
@@ -2548,6 +2784,7 @@ def main():
     test_f16_mixed_negation_authorization()
     test_f17_residual_f_structured_authority()
     test_f18_residual_g_conflicting_decision_keys()
+    test_f19_residual_h_exclusion_and_reimbursement()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)
