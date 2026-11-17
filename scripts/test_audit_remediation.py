@@ -1492,6 +1492,8 @@ def test_f13_treatment_negation_context():
     修法：逐次出现判定 —— 每次出现都取上下文窗口判断是否落在否定/除外语境；
          同一关键词全部出现皆为否定 → 不计入 claims；
          存在非否定出现（肯定 + 否定并存）→ 仍计入。
+         ⚠️ 2026-11-17 官方 2.4.15 SDI-4 #2 口径收紧：最后一条**已失效** ——
+         肯定 + 否定并存 → 一律 unverified → 不宣称（记录级冲突）。
 
     覆盖：6 个对抗场景 + 1 条源码级断言（防止否定判断被删回无条件判定）。
     """
@@ -1515,9 +1517,14 @@ def test_f13_treatment_negation_context():
         ("纯否定：质子重离子不予报销",
          {"key_benefits": [], "highlights": "质子重离子不予报销"},
          [], ""),
+        # ⚠️ 官方 2.4.15 复扫 SDI-4 #2 口径收紧（2026-11-17）：同一治疗手段在
+        #    **整条产品记录**内既有肯定证据又有除外证据 → 一律 unverified →
+        #    不宣称（官方 remediation 原文「...anywhere in the product record as
+        #    an unresolved conflict, regardless of element or field boundaries.」）。
+        #    这是**官方要求的口径收紧**，不是产品行为回归（真实产品库实测零影响）。
         ("肯定+否定并存：含CAR-T / 不含CAR-T",
          {"key_benefits": ["含CAR-T", "不含CAR-T"], "highlights": ""},
-         ["CAR-T"], "，含CAR-T治疗"),
+         [], ""),
         ("跨字段纯否定：key_benefits 进口药 + highlights 不予报销",
          {"key_benefits": ["进口药"], "highlights": "进口药不予报销"},
          [], ""),
@@ -1547,11 +1554,17 @@ def test_f13_treatment_negation_context():
         check(f"F13.2 纯否定「{kw}」不得被转成承保宣称（suffix 不含「含{kw}」）",
               not bad, "; ".join(bad[:3]))
 
-    # 肯定+否定并存仍算有授权（产品既承保又排除某手段的正常写法）
+    # ⚠️ 口径变更（官方 2.4.15 复扫 SDI-4 #2 · 2026-11-17）：「肯定+否定并存」
+    #    **不再**算有授权。官方 remediation 原文：
+    #      「Treat positive and negative evidence for the same treatment anywhere in
+    #        the product record as an unresolved conflict, regardless of element or
+    #        field boundaries.」
+    #    → 同一治疗手段既有肯定证据又有除外证据 → 一律 unverified → 不宣称。
+    #    这是**官方要求的口径收紧**，不是产品行为回归（真实产品库实测零影响）。
     both = PD._medical_treatment_claims(
         {"key_benefits": ["含CAR-T", "不含CAR-T"], "highlights": ""})
-    check("F13.3 肯定+否定并存：有非否定出现 → 该关键词仍计入 claims",
-          "CAR-T" in both, f"实际 {both}")
+    check("F13.3 肯定+否定并存（官方 2.4.15 SDI-4 #2 口径）：记录级冲突 → 不得计入 claims",
+          "CAR-T" not in both, f"实际 {both}")
 
     # ==================================================================
     # ② 源码级断言：不得再出现无条件 `kw in blob` 直接判定
@@ -1633,9 +1646,14 @@ def test_f14_treatment_negation_scope():
         ("纯肯定：质子重离子治疗费用报销",
          {"key_benefits": ["质子重离子治疗费用报销"], "highlights": ""},
          ["质子重离子"], "，含质子重离子治疗"),
+        # ⚠️ 官方 2.4.15 复扫 SDI-4 #2 口径收紧（2026-11-17）：同一治疗手段在
+        #    **整条产品记录**内既有肯定证据又有除外证据 → 一律 unverified →
+        #    不宣称（官方 remediation 原文「...anywhere in the product record as
+        #    an unresolved conflict, regardless of element or field boundaries.」）。
+        #    这是**官方要求的口径收紧**，不是产品行为回归（真实产品库实测零影响）。
         ("肯定+否定并存：含CAR-T / 不含CAR-T",
          {"key_benefits": ["含CAR-T", "不含CAR-T"], "highlights": ""},
-         ["CAR-T"], "，含CAR-T治疗"),
+         [], ""),
         ("别子句的肯定词不得授权 CAR-T：不含CAR-T，质子重离子可报销",
          {"key_benefits": ["不含CAR-T，质子重离子可报销"], "highlights": ""},
          ["质子重离子"], "，含质子重离子治疗"),
@@ -1701,9 +1719,14 @@ def test_f14_treatment_negation_scope():
          {"key_benefits": ["不含CAR-T"], "highlights": ""}, [], ""),
         ("纯否定：质子重离子不予报销",
          {"key_benefits": [], "highlights": "质子重离子不予报销"}, [], ""),
+        # ⚠️ 官方 2.4.15 复扫 SDI-4 #2 口径收紧（2026-11-17）：同一治疗手段在
+        #    **整条产品记录**内既有肯定证据又有除外证据 → 一律 unverified →
+        #    不宣称（官方 remediation 原文「...anywhere in the product record as
+        #    an unresolved conflict, regardless of element or field boundaries.」）。
+        #    这是**官方要求的口径收紧**，不是产品行为回归（真实产品库实测零影响）。
         ("肯定+否定并存：含CAR-T / 不含CAR-T",
          {"key_benefits": ["含CAR-T", "不含CAR-T"], "highlights": ""},
-         ["CAR-T"], "，含CAR-T治疗"),
+         [], ""),
         ("跨字段纯否定：key_benefits 进口药 + highlights 不予报销",
          {"key_benefits": ["进口药"], "highlights": "进口药不予报销"}, [], ""),
         ("空 blob",
@@ -1897,9 +1920,10 @@ def test_f15_whitespace_negation_scope():
          {"key_benefits": ["不含CAR-T治疗费用报销"], "highlights": ""}, [], ""),
         ("F14 纯否定：不含CAR-T",
          {"key_benefits": ["不含CAR-T"], "highlights": ""}, [], ""),
+        # ⚠️ 官方 2.4.15 复扫 SDI-4 #2 口径收紧（2026-11-17）：记录级冲突 → 不宣称
         ("F14 肯定+否定并存：含CAR-T / 不含CAR-T",
          {"key_benefits": ["含CAR-T", "不含CAR-T"], "highlights": ""},
-         ["CAR-T"], "，含CAR-T治疗"),
+         [], ""),
         ("F14 跨字段冲突：kb 含CAR-T + highlights CAR-T不予报销",
          {"key_benefits": ["含CAR-T"], "highlights": "CAR-T不予报销"}, [], ""),
         ("F14 同字段否定 + 跨字段肯定 → 不得授权",
@@ -1956,7 +1980,10 @@ def test_f16_mixed_negation_authorization(pd=None):
          highlights 字段）→ 冲突 → unverified（一律不宣称）；
       ③ 冲突只有被**结构化、权威**的产品字段逐项裁决时才可宣称
          （`_structured_authority_resolves`）；本产品库无此字段 → 冲突即不宣称；
-      ④ 不得过度收紧：同字段**不同元素**的肯定授权仍然有效（F13/F14/F15 口径）。
+      ④ ⚠️ 2026-11-17 官方 2.4.15 SDI-4 #2 口径收紧：同字段**不同元素**的肯定授权
+         **不再**有效 —— 官方 remediation 原文「...anywhere in the product record as
+         an unresolved conflict, regardless of element or field boundaries.」
+         → 记录级冲突 → 一律不宣称（只有收紧后的结构化权威规则能解决时才可宣称）。
 
     覆盖：18 个对抗场景 + 5 条源码级断言（防改回）+ F13/F14/F15 关键场景交叉验证。
     """
@@ -2003,9 +2030,16 @@ def test_f16_mixed_negation_authorization(pd=None):
          {"key_benefits": ["含CAR-T，不含CAR-T治疗费用报销"], "highlights": ""},
          [], ""),
         # ── E. 不得过度收紧（必须仍然宣称）──
-        ("保留语义：同字段不同元素 kb[含CAR-T, 不含CAR-T]",
+        # ⚠️ 口径变更（官方 2.4.15 复扫 SDI-4 #2 · 2026-11-17）：**跨元素借用授权
+        #    已废止** —— 官方 remediation 原文：
+        #      「Treat positive and negative evidence for the same treatment anywhere
+        #        in the product record as an unresolved conflict, regardless of element
+        #        or field boundaries.」
+        #    → 同一治疗手段在整条产品记录内既有肯定证据又有除外证据 → 不宣称。
+        #    （非过度收紧：官方要求的口径收紧；真实产品库实测零影响。）
+        ("保留语义：同字段不同元素 kb[含CAR-T, 不含CAR-T]（口径收紧 → 不宣称）",
          {"key_benefits": ["含CAR-T", "不含CAR-T"], "highlights": ""},
-         ["CAR-T"], "，含CAR-T治疗"),
+         [], ""),
         ("保留语义：枚举列表同子句 kb[质子重离子] + hl 涵盖质子重离子等先进治疗",
          {"key_benefits": ["质子重离子"], "highlights": "涵盖质子重离子等先进治疗"},
          ["质子重离子"], "，含质子重离子治疗"),
@@ -2097,9 +2131,14 @@ def test_f16_mixed_negation_authorization(pd=None):
          {"key_benefits": ["不含CAR-T"], "highlights": ""}, [], ""),
         ("纯否定：质子重离子不予报销",
          {"key_benefits": [], "highlights": "质子重离子不予报销"}, [], ""),
+        # ⚠️ 官方 2.4.15 复扫 SDI-4 #2 口径收紧（2026-11-17）：同一治疗手段在
+        #    **整条产品记录**内既有肯定证据又有除外证据 → 一律 unverified →
+        #    不宣称（官方 remediation 原文「...anywhere in the product record as
+        #    an unresolved conflict, regardless of element or field boundaries.」）。
+        #    这是**官方要求的口径收紧**，不是产品行为回归（真实产品库实测零影响）。
         ("肯定+否定并存：含CAR-T / 不含CAR-T",
          {"key_benefits": ["含CAR-T", "不含CAR-T"], "highlights": ""},
-         ["CAR-T"], "，含CAR-T治疗"),
+         [], ""),
         ("官方 F14 场景：不含CAR-T，质子重离子可报销",
          {"key_benefits": ["不含CAR-T，质子重离子可报销"], "highlights": ""},
          ["质子重离子"], "，含质子重离子治疗"),
@@ -2115,6 +2154,150 @@ def test_f16_mixed_negation_authorization(pd=None):
               got_claims == expect_claims, f"实际 {got_claims}")
         check(f"F16.9 F13/F14/F15 交叉验证「{name}」：suffix == {expect_suffix!r}",
               got_suffix == expect_suffix, f"实际 {got_suffix!r}")
+
+    return True
+
+
+
+
+# ==================================================================
+# F17 — SDI-4 残余 F（官方 2026-11-17 · 2.4.15 复扫）
+#       #1 结构化字段必须显式类型化肯定才授权；#2 记录级冲突一律不宣称
+# ==================================================================
+def test_f17_residual_f_structured_authority(pd=None):
+    """F17 (SDI-4 残余 F · 官方 2.4.15 复扫): 显式类型化肯定 + 记录级冲突
+
+    官方 finding #1（原文）：
+      「The structured authority check authorizes a treatment claim whenever the
+        keyword merely appears in a structured field, without checking whether the
+        value actually denies coverage. For example, treatment_coverage={"CAR-T":
+        false} still authorizes CAR-T.」
+      remediation 原文：
+        「Define and validate an explicit schema for structured treatment coverage,
+          using canonical treatment identifiers and typed coverage decisions rather
+          than substring matches. Require an affirmative coverage decision plus
+          applicable conditions and explicit resolution of conflicting exclusions;
+          false, excluded, unknown, malformed, or ambiguous values must not
+          authorize a claim.」
+
+    官方 finding #2（原文）：
+      「The mixed-negation branch allows a positive and an exclusion for the same
+        treatment in different elements of the same field to pass through.」
+      remediation 原文：
+        「Treat positive and negative evidence for the same treatment anywhere in the
+          product record as an unresolved conflict, regardless of element or field
+          boundaries. Suppress the unconditional claim unless a validated structured
+          rule explicitly establishes applicable coverage and resolves the exclusion.」
+
+    修法（两库同口径）：
+      ① 结构化字段：只有**显式类型化的肯定决定**才授权（布尔 True / dict 的
+         covered=True）；False / None / "excluded" / 除外 → **主动压制**；
+         裸字符串列表 / 未知键 / 畸形 → ambiguous → **不授权**；
+      ② 标识匹配一律走**规范化标识**（NFKC + 去空白 + 统一连字符 + casefold），
+         **不得**用「字符串包含关键词」的子串判定；
+      ③ **记录级**冲突：同一治疗手段在整条产品记录内既有肯定证据又有除外证据
+         → 一律 conflict_unresolved → 不宣称（不论同元素 / 同字段）。
+    """
+    print("\n[F17] 结构化授权须显式类型化肯定 + 记录级冲突一律不宣称（SDI-4 残余 F）")
+    if pd is None:
+        import plan_designer as pd  # china 版：模块已直接 import
+
+    # ==================================================================
+    # ① 不得宣称（对抗场景 · 期望值手写常量）
+    # ==================================================================
+    must_not = [
+        # ── 官方 #1 原例 ──
+        ("官方 #1 原例：treatment_coverage={'CAR-T': False}（否定值不得授权）",
+         {"treatment_coverage": {"CAR-T": False},
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}, []),
+        ("官方 #1 原例：coverage_items=[{'treatment':'CAR-T','covered':False}]",
+         {"coverage_items": [{"treatment": "CAR-T", "covered": False}],
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}, []),
+        ("结构化裸字符串列表属 ambiguous：不得授权",
+         {"coverage_items": ["CAR-T"],
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}, []),
+        ("结构化 excluded 否定值：主动压制，不得宣称",
+         {"treatment_coverage": {"CAR-T": "excluded"},
+          "key_benefits": ["含CAR-T治疗"], "highlights": ""}, []),
+        ("结构化否定值不得借用其它元素的肯定授权",
+         {"treatment_coverage": {"CAR-T": False},
+          "key_benefits": ["含CAR-T治疗"], "highlights": "CAR-T费用可报销"}, []),
+        ("规范化标识匹配：CAR-TX 的授权不得借给 CAR-T",
+         {"treatment_coverage": {"CAR-TX": True},
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}, []),
+        # ── 官方 #2 原例 ──
+        ("官方 #2 原例：kb[含CAR-T治疗, CAR-T除外]（跨元素同字段·正序）",
+         {"key_benefits": ["含CAR-T治疗", "CAR-T除外"], "highlights": ""}, []),
+        ("官方 #2 原例：kb[CAR-T除外, 含CAR-T治疗]（跨元素同字段·反序）",
+         {"key_benefits": ["CAR-T除外", "含CAR-T治疗"], "highlights": ""}, []),
+        ("官方 #2 跨字段变体：kb 含CAR-T治疗 + hl CAR-T除外",
+         {"key_benefits": ["含CAR-T治疗"], "highlights": "CAR-T除外"}, []),
+    ]
+    for name, product, expect in must_not:
+        got = pd._medical_treatment_claims(product)
+        check(f"F17.1 不得宣称场景「{name}」：claims == {expect}", got == expect,
+              f"实际 {got}")
+
+    # ==================================================================
+    # ② 不得过度收紧（显式类型化肯定 → 合法授权；正常肯定 → 保留）
+    # ==================================================================
+    must_keep = [
+        ("结构化 covered=True 显式肯定：正常承保必须保留",
+         {"treatment_coverage": {"CAR-T": True},
+          "key_benefits": ["含CAR-T治疗"], "highlights": ""}, ["CAR-T"]),
+        ("结构化 covered=True 可解决记录级冲突",
+         {"treatment_coverage": {"CAR-T": True},
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}, ["CAR-T"]),
+        ("结构化 list dict covered=True：正常承保必须保留",
+         {"coverage_items": [{"treatment": "CAR-T", "covered": True}],
+          "key_benefits": ["含CAR-T治疗"], "highlights": ""}, ["CAR-T"]),
+        ("结构化 list dict covered=True 可解决记录级冲突",
+         {"coverage_items": [{"treatment": "CAR-T", "covered": True}],
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}, ["CAR-T"]),
+        ("无冲突的正常肯定承保必须保留（记录级口径不得误伤）",
+         {"key_benefits": ["含质子重离子治疗"], "highlights": ""}, ["质子重离子"]),
+        ("无冲突的正常肯定承保必须保留（CAR-T）",
+         {"key_benefits": ["含CAR-T治疗"], "highlights": ""}, ["CAR-T"]),
+    ]
+    for name, product, expect in must_keep:
+        got = pd._medical_treatment_claims(product)
+        check(f"F17.2 不得过度收紧场景「{name}」：claims == {expect}", got == expect,
+              f"实际 {got}")
+
+    # ==================================================================
+    # ③ 源码级断言（防改回）
+    # ==================================================================
+    here = os.path.dirname(os.path.abspath(__file__))
+    src = open(os.path.join(here, "plan_designer.py"), encoding="utf-8").read()
+    flat = re.sub(r"\s+", " ", src)
+
+    check("F17.3 源码级：_normalize_treatment_identifier 已定义（规范化标识匹配）",
+          "def _normalize_treatment_identifier(" in src)
+    check("F17.4 源码级：_structured_value_state 已定义（类型化承保决定）",
+          "def _structured_value_state(" in src)
+    check("F17.5 源码级：_structured_authority_denies 已定义（否定值主动压制）",
+          "def _structured_authority_denies(" in src)
+    check("F17.6 源码级：_record_exclusion_keywords 已定义（记录级除外证据）",
+          "def _record_exclusion_keywords(" in src)
+    check("F17.7 源码级：_structured_item_identifier 已定义（list 元素标识提取）",
+          "def _structured_item_identifier(" in src)
+    check("F17.8 源码级：结构化授权走 _structured_value_state（类型化决定）",
+          "_structured_value_state(" in src)
+    check("F17.9 源码级：记录级冲突裁决存在（record_conflict）",
+          "record_conflict" in src)
+    check("F17.10 源码级：mixed-negation 分支设 conflict_unresolved = True",
+          "conflict_unresolved = True" in src)
+
+    # 结构化授权函数体内**不得**再出现「关键词子串包含」判定
+    i = src.find("def _structured_authority_resolves(")
+    j = src.find("\ndef ", i + 1)
+    body = src[i:j if j != -1 else len(src)]
+    _has_sub = ("keyword in x" in body) or ("keyword in " in body)
+    check("F17.11 源码级：_structured_authority_resolves 不得再用「keyword in x」子串判定",
+          not _has_sub,
+          "仍存在子串判定" if _has_sub else "")
+    check("F17.12 源码级：_structured_authority_resolves 走规范化标识匹配",
+          "_normalize_treatment_identifier" in body)
 
     return True
 
@@ -2159,6 +2342,7 @@ def main():
     test_f14_treatment_negation_scope()
     test_f15_whitespace_negation_scope()
     test_f16_mixed_negation_authorization()
+    test_f17_residual_f_structured_authority()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)
