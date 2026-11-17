@@ -611,17 +611,55 @@ def _structured_contains_negation(mapping):
     return False
 
 
+def _structured_decision_state(value):
+    """单个**承保决定值**的状态 → "affirmative" / "negative" / "ambiguous"
+
+    官方 2.4.16 复扫 SDI-4 remediation 原文：
+      「Validate structured coverage entries against an explicit schema and evaluate
+        every recognized decision key before assigning a state. Reject conflicting
+        decisions or classify them as unresolved and suppress the claim; also
+        reconcile matching entries across all structured authority fields before
+        allowing any affirmative resolution.」
+
+    标量口径：
+      · 布尔 True                      → affirmative（**唯一**的肯定授权形态）
+      · 布尔 False / None / 数值 0      → negative（显式否定 → 主动压制）
+      · 否定语义字符串（"excluded" / 除外 …）→ negative
+      · 其它（字符串非否定 / 未知类型 / 畸形）→ ambiguous（**不授权**）
+    """
+    if value is True:
+        return "affirmative"
+    if value is False or value is None:
+        return "negative"
+    if isinstance(value, (int, float)):
+        return "negative" if value == 0 else "ambiguous"
+    if isinstance(value, str):
+        return "negative" if _structured_text_is_negative(value) else "ambiguous"
+    return "ambiguous"
+
+
 def _structured_value_state(value):
-    """结构化字段里单个值的**承保决定**状态 → "affirmative" / "negative" / "ambiguous"
+    """结构化字段里单个值的**承保决定**状态
+    → "affirmative" / "negative" / "ambiguous" / "contradictory"
 
     官方 2.4.15 复扫 SDI-4 #1 remediation 原文：
       「Require an affirmative coverage decision ... false, excluded, unknown,
         malformed, or ambiguous values must not authorize a claim.」
 
+    官方 2.4.16 复扫 SDI-4 remediation 原文（**全部**决定键都要求值）：
+      「Validate structured coverage entries against an explicit schema and evaluate
+        every recognized decision key before assigning a state. Reject conflicting
+        decisions or classify them as unresolved and suppress the claim; also
+        reconcile matching entries across all structured authority fields before
+        allowing any affirmative resolution.」
+
       · 布尔 True                     → affirmative（**唯一**的肯定授权形态）
       · 布尔 False / None / 数值 0     → negative（显式否定 → 主动压制）
-      · dict 且 covered 键为 True      → affirmative（须无其它否定语义）
-      · dict 且 covered 键为 False/None→ negative
+      · dict：**全部**命中 _STRUCTURED_DECISION_KEYS 的键都要求值（不得只看第一个）
+        - 各键状态一致（全 affirmative / 全 negative）→ 按一致状态走
+        - 各键状态不一致（affirmative+negative / affirmative+ambiguous /
+          negative+ambiguous）→ **contradictory**（自相矛盾 → 不得授权 + 压制）
+      · dict 且 affirmative 决定 + 同条目另有否定语义 → ambiguous（不得授权）
       · 其它（字符串值 / 未知键 / 畸形）→ ambiguous（**不授权**）
     """
     if value is True:
@@ -633,23 +671,27 @@ def _structured_value_state(value):
     if isinstance(value, (int, float)):
         return "negative" if value == 0 else "ambiguous"
     if isinstance(value, dict):
-        found = False
-        decision = None
+        # 官方 2.4.16 复扫 SDI-4：**全部**决定键都要求值（不得只看第一个命中）
+        states = []
         for key in _STRUCTURED_DECISION_KEYS:
             if key in value:
-                found = True
-                decision = value[key]
-                break
-        if not found:
+                states.append(_structured_decision_state(value[key]))
+        if not states:
             return "ambiguous"           # 无承保决定字段 → 未知 → ambiguous
-        if decision is True:
+        if len(set(states)) > 1:
+            # 同一条目内多个决定键互相矛盾（affirmative+negative /
+            # affirmative+ambiguous / negative+ambiguous）
+            # → 官方口径「classify them as unresolved and suppress the claim」
+            # → contradictory：**不得**判为 affirmative（不得授权），
+            #   且必须能被 _structured_authority_denies 命中 → **主动压制**。
+            return "contradictory"
+        state = states[0]
+        if state == "affirmative":
             if _structured_contains_negation(value):
-                return "ambiguous"       # 同一条目自相矛盾 → 不得授权
+                return "ambiguous"       # 同一条目另有否定语义 → 不得授权
             return "affirmative"
-        if decision is False or decision is None:
+        if state == "negative":
             return "negative"
-        if isinstance(decision, str):
-            return "negative" if _structured_text_is_negative(decision) else "ambiguous"
         return "ambiguous"
     if isinstance(value, str):
         return "negative" if _structured_text_is_negative(value) else "ambiguous"
@@ -665,6 +707,43 @@ def _structured_item_identifier(item):
         if isinstance(val, str) and val.strip():
             return val
     return None
+
+
+def _structured_authority_states(product, norm_kw):
+    """收集该治疗手段在**全部**结构化权威字段里的**匹配条目**的承保决定状态。
+
+    官方 2.4.16 复扫 SDI-4 remediation 原文：
+      「Validate structured coverage entries against an explicit schema and evaluate
+        every recognized decision key before assigning a state. ... also reconcile
+        matching entries across all structured authority fields before allowing any
+        affirmative resolution.」
+
+    返回状态列表（可能为空 → 该产品**没有**任何结构化条目提及该治疗手段）：
+      "affirmative" / "negative" / "ambiguous" / "contradictory"
+    """
+    states = []
+    if not product:
+        return states
+    for field in _STRUCTURED_AUTHORITY_FIELDS:
+        value = product.get(field)
+        if isinstance(value, dict):
+            for key, val in value.items():
+                if not isinstance(key, str):
+                    continue
+                if _normalize_treatment_identifier(key) != norm_kw:
+                    continue
+                states.append(_structured_value_state(val))
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                if not isinstance(item, dict):
+                    continue                # 裸字符串 → ambiguous → 不授权
+                ident = _structured_item_identifier(item)
+                if not ident:
+                    continue
+                if _normalize_treatment_identifier(ident) != norm_kw:
+                    continue
+                states.append(_structured_value_state(item))
+    return states
 
 
 def _structured_authority_resolves(product, keyword):
@@ -696,28 +775,15 @@ def _structured_authority_resolves(product, keyword):
     norm_kw = _normalize_treatment_identifier(keyword)
     if not norm_kw:
         return False
-    for field in _STRUCTURED_AUTHORITY_FIELDS:
-        value = product.get(field)
-        if isinstance(value, dict):
-            for key, val in value.items():
-                if not isinstance(key, str):
-                    continue
-                if _normalize_treatment_identifier(key) != norm_kw:
-                    continue
-                if _structured_value_state(val) == "affirmative":
-                    return True
-        elif isinstance(value, (list, tuple)):
-            for item in value:
-                if not isinstance(item, dict):
-                    continue            # 裸字符串 → ambiguous → 不授权
-                ident = _structured_item_identifier(item)
-                if not ident:
-                    continue
-                if _normalize_treatment_identifier(ident) != norm_kw:
-                    continue
-                if _structured_value_state(item) == "affirmative":
-                    return True
-    return False
+    states = _structured_authority_states(product, norm_kw)
+    if not states:
+        return False
+    # 官方 2.4.16 复扫 SDI-4 remediation 原文：
+    #   「... reconcile matching entries across all structured authority fields
+    #     before allowing any affirmative resolution.」
+    # → 全部**匹配条目**（跨所有结构化权威字段）都必须是 affirmative；
+    #   任意一条 negative / contradictory / ambiguous → **不得**给出肯定裁决。
+    return all(state == "affirmative" for state in states)
 
 
 def _structured_authority_denies(product, keyword):
@@ -745,7 +811,7 @@ def _structured_authority_denies(product, keyword):
                     continue
                 if _normalize_treatment_identifier(key) != norm_kw:
                     continue
-                if _structured_value_state(val) == "negative":
+                if _structured_value_state(val) in ("negative", "contradictory"):
                     return True
         elif isinstance(value, (list, tuple)):
             for item in value:
@@ -762,7 +828,7 @@ def _structured_authority_denies(product, keyword):
                     continue
                 if _normalize_treatment_identifier(ident) != norm_kw:
                     continue
-                if _structured_value_state(item) == "negative":
+                if _structured_value_state(item) in ("negative", "contradictory"):
                     return True
     return False
 
