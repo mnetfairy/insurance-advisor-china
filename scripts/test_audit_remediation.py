@@ -2303,6 +2303,210 @@ def test_f17_residual_f_structured_authority(pd=None):
 
 
 
+# ==================================================================
+# F18 — SDI-4 残余 G（官方 2026-11-17 · 2.4.16 复扫）
+#       结构化承保决定键互相矛盾时必须压制
+# ==================================================================
+def test_f18_residual_g_conflicting_decision_keys(pd=None):
+    """F18 (SDI-4 残余 G · 官方 2.4.16 复扫): 决定键冲突必须压制
+
+    官方 finding 原文：
+      「Contradictory structured coverage decisions can authorize an unconditional
+        treatment claim despite the documented conflict-suppression policy.」
+
+    官方 explanation 原文：
+      「_structured_value_state stops at the first decision key, so an entry
+        containing both "covered": true and "is_covered": false is classified as
+        affirmative; _structured_contains_negation does not detect the
+        contradictory boolean. Consequently, _structured_authority_denies fails to
+        suppress the treatment, while _structured_authority_resolves can use that
+        same contradictory entry to override conflicting coverage text and emit an
+        unconditional coverage claim. In an insurance-advice skill, this can
+        misrepresent excluded treatments as covered and influence consequential
+        purchasing decisions, although exploitation requires contradictory product
+        data to reach the relevant claim-generation branch.」
+
+    官方 remediation 原文：
+      「Validate structured coverage entries against an explicit schema and evaluate
+        every recognized decision key before assigning a state. Reject conflicting
+        decisions or classify them as unresolved and suppress the claim; also
+        reconcile matching entries across all structured authority fields before
+        allowing any affirmative resolution. Add regression tests for covered=true
+        with is_covered=false, reversed key order, conflicting duplicate entries,
+        and conflicting free-text exclusions, asserting that no unconditional
+        treatment claim is emitted.」
+
+    修法（两库同口径）：
+      ① **全部**决定键都要求值（不得只看第一个命中的键）；
+      ② 同一条目内多个决定键状态不一致 → contradictory：
+         **不得**判为 affirmative（不得授权）+ **必须**被 _structured_authority_denies
+         命中（主动压制）；
+      ③ _structured_authority_resolves 必须**跨全部**结构化权威字段对齐匹配条目：
+         任意一条 negative / contradictory / ambiguous → 不得给出肯定裁决。
+
+    断言口径（官方 remediation 原文）：
+      「asserting that no unconditional treatment claim is emitted」
+      → 断言 **CAR-T 不得出现在宣称里**（不得产出无条件宣称）。
+    """
+    print("\n[F18] 结构化决定键冲突必须压制（SDI-4 残余 G · 官方 2.4.16 复扫）")
+    if pd is None:
+        import plan_designer as pd  # china 版：模块已直接 import
+
+    # ==================================================================
+    # ① 不得产出无条件宣称（官方点名的 4 类回归 + 顺序/重复变体）
+    # ==================================================================
+    must_not = [
+        # ── G1：covered=true + is_covered=false（官方点名）────────────────
+        ("G1 官方点名：treatment_coverage={'CAR-T':{'covered':True,'is_covered':False}}",
+         {"treatment_coverage": {"CAR-T": {"covered": True, "is_covered": False}},
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}),
+        # ── G2：键序反转（官方点名）──────────────────────────────────────
+        ("G2 官方点名：键序反转 {'is_covered':False,'covered':True}",
+         {"treatment_coverage": {"CAR-T": {"is_covered": False, "covered": True}},
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}),
+        # ── G3：冲突重复条目（官方点名）──────────────────────────────────
+        ("G3 官方点名：同一字段两条匹配条目，一条肯定一条否定（list）",
+         {"coverage_items": [{"treatment": "CAR-T", "covered": True},
+                             {"treatment": "CAR-T", "is_covered": False}],
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}),
+        # 冲突重复条目（dict 形态：两个标识键归一化后同名 → 归一化后不可重复，
+        #   这里用「同标识跨两个结构化权威字段」表达同口径的跨字段重复冲突）
+        ("G3 变体：跨结构化权威字段的重复匹配条目（肯定 + 否定）",
+         {"treatment_coverage": {"CAR-T": {"covered": True, "is_covered": False}},
+          "coverage_items": [{"treatment": "CAR-T", "covered": True}],
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}),
+        # ── G4：结构化自相矛盾 + 自由文本除外并存（官方点名）────────────
+        ("G4 官方点名：结构化自相矛盾 + 自由文本除外并存",
+         {"treatment_coverage": {"CAR-T": {"covered": True, "is_covered": False}},
+          "key_benefits": ["含CAR-T治疗"], "highlights": "CAR-T除外"}),
+        # 自由文本除外单独出现（无结构化冲突）→ 仍不得宣称
+        ("G4 变体：自由文本除外 + 冲突条目（键序反转）",
+         {"treatment_coverage": {"CAR-T": {"is_covered": False, "covered": True}},
+          "key_benefits": ["含CAR-T治疗"], "highlights": "CAR-T不予报销"}),
+        # ── 其它同口径变体（list 元素内自相矛盾 / 否定+ambiguous 混合）────
+        ("G5 变体：coverage_items 元素内自相矛盾",
+         {"coverage_items": [{"treatment": "CAR-T", "covered": True, "is_covered": False}],
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}),
+        ("G5 变体：决定键 affirmative + ambiguous（未知值）→ 不得授权",
+         {"treatment_coverage": {"CAR-T": {"covered": True, "is_covered": "待定"}},
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}),
+        ("G5 变体：决定键 negative + ambiguous（未知值）→ 不得授权",
+         {"treatment_coverage": {"CAR-T": {"covered": False, "is_covered": "待定"}},
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}),
+    ]
+    for name, product in must_not:
+        got = pd._medical_treatment_claims(product)
+        suffix = pd._medical_treatment_suffix(product)
+        check(f"F18.1 不得产出无条件宣称「{name}」：CAR-T 不在宣称里",
+              "CAR-T" not in got, f"实际 claims={got}")
+        check(f"F18.2 不得产出无条件宣称「{name}」：suffix 不含「含CAR-T」",
+              "含CAR-T" not in suffix, f"实际 suffix={suffix!r}")
+
+    # ==================================================================
+    # ② 压制生效：_structured_authority_denies 必须为真（自相矛盾 → 压制）
+    # ==================================================================
+    deny_cases = [
+        ("G5 dict 自相矛盾（covered=True + is_covered=False）",
+         {"treatment_coverage": {"CAR-T": {"covered": True, "is_covered": False}}}),
+        ("G5 dict 自相矛盾（键序反转）",
+         {"treatment_coverage": {"CAR-T": {"is_covered": False, "covered": True}}}),
+        ("G5 list 元素自相矛盾",
+         {"coverage_items": [{"treatment": "CAR-T", "covered": True, "is_covered": False}]}),
+        ("G5 冲突重复条目（否定条目必须压制）",
+         {"coverage_items": [{"treatment": "CAR-T", "covered": True},
+                             {"treatment": "CAR-T", "is_covered": False}]}),
+    ]
+    for name, product in deny_cases:
+        check(f"F18.3 压制生效「{name}」：_structured_authority_denies 为真",
+              pd._structured_authority_denies(product, "CAR-T") is True)
+        check(f"F18.4 不得授权「{name}」：_structured_authority_resolves 为假",
+              pd._structured_authority_resolves(product, "CAR-T") is False)
+
+    # ==================================================================
+    # ③ 跨字段对齐：任一匹配条目否定 / 矛盾 → 不得给出肯定裁决
+    # ==================================================================
+    cross_cases = [
+        ("跨字段：coverage_items 肯定 + treatment_coverage 否定",
+         {"coverage_items": [{"treatment": "CAR-T", "covered": True}],
+          "treatment_coverage": {"CAR-T": False}}),
+        ("跨字段：treatment_coverage 肯定 + covered_treatments 否定",
+         {"treatment_coverage": {"CAR-T": True},
+          "covered_treatments": {"CAR-T": False}}),
+        ("跨字段：treatment_coverage 肯定 + treatment_responsibilities 矛盾",
+         {"treatment_coverage": {"CAR-T": True},
+          "treatment_responsibilities": {"CAR-T": {"covered": True, "is_covered": False}}}),
+    ]
+    for name, product in cross_cases:
+        check(f"F18.5 跨字段对齐「{name}」：不得给出肯定裁决",
+              pd._structured_authority_resolves(product, "CAR-T") is False)
+
+    # ==================================================================
+    # ④ 不得过度收紧（一致的决定键 → 授权仍须保留）
+    # ==================================================================
+    must_keep = [
+        ("一致 affirmative（两个决定键都是 True）",
+         {"treatment_coverage": {"CAR-T": {"covered": True, "is_covered": True}},
+          "key_benefits": ["含CAR-T治疗"], "highlights": ""}, ["CAR-T"]),
+        ("一致 affirmative（结构化字段 + 正文冲突）",
+         {"treatment_coverage": {"CAR-T": {"covered": True, "is_covered": True}},
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}, ["CAR-T"]),
+        ("显式类型化肯定（原有残余 F 口径不得被破坏）",
+         {"treatment_coverage": {"CAR-T": True},
+          "key_benefits": ["含CAR-T治疗"], "highlights": ""}, ["CAR-T"]),
+        ("list dict covered=True（原有残余 F 口径不得被破坏）",
+         {"coverage_items": [{"treatment": "CAR-T", "covered": True}],
+          "key_benefits": ["含CAR-T治疗"], "highlights": ""}, ["CAR-T"]),
+    ]
+    for name, product, expect in must_keep:
+        got = pd._medical_treatment_claims(product)
+        check(f"F18.6 不得过度收紧「{name}」：claims == {expect}", got == expect,
+              f"实际 {got}")
+
+    # ==================================================================
+    # ⑤ 源码级断言（防改回）
+    # ==================================================================
+    here = os.path.dirname(os.path.abspath(__file__))
+    src = open(os.path.join(here, "plan_designer.py"), encoding="utf-8").read()
+
+    check("F18.7 源码级：_structured_decision_state 已定义（标量决定状态判定）",
+          "def _structured_decision_state(" in src)
+    check("F18.8 源码级：_structured_authority_states 已定义（跨字段对齐收集）",
+          "def _structured_authority_states(" in src)
+    check("F18.9 源码级：状态口径含 contradictory（自相矛盾）",
+          "contradictory" in src)
+
+    # 决定键求值必须**遍历全部**键 → 不得再出现「取第一个就 break」
+    i = src.find("def _structured_value_state(")
+    j = src.find("\ndef ", i + 1)
+    body = src[i:j if j != -1 else len(src)]
+    _ok10 = ("break" not in body) or ("for key in _STRUCTURED_DECISION_KEYS" in body
+                                      and "states.append(" in body)
+    check("F18.10 源码级：_structured_value_state 不得再「取第一个决定键就 break」",
+          _ok10, "" if _ok10 else "仍存在首个命中即 break")
+    check("F18.11 源码级：_structured_value_state 遍历全部决定键并收集状态",
+          "states.append(" in body)
+
+    # 压制必须覆盖 contradictory
+    i = src.find("def _structured_authority_denies(")
+    j = src.find("\ndef ", i + 1)
+    dbody = src[i:j if j != -1 else len(src)]
+    check("F18.12 源码级：_structured_authority_denies 必须压制 contradictory",
+          "contradictory" in dbody)
+
+    # 肯定裁决必须跨全部结构化权威字段对齐
+    i = src.find("def _structured_authority_resolves(")
+    j = src.find("\ndef ", i + 1)
+    rbody = src[i:j if j != -1 else len(src)]
+    check("F18.13 源码级：_structured_authority_resolves 走 _structured_authority_states 对齐",
+          "_structured_authority_states(" in rbody)
+    _ok14 = ('return True' not in rbody.split("_structured_authority_states(")[0]
+             or 'all(state == "affirmative"' in rbody)
+    check("F18.14 源码级：_structured_authority_resolves 不得「见到 affirmative 就 return True」",
+          _ok14, "" if _ok14 else "仍是首个 affirmative 即返回")
+
+    return True
+
+
 def main():
     print("=" * 60)
     print("ClawHub 审计整改测试（任务 2 R4/R5/R6/R7 + 任务 3 SQP-3/SDI-3/SDI-4）")
@@ -2343,6 +2547,7 @@ def main():
     test_f15_whitespace_negation_scope()
     test_f16_mixed_negation_authorization()
     test_f17_residual_f_structured_authority()
+    test_f18_residual_g_conflicting_decision_keys()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)
