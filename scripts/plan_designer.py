@@ -27,6 +27,7 @@ import math
 import os
 import re
 import sys
+import unicodedata
 
 # ---------------------------------------------------------------------------
 # 产品有效性判定（与 premium_calculator.py 同一口径）
@@ -305,6 +306,15 @@ _TREATMENT_CLAIMS = ("质子重离子", "CAR-T", "靶向药", "外购药", "特�
 # 修法：**逐次出现**判定 —— 每次出现都取上下文窗口判断是否落在否定/除外语境；
 #      同一关键词若全部出现皆为否定 → 不计入 claims；
 #      存在非否定出现 → 计入（肯定 + 否定并存仍算有授权）。
+#
+# ⚠️ 2026-11-17 官方 2.4.15 复扫 **SDI-4 #2** 口径收紧（上面最后一句**已失效**）：
+#      官方 remediation 原文：
+#        「Treat positive and negative evidence for the same treatment anywhere
+#          in the product record as an unresolved conflict, regardless of element
+#          or field boundaries.」
+#      → 同一治疗手段在**整条产品记录**内既有肯定证据又有除外证据 → 一律
+#        conflict_unresolved（unverified）→ **不宣称**（不论同元素 / 同字段）；
+#        只有**收紧后的结构化权威规则**（显式类型化肯定决定）解决冲突时才可宣称。
 # ---------------------------------------------------------------------------
 # 否定/除外词：前瞻型（词在关键词之前）与回溯型（词在关键词之后）
 _NEG_MARKERS_FORWARD = ("不含", "不包含", "不包括", "不纳入", "不涵盖", "不覆盖", "不支持")
@@ -541,32 +551,267 @@ def _element_ordinal_map(owner):
 _STRUCTURED_AUTHORITY_FIELDS = ("coverage_items", "covered_treatments",
                                 "treatment_coverage", "treatment_responsibilities")
 
+# 结构化字段里**治疗手段标识**的键名（list 元素 / 嵌套 dict 用）
+_STRUCTURED_ITEM_ID_KEYS = ("treatment", "treatment_name", "treatment_id",
+                            "name", "id", "key", "item", "benefit")
+# 结构化字段里**承保决定**的键名 —— 必须是显式布尔 True 才算肯定授权
+_STRUCTURED_DECISION_KEYS = ("covered", "is_covered")
+# 结构化字段值里的**否定语义**词表（已规范化：小写 + 去空白）
+# ⚠️ 命中否定语义 → 该治疗手段**不得**被授权，且必须**主动压制**。
+_STRUCTURED_NEGATION_TOKENS = (
+    "excluded", "exclude", "exclusion", "notcovered", "notcover", "notinclude",
+    "noteligible", "notpayable", "notreimbursed", "nocoverage", "uncovered",
+    "false",
+    "除外", "不承保", "不保", "不含", "不覆盖", "未覆盖", "不在保障范围",
+    "不予报销", "不报销", "无法报销", "不能报销", "不予支付", "不赔",
+    "拒绝承保", "非承保", "不纳入", "不支持",
+)
+
+
+def _normalize_treatment_identifier(text):
+    """规范化治疗手段标识（**规范化标识匹配**，不是子串匹配）。
+
+    官方 2.4.15 复扫 SDI-4 #1 remediation 原文：
+      「... using canonical treatment identifiers and typed coverage decisions
+        rather than substring matches.」
+
+    规范化口径：NFKC（全角 → 半角）→ 去**全部**空白（含全角空格 / NBSP）→
+    统一连字符（- ‐ ‑ – — ― → -）→ 下划线 → 连字符 → 大小写归一（casefold）。
+    """
+    if not isinstance(text, str):
+        return ""
+    s = unicodedata.normalize("NFKC", text)
+    s = "".join(ch for ch in s if not ch.isspace())
+    s = "".join("-" if ch in "-‐‑‒–—―−﹣_" else ch for ch in s)
+    return s.casefold()
+
+
+def _structured_text_is_negative(text):
+    """结构化字段的**字符串值**是否带否定语义（excluded / 除外 / 不承保 …）。"""
+    if not isinstance(text, str):
+        return False
+    s = unicodedata.normalize("NFKC", text).casefold()
+    s = "".join(ch for ch in s if not ch.isspace())
+    if not s:
+        return False
+    return any(tok in s for tok in _STRUCTURED_NEGATION_TOKENS)
+
+
+def _structured_contains_negation(mapping):
+    """结构化条目（dict）里是否**另有**否定语义（自相矛盾 → 不得授权）。"""
+    if not isinstance(mapping, dict):
+        return False
+    for val in mapping.values():
+        if isinstance(val, str) and _structured_text_is_negative(val):
+            return True
+        if isinstance(val, (list, tuple)):
+            for item in val:
+                if isinstance(item, str) and _structured_text_is_negative(item):
+                    return True
+    return False
+
+
+def _structured_value_state(value):
+    """结构化字段里单个值的**承保决定**状态 → "affirmative" / "negative" / "ambiguous"
+
+    官方 2.4.15 复扫 SDI-4 #1 remediation 原文：
+      「Require an affirmative coverage decision ... false, excluded, unknown,
+        malformed, or ambiguous values must not authorize a claim.」
+
+      · 布尔 True                     → affirmative（**唯一**的肯定授权形态）
+      · 布尔 False / None / 数值 0     → negative（显式否定 → 主动压制）
+      · dict 且 covered 键为 True      → affirmative（须无其它否定语义）
+      · dict 且 covered 键为 False/None→ negative
+      · 其它（字符串值 / 未知键 / 畸形）→ ambiguous（**不授权**）
+    """
+    if value is True:
+        return "affirmative"
+    if value is False or value is None:
+        return "negative"
+    if isinstance(value, bool):          # 理论不可达（上面已覆盖 True/False）
+        return "ambiguous"
+    if isinstance(value, (int, float)):
+        return "negative" if value == 0 else "ambiguous"
+    if isinstance(value, dict):
+        found = False
+        decision = None
+        for key in _STRUCTURED_DECISION_KEYS:
+            if key in value:
+                found = True
+                decision = value[key]
+                break
+        if not found:
+            return "ambiguous"           # 无承保决定字段 → 未知 → ambiguous
+        if decision is True:
+            if _structured_contains_negation(value):
+                return "ambiguous"       # 同一条目自相矛盾 → 不得授权
+            return "affirmative"
+        if decision is False or decision is None:
+            return "negative"
+        if isinstance(decision, str):
+            return "negative" if _structured_text_is_negative(decision) else "ambiguous"
+        return "ambiguous"
+    if isinstance(value, str):
+        return "negative" if _structured_text_is_negative(value) else "ambiguous"
+    return "ambiguous"
+
+
+def _structured_item_identifier(item):
+    """结构化 list 元素 / dict 里的**治疗手段标识**（无 → None）。"""
+    if not isinstance(item, dict):
+        return None
+    for key in _STRUCTURED_ITEM_ID_KEYS:
+        val = item.get(key)
+        if isinstance(val, str) and val.strip():
+            return val
+    return None
+
 
 def _structured_authority_resolves(product, keyword):
     """结构化、权威的产品字段能否裁决该治疗手段的「包含 / 除外」冲突。
 
-    官方 remediation（2.4.15 复扫口径，原文）：
-      「Treat conflicting positive and negative coverage evidence as unverified
-        unless a structured, validated rule resolves the conflict, and
-        suppress unconditional treatment claims in that case.」
+    官方 2.4.15 复扫 SDI-4 #1 remediation（原文）：
+      「Define and validate an explicit schema for structured treatment coverage,
+        using canonical treatment identifiers and typed coverage decisions rather
+        than substring matches. Require an affirmative coverage decision plus
+        applicable conditions and explicit resolution of conflicting exclusions;
+        false, excluded, unknown, malformed, or ambiguous values must not
+        authorize a claim.」
+
+    落实口径（**只有显式类型化的肯定决定**才可授权）：
+      · dict：键为**规范化治疗手段标识**且值为布尔 True；或值为 dict 且其
+        covered 键为布尔 True；
+      · list / tuple：元素为 dict，形如 {"treatment": "CAR-T", "covered": true}；
+      · 其余一律**不授权**：裸字符串列表（["CAR-T"]）、字符串值、未知值、
+        否定值（False / None / "excluded" / 除外 …）全部视为 ambiguous；
+      · 标识匹配一律走**规范化标识**（`_normalize_treatment_identifier`），
+        **不得**用「字符串包含关键词」的子串判定。
 
     ⚠️ key_benefits / highlights / tags 都是**自由文本**（同一句话里可能既
-       包含又除外），**不得**用来裁决冲突 → 只认**结构化**字段（list / dict
-       逐项列明承保责任）。本产品库实测无此类字段 → 冲突一律 unverified。
+       包含又除外），**不得**用来裁决冲突 → 只认**结构化**字段。
+       本产品库实测无此类字段（0 / 2577 款）→ 冲突一律 unverified。
     """
     if not product:
         return False
+    norm_kw = _normalize_treatment_identifier(keyword)
+    if not norm_kw:
+        return False
     for field in _STRUCTURED_AUTHORITY_FIELDS:
         value = product.get(field)
-        if isinstance(value, (list, tuple)):
-            if any(isinstance(x, str) and keyword in x for x in value):
-                return True
-        elif isinstance(value, dict):
-            if any(isinstance(x, str) and keyword in x for x in value.keys()):
-                return True
-            if any(isinstance(x, str) and keyword in x for x in value.values()):
-                return True
+        if isinstance(value, dict):
+            for key, val in value.items():
+                if not isinstance(key, str):
+                    continue
+                if _normalize_treatment_identifier(key) != norm_kw:
+                    continue
+                if _structured_value_state(val) == "affirmative":
+                    return True
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                if not isinstance(item, dict):
+                    continue            # 裸字符串 → ambiguous → 不授权
+                ident = _structured_item_identifier(item)
+                if not ident:
+                    continue
+                if _normalize_treatment_identifier(ident) != norm_kw:
+                    continue
+                if _structured_value_state(item) == "affirmative":
+                    return True
     return False
+
+
+def _structured_authority_denies(product, keyword):
+    """结构化、权威的产品字段是否**显式否定**该治疗手段 → 主动压制（不得宣称）。
+
+    官方 2.4.15 复扫 SDI-4 #1 remediation（原文）：
+      「false, excluded, unknown, malformed, or ambiguous values must not
+        authorize a claim.」
+
+    ⚠️ 「不授权」只说明**不能用来授权**；「否定」更进一步 —— 该治疗手段在
+       本产品上**一律不得**被宣称（无论条款正文怎么写）。
+       否定形态：布尔 False / None / 数值 0 / 带否定语义的字符串
+       （"excluded" / "not covered" / "除外" / "不承保" …）。
+    """
+    if not product:
+        return False
+    norm_kw = _normalize_treatment_identifier(keyword)
+    if not norm_kw:
+        return False
+    for field in _STRUCTURED_AUTHORITY_FIELDS:
+        value = product.get(field)
+        if isinstance(value, dict):
+            for key, val in value.items():
+                if not isinstance(key, str):
+                    continue
+                if _normalize_treatment_identifier(key) != norm_kw:
+                    continue
+                if _structured_value_state(val) == "negative":
+                    return True
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                if isinstance(item, str):
+                    # 裸字符串：ambiguous → 不授权；但**自带否定语义** → 压制
+                    if _structured_text_is_negative(item) and \
+                            norm_kw in _normalize_treatment_identifier(item):
+                        return True
+                    continue
+                if not isinstance(item, dict):
+                    continue
+                ident = _structured_item_identifier(item)
+                if not ident:
+                    continue
+                if _normalize_treatment_identifier(ident) != norm_kw:
+                    continue
+                if _structured_value_state(item) == "negative":
+                    return True
+    return False
+
+
+def _product_text_leaves(product):
+    """产品记录里**全部文本叶子**（字符串值；列表元素逐个独立成句）。"""
+    out = []
+
+    def walk(value):
+        if isinstance(value, str):
+            out.append(value)
+        elif isinstance(value, dict):
+            for val in value.values():
+                walk(val)
+        elif isinstance(value, (list, tuple)):
+            for val in value:
+                walk(val)
+
+    if isinstance(product, dict):
+        for val in product.values():
+            walk(val)
+    return out
+
+
+def _record_exclusion_keywords(product):
+    """**整条产品记录**内存在除外证据的治疗手段集合（官方 2.4.15 SDI-4 #2）。
+
+    官方 remediation（原文）：
+      「Treat positive and negative evidence for the same treatment anywhere in the
+        product record as an unresolved conflict, regardless of element or field
+        boundaries.」
+
+    口径：逐个**文本叶子**（key_benefits 元素 / highlights / notes / tags …）
+    独立判定 —— 同一治疗手段只要在**任意一个**文本叶子里落在否定 / 除外作用域内，
+    即视为「该产品记录内存在除外证据」。
+    """
+    out = set()
+    if not product:
+        return out
+    for text in _product_text_leaves(product):
+        if not text or not text.strip():
+            continue
+        if not any(kw in text for kw in _TREATMENT_CLAIMS):
+            continue                      # 不含任何治疗手段 → 跳过（性能）
+        occurrences, _spans, bound = _negation_context(text, None)
+        for kw, s, e in occurrences:
+            if (s, e) in bound:
+                out.add(kw)
+    return out
 
 
 def _medical_fact_owner_map(product):
@@ -750,7 +995,10 @@ def _medical_treatment_claims(product):
            无法报销 / 不能报销 / 不承保 / 不赔 / 不予支付 …）；
       ③ 该关键词**全部**出现皆为否定 → **不**计入 claims（纯除外条款不得转为承保宣称）；
       ④ 存在**非否定**出现 → 进入**肯定授权判定**（见 ⑤⑥）；
-      ⑤ 若同时存在否定出现与**明确肯定**表述（"含…"/"…可报销"）→ 仍计入。
+      ⑤ 若同时存在否定出现与**明确肯定**表述（"含…"/"…可报销"）→ 仍计入
+         （⚠️ 2026-11-17 官方 2.4.15 SDI-4 #2 口径收紧：**本条已失效** ——
+          肯定证据与除外证据只要在**整条产品记录**内并存 → 一律 unverified
+          → 不宣称；只有**收紧后的结构化权威规则**解决冲突时才可宣称）。
       ⑥ **完全没有否定出现**时（`not negated` 分支）：关键词「在条款里出现过」
          **不构成**承保授权 —— 必须在**同一次出现**、**同一字段**找到落在
          除外作用域之外的**明确肯定表述**才可对外宣称；找不到 → 按官方口径
@@ -772,6 +1020,8 @@ def _medical_treatment_claims(product):
     # 事实源文本中**全部**除外作用域（跨关键词）：落在**别的**治疗手段除外条款
     # 里的「报销」「给付」等字样，同样**不得**作为承保授权。
     all_scopes = tuple(sc for scopes in scope_map.values() for sc in scopes)
+    # ⑩-0 **记录级**除外证据（整条产品记录，不限字段 / 元素）—— 官方 2.4.15 SDI-4 #2
+    record_excluded = _record_exclusion_keywords(product)
     claims = []
     for kw in _TREATMENT_CLAIMS:
         k_occ = [o for o in occurrences if o[0] == kw]
@@ -780,6 +1030,14 @@ def _medical_treatment_claims(product):
         negated = [o for o in k_occ
                    if _keyword_is_negated(blob, o[1], o[2],
                                           (occurrences, spans, bound))]
+        # ⑩-1 结构化权威字段**显式否定** → 主动压制：该治疗手段在本产品上
+        #      **一律不得**被宣称（与条款正文怎么写无关）。
+        if _structured_authority_denies(product, kw):
+            continue
+        # ⑩-2 **记录级**冲突（官方 2.4.15 复扫 SDI-4 #2）：同一治疗手段在
+        #      **整条产品记录**内同时存在肯定证据与除外证据 → 一律冲突
+        #      （unverified）→ 不宣称，**不论**是否同元素 / 同字段。
+        record_conflict = kw in record_excluded
         if not negated:
             # SDI-4 残余 C（官方 2.4.9 复扫）：**没有否定出现 ≠ 有肯定授权**。
             # 关键词裸列在 key_benefits / highlights 里只说明「条款提到过」，
@@ -792,6 +1050,9 @@ def _medical_treatment_claims(product):
                                              scope_map, owner, all_scopes):
                     ok = True
                     break
+            if ok and record_conflict:
+                # 除外证据出现在**其它字段**（记录级）→ 同样按 unverified 处理
+                ok = False
             if ok:
                 claims.append(kw)
             continue
@@ -841,6 +1102,13 @@ def _medical_treatment_claims(product):
                 continue
             ok = True
             break
+        # ⑧-3 **记录级**冲突（官方 2.4.15 复扫 SDI-4 #2 · 跨元素 / 跨字段）：
+        #      肯定证据与除外证据**不论是否同元素 / 同字段**都算冲突 →
+        #      一律 conflict_unresolved（unverified）→ 不得无条件宣称；
+        #      只有**收紧后的结构化权威规则**（显式类型化肯定决定）解决时才可宣称。
+        if ok:
+            ok = False
+            conflict_unresolved = True
         if not ok and conflict_unresolved and _structured_authority_resolves(product, kw):
             ok = True                        # 结构化、权威字段裁决适用性
         if ok:
