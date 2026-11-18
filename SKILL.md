@@ -1,7 +1,7 @@
 ---
 name: insurance-advisor-china
 description: 中国大陆AI保险顾问。为个人和家庭提供全方位的保险咨询、产品对比、方案设计、投保指导。当用户询问保险配置、保险方案、产品对比、重疾险/医疗险/寿险/意外险/储蓄险推荐、保费计算、保障缺口分析、需求分析、核保合规、理赔等问题时使用。发布产物仅含 SKILL.md + 3 个只读参考文件（references/products.json、insurance-knowledge.md、compliance.md）+ 3 个运行时脚本（needs_analyzer / premium_calculator / plan_designer）；数据清洗脚本与回归测试脚本是本地维护工具，不随发布产物分发。
-version: 2.4.20
+version: 2.4.21
 tags: insurance, china, financial, advisor, product-comparison, medical, family-protection, health
 last_published: 2026-11-18
 allowed-tools:
@@ -742,6 +742,45 @@ fallback 三件套 / SKILL.md 引用 / 联系方式展示策略与本 skill 既�
 ---
 
 ## 更新日志
+- v2.4.21 (2026-11-18)：**官方 2.4.20 复扫后整改（SDI-4 变体 · 不确定 / 条件性表述不得转为承保证言）**：
+  - **官方 2.4.20 复扫结果（scanner 2.12.0，官方扫描包实测）**：
+    `issueCount=1 / score=12 / severity=LOW / recommendation=CAUTION /
+    clawscan verdict=suspicious`（finding = **SDI-4×1** · Excessive Agency · MEDIUM）
+    → **v2.4.19 的 post-treatment 否定变体（残余 J）已消除**，本轮是**新变体**。
+  - **官方 finding 原文**：
+    「Uncertain treatment statements are converted into affirmative coverage claims
+     despite the documented requirement to suppress unverified benefits.」
+    「The affirmative-evidence check accepts words such as 「报销」 or 「含」 without
+     establishing that the surrounding statement actually confirms coverage. For example,
+     a product highlight reading 「CAR-T治疗是否报销待核实」 contains an accepted affirmative
+     marker and no recognized exclusion, allowing it to become the unconditional claim
+     「含CAR-T治疗」.」
+  - **官方 remediation 原文（本轮实现的唯一依据）**：
+    「Require validated, treatment-specific affirmative coverage decisions and preserve
+     applicable conditions before emitting benefit claims. Treat questions, uncertainty,
+     conditional eligibility, pending verification, and conflicting evidence as unverified,
+     suppressing affirmative claims rather than relying on keyword presence. Add regression
+     tests for phrases such as 「CAR-T治疗是否报销待核实」, 「可能包含CAR-T治疗」, and
+     「CAR-T报销以核保结果为准」, alongside verified positive and explicit exclusion cases.」
+  - **根因**：肯定授权判定**只看重肯定关键字在场**（报销 / 含 / 包含 / 覆盖 …）——
+    **没有校验这句话本身是否真的在确认承保**。疑问（是否报销）、不确定性（可能包含）、
+    条件性（以核保结果为准）、待核实（待核实）都会带着肯定关键字被当成承保授权。
+  - **修法（两库同口径 · 业务逻辑零改动 · 仅肯定授权判定层）**：
+    ① **字段元素级守卫**：元素内出现疑问 / 不确定 / 条件性 / 待核实表述
+       → 该次出现的肯定证据**不成立** → 按 unverified 压制；
+    ② **记录级守卫**：同一治疗手段在**任一文本叶子的同一子句**里带不确定表述
+       → 属「未经确认」→ 跨字段 / 跨元素一律不宣称（**不得**被结构化裁决翻案）；
+    ③ 「以……为准」按**通用形态**覆盖（以核保结果为准 / 以实际理赔为准 / 以合同为准 …）。
+  - **新增测试**：`test_f22_residual_k_uncertainty_guard()`（29 项断言）——
+    官方三个反例 / 疑问与条件性措辞变体 / 跨字段记录级不确定证据 /
+    显式除外 / **verified positive 仍能宣称** / 源码级防改回。
+  - **实测复现（修复前 → 修复后）**：
+    `_medical_treatment_claims({'key_benefits':['CAR-T治疗是否报销待核实'],'highlights':''})`
+    → `['CAR-T']`（**假承保宣称**）→ `[]` ✓
+  - **全语料回归**：2584 款产品逐条对比旧/新宣称 → **0 处差异**（无误压制）；
+    正例（含CAR-T治疗费用报销 / CAR-T治疗费用可报销 / 覆盖CAR-T细胞免疫治疗 /
+    含质子重离子治疗费用报销 / 特药费用可报销）→ 宣称**不变** ✓
+  - **业务逻辑零改动**（仅肯定授权判定层；产品库数据文件、选品、保费、方案逻辑均未改动）。
 - v2.4.20 (2026-11-18)：**官方 2.4.19 复扫后整改（SDI-4 变体 · post-treatment 否定必须绑定到治疗手段）**：
   - **官方 2.4.19 复扫结果（scanner 2.12.0，官方扫描包实测）**：
     `issueCount=1 / score=12 / severity=LOW / recommendation=CAUTION /
