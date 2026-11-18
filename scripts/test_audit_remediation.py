@@ -2743,6 +2743,259 @@ def test_f19_residual_h_exclusion_and_reimbursement(pd=None):
     return True
 
 
+# ==================================================================
+# F20 — SDI-4 残余 I（官方 2026-11-18 线上复扫 · 2.4.18）
+#       裸字符串治疗标识绕过压制闸
+# ==================================================================
+def test_f20_residual_i_bare_string_identifier(pd=None):
+    """F20 (SDI-4 残余 I · 官方 2026-11-18 线上复扫 · 2.4.18): 裸字符串标识必须压制
+
+    官方 finding 原文（ai-insurance-advisor v2.4.18 · scripts/plan_designer.py 855-861）：
+      「Ambiguous bare-string treatment entries bypass the documented
+        claim-suppression gate.」
+    官方 remediation 原文：
+      「Validate treatment entries against a single explicit schema shared by
+        authorization and suppression checks. Classify a matching bare-string
+        treatment identifier as ambiguous and suppress its claim rather than
+        falling back to affirmative free text; retain suppression for explicit
+        exclusions. Add regression tests for bare-string identifiers, ambiguous
+        entries alongside affirmative text, and conflict…」
+
+    根因（裸字符串是「三不管」状态）：
+      ① `_structured_authority_states()` 遇到裸字符串**直接 continue** → 不产生
+         任何状态 → states 为空 → 不授权；
+      ② `_structured_authority_denies()` 裸字符串**只在自带否定语义时**才压制
+         → 裸标识符（"CAR-T"）**不压制**；
+      → 自由文本的肯定证据照样产出**无条件承保宣称**。
+
+    修法（两库同口径）：
+      ① 裸字符串与 dict 条目走**同一套显式 schema**（`_structured_bare_string_state`）
+         → 授权判定（`_structured_authority_states`）与压制判定
+           （`_structured_authority_denies`）**共用同一个状态函数**；
+      ② **匹配**该治疗手段的裸标识符 → 判 **ambiguous** → **必须压制**
+         （官方：suppress its claim，**不得** fallback 到肯定自由文本）；
+      ③ 裸字符串**自带否定语义** → 判 negative（保留显式除外的压制）；
+      ④ 标识匹配一律走**规范化标识**（`_normalize_treatment_identifier`）
+         + 标识边界判定 → **不得**用裸子串判定（"CAR-TX" ≠ "CAR-T"）。
+
+    断言口径（官方原文）：
+      「asserting that no unconditional treatment claim is emitted」
+      → 断言 **CAR-T 不得出现在宣称里**（不得产出无条件宣称），
+        **不**写「claims 必须恰好等于 []」这类过严断言（防过度收紧）。
+    """
+    print("\n[F20] 裸字符串治疗标识必须压制（SDI-4 残余 I · 官方 2026-11-18 线上复扫 · 2.4.18）")
+    if pd is None:
+        import plan_designer as pd  # china 版：模块已直接 import
+
+    # ==================================================================
+    # ① F20.1 裸字符串治疗标识符 → 不得产出无条件宣称（list 形态 + dict 形态）
+    # ==================================================================
+    must_not = [
+        ("I1-1 list 形态：treatment_coverage=['CAR-T']",
+         {"treatment_coverage": ["CAR-T"]}),
+        ("I1-2 list 形态：covered_treatments=['CAR-T']",
+         {"covered_treatments": ["CAR-T"]}),
+        ("I1-3 list 形态：coverage_items=['CAR-T']",
+         {"coverage_items": ["CAR-T"]}),
+        ("I1-4 dict 形态：treatment_coverage={'CAR-T': 'CAR-T'}",
+         {"treatment_coverage": {"CAR-T": "CAR-T"}}),
+        ("I1-5 dict 形态：coverage_items={'CAR-T': ['CAR-T']}",
+         {"coverage_items": {"CAR-T": ["CAR-T"]}}),
+    ]
+    for name, struct in must_not:
+        product = dict(struct)
+        product["key_benefits"] = ["含CAR-T治疗费用报销"]
+        product["highlights"] = ""
+        got = pd._medical_treatment_claims(product)
+        suffix = pd._medical_treatment_suffix(product)
+        check(f"F20.1 不得产出无条件宣称「{name}」：CAR-T 不在宣称里",
+              "CAR-T" not in got, f"实际 claims={got}")
+        check(f"F20.1 不得产出无条件宣称「{name}」：suffix 不含「含CAR-T」",
+              "含CAR-T" not in suffix, f"实际 suffix={suffix!r}")
+        check(f"F20.1 压制生效「{name}」：_structured_authority_denies 为真",
+              pd._structured_authority_denies(product, "CAR-T") is True)
+        check(f"F20.1 不得授权「{name}」：_structured_authority_resolves 为假",
+              pd._structured_authority_resolves(product, "CAR-T") is False)
+
+    # ==================================================================
+    # ② F20.2 裸字符串 + 肯定自由文本并存 → 仍不得宣称（不得 fallback）
+    # ==================================================================
+    with_text = [
+        ("I2-1 裸字符串 + key_benefits 肯定文本",
+         {"treatment_coverage": ["CAR-T"]},
+         {"key_benefits": ["含CAR-T治疗费用报销"], "highlights": ""}),
+        ("I2-2 裸字符串 + highlights 肯定文本（跨字段）",
+         {"treatment_coverage": ["CAR-T"]},
+         {"key_benefits": ["含CAR-T治疗"], "highlights": "CAR-T费用可报销"}),
+        ("I2-3 裸字符串 + 显式肯定条目并存（conflict）",
+         {"treatment_coverage": ["CAR-T"],
+          "coverage_items": [{"treatment": "CAR-T", "covered": True}]},
+         {"key_benefits": ["含CAR-T治疗费用报销"], "highlights": ""}),
+        ("I2-4 裸字符串 + 显式肯定条目跨字段并存（conflict）",
+         {"covered_treatments": ["CAR-T"],
+          "treatment_coverage": {"CAR-T": {"covered": True, "is_covered": True}}},
+         {"key_benefits": ["含CAR-T治疗费用报销"], "highlights": ""}),
+    ]
+    for name, struct, text in with_text:
+        product = dict(struct)
+        product.update(text)
+        got = pd._medical_treatment_claims(product)
+        suffix = pd._medical_treatment_suffix(product)
+        check(f"F20.2 不得 fallback 到肯定自由文本「{name}」：CAR-T 不在宣称里",
+              "CAR-T" not in got, f"实际 claims={got}")
+        check(f"F20.2 不得 fallback 到肯定自由文本「{name}」：suffix 不含「含CAR-T」",
+              "含CAR-T" not in suffix, f"实际 suffix={suffix!r}")
+        check(f"F20.2 压制生效「{name}」：_structured_authority_denies 为真",
+              pd._structured_authority_denies(product, "CAR-T") is True)
+        check(f"F20.2 不得授权「{name}」：_structured_authority_resolves 为假",
+              pd._structured_authority_resolves(product, "CAR-T") is False)
+
+    # ==================================================================
+    # ③ F20.3 标识变体（大小写 / 连字符 / 全角）→ 走规范化标识匹配仍须压制
+    # ==================================================================
+    variants = [
+        ("I3-1 小写 car-t", "car-t"),
+        ("I3-2 下划线 CAR_T", "CAR_T"),
+        ("I3-3 非断行连字符 CAR‑T", "CAR‑T"),
+        ("I3-4 短横线 car–t", "car–t"),
+        ("I3-5 全角 ＣＡＲ－Ｔ", "ＣＡＲ－Ｔ"),
+        ("I3-6 首尾空白 ' car-t '", " car-t "),
+    ]
+    for name, raw in variants:
+        product = {"treatment_coverage": [raw],
+                   "key_benefits": ["含CAR-T治疗费用报销"], "highlights": ""}
+        got = pd._medical_treatment_claims(product)
+        check(f"F20.3 标识变体必须压制「{name}」：CAR-T 不在宣称里",
+              "CAR-T" not in got, f"实际 claims={got}")
+        check(f"F20.3 标识变体必须压制「{name}」：denies 为真",
+              pd._structured_authority_denies(product, "CAR-T") is True)
+        check(f"F20.3 标识变体不得授权「{name}」：resolves 为假",
+              pd._structured_authority_resolves(product, "CAR-T") is False)
+
+    # ==================================================================
+    # ④ F20.4 裸字符串自带否定语义 → 仍须压制（retain explicit exclusions）
+    # ==================================================================
+    negatives = [
+        ("I4-1 除外", "CAR-T 除外"),
+        ("I4-2 不予报销", "CAR-T 不予报销"),
+        ("I4-3 前置否定 不承保", "不承保 CAR-T"),
+        ("I4-4 后置否定 不可报销", "CAR-T治疗费用不可报销"),
+        ("I4-5 英文 excluded", "CAR-T excluded"),
+    ]
+    for name, raw in negatives:
+        product = {"treatment_coverage": [raw],
+                   "key_benefits": ["含CAR-T治疗费用报销"], "highlights": ""}
+        got = pd._medical_treatment_claims(product)
+        check(f"F20.4 显式除外必须压制「{name}」：CAR-T 不在宣称里",
+              "CAR-T" not in got, f"实际 claims={got}")
+        check(f"F20.4 显式除外必须压制「{name}」：denies 为真",
+              pd._structured_authority_denies(product, "CAR-T") is True)
+
+    # ==================================================================
+    # ⑤ F20.5 标识不匹配 → 不得误压制 CAR-T
+    # ==================================================================
+    not_matching = [
+        ("I5-1 其它治疗手段裸标识（质子重离子）",
+         {"treatment_coverage": ["质子重离子"]}),
+        ("I5-2 更长的标识（CAR-TX）",
+         {"treatment_coverage": ["CAR-TX"]}),
+    ]
+    for name, struct in not_matching:
+        product = dict(struct)
+        product["key_benefits"] = ["含CAR-T治疗费用报销"]
+        product["highlights"] = ""
+        check(f"F20.5 不得误压制「{name}」：_structured_authority_denies 为假",
+              pd._structured_authority_denies(product, "CAR-T") is False)
+        check(f"F20.5 不得误压制「{name}」：_structured_authority_resolves 为假",
+              pd._structured_authority_resolves(product, "CAR-T") is False)
+        got = pd._medical_treatment_claims(product)
+        check(f"F20.5 不得误压制「{name}」：CAR-T 仍可正常宣称",
+              "CAR-T" in got, f"实际 claims={got}")
+
+    # ==================================================================
+    # ⑥ F20.6 不得过度收紧：一致 affirmative → 仍须 claims == ['CAR-T']
+    # ==================================================================
+    must_keep = [
+        ("一致 affirmative（covered=True + is_covered=True）",
+         {"treatment_coverage": {"CAR-T": {"covered": True, "is_covered": True}}}),
+        ("显式类型化肯定（treatment_coverage={'CAR-T': True}）",
+         {"treatment_coverage": {"CAR-T": True}}),
+        ("list dict covered=True",
+         {"coverage_items": [{"treatment": "CAR-T", "covered": True}]}),
+        ("裸字符串（其它治疗手段）不得影响 CAR-T 的显式肯定",
+         {"treatment_coverage": ["质子重离子"],
+          "coverage_items": [{"treatment": "CAR-T", "covered": True}]}),
+    ]
+    for name, struct in must_keep:
+        product = dict(struct)
+        product["key_benefits"] = ["含CAR-T治疗"]
+        product["highlights"] = ""
+        got = pd._medical_treatment_claims(product)
+        check(f"F20.6 不得过度收紧「{name}」：claims == ['CAR-T']", got == ["CAR-T"],
+              f"实际 {got}")
+
+    # ==================================================================
+    # ⑦ F20.7 源码级断言（防改回）
+    # ==================================================================
+    here = os.path.dirname(os.path.abspath(__file__))
+    src = open(os.path.join(here, "plan_designer.py"), encoding="utf-8").read()
+
+    check("F20.7 源码级：裸字符串状态判定函数已定义"
+          "（授权与压制共用的唯一 schema）",
+          "def _structured_bare_string_state(" in src)
+    check("F20.7 源码级：裸字符串标识匹配函数已定义（规范化标识 + 标识边界）",
+          "def _structured_bare_string_matches(" in src)
+
+    # _structured_authority_states：裸字符串**不得**再被直接 continue 跳过
+    i = src.find("def _structured_authority_states(")
+    j = src.find("\ndef ", i + 1)
+    sbody = src[i:j if j != -1 else len(src)]
+    check("F20.7 源码级：_structured_authority_states 必须调用裸字符串状态判定"
+          "（匹配时产生 ambiguous 状态）",
+          "_structured_bare_string_state(" in sbody)
+    _old_skip = "裸字符串 → ambiguous → 不授权"
+    check("F20.7 源码级：_structured_authority_states 不得再出现"
+          "「裸字符串 → ambiguous → 不授权」的直接跳过",
+          _old_skip not in src,
+          "仍存在直接跳过裸字符串的旧口径" if _old_skip in src else "")
+
+    # _structured_authority_denies：裸字符串匹配项必须被压制
+    i = src.find("def _structured_authority_denies(")
+    j = src.find("\ndef ", i + 1)
+    dbody = src[i:j if j != -1 else len(src)]
+    check("F20.7 源码级：_structured_authority_denies 必须调用裸字符串状态判定"
+          "（裸字符串匹配项必须被压制）",
+          "_structured_bare_string_state(" in dbody)
+    check("F20.7 源码级：denies 判定必须覆盖裸字符串的 ambiguous 状态",
+          '"ambiguous"' in dbody)
+
+    # 裸字符串匹配必须走规范化标识（不得裸子串判定）
+    i = src.find("def _structured_bare_string_state(")
+    j = src.find("\ndef ", i + 1)
+    stbody = src[i:j if j != -1 else len(src)]
+    check("F20.7 源码级：裸字符串状态判定必须走规范化标识",
+          "_normalize_treatment_identifier(" in stbody)
+    check("F20.7 源码级：裸字符串的 ambiguous 判定必须走标识匹配函数",
+          "_structured_bare_string_matches(" in stbody)
+
+    i = src.find("def _structured_bare_string_matches(")
+    j = src.find("\ndef ", i + 1)
+    bbody = src[i:j if j != -1 else len(src)]
+    check("F20.7 源码级：标识匹配必须做**标识边界**判定"
+          "（CAR-TX 不得匹配 CAR-T）",
+          "_structured_is_identifier_char(" in bbody)
+
+    # 结构化压制闸必须落在**每一个宣称生成分支**
+    i = src.find("def _medical_treatment_claims(")
+    j = src.find("\ndef ", i + 1)
+    mbody = src[i:j if j != -1 else len(src)]
+    check("F20.7 源码级：结构化压制闸必须覆盖每一个宣称生成分支"
+          "（free text must not override structured states）",
+          mbody.count("if ok and structured_denies:") >= 2)
+
+    return True
+
+
 def main():
     print("=" * 60)
     print("ClawHub 审计整改测试（任务 2 R4/R5/R6/R7 + 任务 3 SQP-3/SDI-3/SDI-4）")
@@ -2785,6 +3038,7 @@ def main():
     test_f17_residual_f_structured_authority()
     test_f18_residual_g_conflicting_decision_keys()
     test_f19_residual_h_exclusion_and_reimbursement()
+    test_f20_residual_i_bare_string_identifier()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)

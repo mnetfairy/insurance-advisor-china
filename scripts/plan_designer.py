@@ -727,6 +727,111 @@ def _structured_item_identifier(item):
     return None
 
 
+# ---------------------------------------------------------------------------
+# 裸字符串（bare string）治疗条目 —— **授权与压制共用的唯一 schema**
+#
+# 官方 2026-11-18 线上复扫（2.4.18）SDI-4 finding 原文：
+#   「Ambiguous bare-string treatment entries bypass the documented
+#     claim-suppression gate.」
+# 官方 remediation 原文：
+#   「Validate treatment entries against a single explicit schema shared by
+#     authorization and suppression checks. Classify a matching bare-string
+#     treatment identifier as ambiguous and suppress its claim rather than
+#     falling back to affirmative free text; retain suppression for explicit
+#     exclusions. Add regression tests for bare-string identifiers, ambiguous
+#     entries alongside affirmative text, and conflict…」
+#
+# ⚠️ 根因（此前「三不管」状态）：
+#   ① `_structured_authority_states()` 遇到裸字符串**直接 continue** → 不产生
+#      任何状态 → states 为空 → 不授权（✅ 但状态缺失 → 与「无条目」混淆）；
+#   ② `_structured_authority_denies()` 裸字符串**只在自带否定语义时**才压制
+#      → 裸标识符（"CAR-T"）**不压制**；
+#   → 裸标识符既不授权、也不压制 → 自由文本的肯定证据照样产出**无条件承保
+#      宣称**（官方口径：应判 **ambiguous** 并压制，**不得** fallback 到肯定
+#      自由文本）。
+#
+# 修法（两库同口径）：
+#   ① 裸字符串与 dict 条目走**同一套显式 schema**（`_structured_bare_string_state`）
+#      → 授权判定（`_structured_authority_states`）与压制判定
+#        （`_structured_authority_denies`）**共用同一个状态函数**；
+#   ② **匹配**该治疗手段的裸标识符 → 判 **ambiguous** → **必须压制**
+#      （官方：suppress its claim，**不得** fallback 到肯定自由文本）；
+#   ③ 裸字符串**自带否定语义** → 判 negative（保留显式除外的压制）；
+#   ④ 标识匹配一律走**规范化标识**（`_normalize_treatment_identifier`）
+#      + **标识边界**判定 → **不得**用裸子串判定。
+# ---------------------------------------------------------------------------
+
+# 标识的**延续字符**：紧跟在标识之后 → 说明那是**另一个更长的**标识
+# （"CAR-TX" ≠ "CAR-T"；CJK 字符不算延续字符 → "CAR-T治疗" 仍是 CAR-T）。
+_STRUCTURED_IDENTIFIER_CHARS = (
+    "abcdefghijklmnopqrstuvwxyz"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "0123456789-_"
+)
+
+
+def _structured_is_identifier_char(ch):
+    """该字符是否为**标识延续字符**（ASCII 字母 / 数字 / 连字符 / 下划线）。"""
+    return bool(ch) and ch in _STRUCTURED_IDENTIFIER_CHARS
+
+
+def _structured_bare_string_matches(ident, norm_kw):
+    """规范化后的裸字符串是否**匹配**该治疗手段的规范化标识。
+
+    判定口径（**规范化标识**匹配 —— 不是裸子串匹配）：
+      ① **逐字相等** → 匹配（典型裸标识符："CAR-T" / "car-t" / "CAR_T" /
+         "ＣＡＲ－Ｔ" —— 全部由 `_normalize_treatment_identifier` 归一）；
+      ② 标识**出现在字符串中**且两侧**都不是标识延续字符** → 匹配
+         （标识 + 措辞："CAR-T治疗费用" / "CAR-T 除外"）。
+    ⚠️ **不得**用无边界子串判定 → "CAR-TX" 不得匹配 "CAR-T"；
+       "质子重离子" 不得匹配 "CAR-T"。
+    """
+    if not ident or not norm_kw:
+        return False
+    if ident == norm_kw:
+        return True
+    start = 0
+    while True:
+        idx = ident.find(norm_kw, start)
+        if idx == -1:
+            return False
+        end = idx + len(norm_kw)
+        before = ident[idx - 1] if idx > 0 else ""
+        after = ident[end] if end < len(ident) else ""
+        if not _structured_is_identifier_char(before) and \
+                not _structured_is_identifier_char(after):
+            return True
+        start = idx + 1
+
+
+def _structured_bare_string_state(item, norm_kw):
+    """**裸字符串**治疗条目的承保决定状态（授权与压制**共用**的唯一 schema）。
+
+    返回：
+      "negative"  → 显式除外（自带否定语义）→ **压制**
+      "ambiguous" → **匹配**该治疗手段的裸标识符（无显式承保决定）→ **压制**
+      None        → 不匹配（与本治疗手段无关）→ **不得**误压制
+    """
+    if not isinstance(item, str) or not norm_kw:
+        return None
+    ident = _normalize_treatment_identifier(item)
+    if not ident:
+        return None
+    if not _structured_bare_string_matches(ident, norm_kw):
+        # 显式除外（自带否定语义且提及该治疗手段）→ negative
+        # （官方 2026-11-18 线上复扫 2.4.18 SDI-4 remediation 原文：
+        #   「retain suppression for explicit exclusions」→ 保留既有压制口径）
+        if _structured_text_is_negative(item) and norm_kw in ident:
+            return "negative"
+        return None
+    # 匹配的裸条目：自带否定语义 → 显式除外（negative，保留既有压制）；
+    # 否则 → **ambiguous**（官方口径：压制其宣称，**不得** fallback 到
+    # 肯定自由文本）。
+    if _structured_text_is_negative(item):
+        return "negative"
+    return "ambiguous"
+
+
 def _structured_authority_states(product, norm_kw):
     """收集该治疗手段在**全部**结构化权威字段里的**匹配条目**的承保决定状态。
 
@@ -753,8 +858,17 @@ def _structured_authority_states(product, norm_kw):
                 states.append(_structured_value_state(val))
         elif isinstance(value, (list, tuple)):
             for item in value:
+                if isinstance(item, str):
+                    # 裸字符串 → **共享 schema**（与压制判定同一个函数）：
+                    #   匹配该治疗手段的裸标识符 → 产生 **ambiguous** 状态
+                    #   （官方 2026-11-18 线上复扫 2.4.18 SDI-4：
+                    #     裸字符串不得绕过压制闸 → **不得**直接 continue 掉）
+                    state = _structured_bare_string_state(item, norm_kw)
+                    if state is not None:
+                        states.append(state)
+                    continue
                 if not isinstance(item, dict):
-                    continue                # 裸字符串 → ambiguous → 不授权
+                    continue                # 非字符串 / 非 dict → 畸形 → 不授权
                 ident = _structured_item_identifier(item)
                 if not ident:
                     continue
@@ -850,9 +964,15 @@ def _structured_authority_denies(product, keyword):
         elif isinstance(value, (list, tuple)):
             for item in value:
                 if isinstance(item, str):
-                    # 裸字符串：ambiguous → 不授权；但**自带否定语义** → 压制
-                    if _structured_text_is_negative(item) and \
-                            norm_kw in _normalize_treatment_identifier(item):
+                    # 裸字符串 → **共享 schema**（与授权判定同一个函数）：
+                    #   匹配该治疗手段的裸标识符 → ambiguous（无显式决定）
+                    #   或 negative（自带否定语义 = 显式除外）→ **一律压制**
+                    #   （官方 2026-11-18 线上复扫 2.4.18 SDI-4：
+                    #     suppress its claim rather than falling back to
+                    #     affirmative free text；retain suppression for
+                    #     explicit exclusions）
+                    state = _structured_bare_string_state(item, norm_kw)
+                    if state in ("negative", "ambiguous"):
                         return True
                     continue
                 if not isinstance(item, dict):
