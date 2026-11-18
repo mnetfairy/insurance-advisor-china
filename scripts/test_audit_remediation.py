@@ -3179,6 +3179,158 @@ def test_f21_residual_j_post_treatment_negation(pd=None):
     return True
 
 
+def test_f22_residual_k_uncertainty_guard(pd=None):
+    """F22 (SDI-4 残余 K · 官方 2026-11-18 线上复扫 · 2.4.20): 不确定表述不得转为承保证言
+
+    官方 finding 原文（insurance-advisor-china v2.4.20 · scripts/plan_designer.py 1259-1269）：
+      「Uncertain treatment statements are converted into affirmative coverage claims
+        despite the documented requirement to suppress unverified benefits.」
+      「The affirmative-evidence check accepts words such as 「报销」 or 「含」 without
+        establishing that the surrounding statement actually confirms coverage. For example,
+        a product highlight reading 「CAR-T治疗是否报销待核实」 contains an accepted affirmative
+        marker and no recognized exclusion, allowing it to become the unconditional claim
+        「含CAR-T治疗」.」
+
+    官方 remediation 原文：
+      「Require validated, treatment-specific affirmative coverage decisions and preserve
+        applicable conditions before emitting benefit claims. Treat questions, uncertainty,
+        conditional eligibility, pending verification, and conflicting evidence as unverified,
+        suppressing affirmative claims rather than relying on keyword presence. Add regression
+        tests for phrases such as 「CAR-T治疗是否报销待核实」, 「可能包含CAR-T治疗」, and
+        「CAR-T报销以核保结果为准」, alongside verified positive and explicit exclusion cases.」
+
+    根因：`_occurrence_is_affirmative()` 只要在治疗手段邻近窗口里找到肯定关键字
+         （报销 / 含 / 包含 / 覆盖 …）就判定「有承保授权」—— **没有校验这句话本身
+         是否真的在确认承保**。疑问、可能性、条件性、待核实都会带着肯定关键字被当成授权。
+
+    修法（两库同口径 · 业务逻辑零改动）：
+      ① **字段元素级**守卫：元素内出现疑问 / 不确定 / 条件性 / 待核实表述
+         → 该次出现的肯定证据**不成立**；
+      ② **记录级**守卫：同一治疗手段在**任一文本叶子的同一子句**里带不确定表述
+         → 属「未经确认」→ 跨字段 / 跨元素一律不宣称（**不得**被结构化裁决翻案）。
+
+    断言口径：被不确定表述覆盖的治疗手段**不得**出现在宣称里（**不**写「claims 必须
+    恰好等于 []」这类过严断言）；同时用 F22.5 守住**verified positive** 仍能宣称。
+    """
+    print("\n[F22] 不确定 / 条件性表述不得转为承保证言（SDI-4 残余 K · 官方 2026-11-18 线上复扫 · 2.4.20）")
+    if pd is None:
+        import plan_designer as pd  # china 版：模块已直接 import
+
+    # ==================================================================
+    # ① F22.1 官方原文给出的三个反例 → 不得宣称
+    # ==================================================================
+    official_cases = [
+        ("K1-1「CAR-T治疗是否报销待核实」",
+         {"key_benefits": ["CAR-T治疗是否报销待核实"], "highlights": ""}),
+        ("K1-2「可能包含CAR-T治疗」",
+         {"key_benefits": ["可能包含CAR-T治疗"], "highlights": ""}),
+        ("K1-3「CAR-T报销以核保结果为准」",
+         {"key_benefits": ["CAR-T报销以核保结果为准"], "highlights": ""}),
+    ]
+    for name, product in official_cases:
+        got = pd._medical_treatment_claims(product)
+        suffix = pd._medical_treatment_suffix(product)
+        check(f"F22.1 不得宣称「{name}」：CAR-T 不在宣称里",
+              "CAR-T" not in got, f"实际 claims={got}")
+        check(f"F22.1 不得宣称「{name}」：suffix 不含「含CAR-T」",
+              "含CAR-T" not in suffix, f"实际 suffix={suffix!r}")
+
+    # ==================================================================
+    # ② F22.2 疑问 / 不确定性 / 条件性措辞变体 → 不得宣称
+    # ==================================================================
+    wording_cases = [
+        ("K2-1「CAR-T治疗能否报销」",
+         {"key_benefits": ["CAR-T治疗能否报销"], "highlights": ""}),
+        ("K2-2「CAR-T治疗报销情况待定」",
+         {"key_benefits": ["CAR-T治疗报销情况待定"], "highlights": ""}),
+        ("K2-3「含CAR-T治疗（待核实）」",
+         {"key_benefits": ["含CAR-T治疗（待核实）"], "highlights": ""}),
+        ("K2-4「CAR-T报销以实际理赔为准」",
+         {"key_benefits": ["CAR-T报销以实际理赔为准"], "highlights": ""}),
+        ("K2-5「视情况包含CAR-T治疗」",
+         {"key_benefits": ["视情况包含CAR-T治疗"], "highlights": ""}),
+        ("K2-6「CAR-T治疗是否承保待确认」",
+         {"key_benefits": ["CAR-T治疗是否承保待确认"], "highlights": ""}),
+        ("K2-7「可能涵盖质子重离子治疗」",
+         {"key_benefits": ["可能涵盖质子重离子治疗"], "highlights": ""}),
+    ]
+    for name, product in wording_cases:
+        got = pd._medical_treatment_claims(product)
+        check(f"F22.2 不得宣称「{name}」：被不确定表述覆盖的治疗手段不在宣称里",
+              not any(t in got for t in ("CAR-T", "质子重离子")),
+              f"实际 claims={got}")
+
+    # ==================================================================
+    # ③ F22.3 跨字段（记录级不确定证据）→ 不得宣称
+    # ==================================================================
+    cross_field_cases = [
+        ("K3-1 key_benefits 肯定 + highlights 疑问",
+         {"key_benefits": ["含CAR-T治疗费用报销"], "highlights": "CAR-T治疗是否报销待核实"}),
+        ("K3-2 key_benefits 疑问 + highlights 肯定",
+         {"key_benefits": ["CAR-T治疗是否报销待核实"], "highlights": "含CAR-T治疗费用报销"}),
+    ]
+    for name, product in cross_field_cases:
+        got = pd._medical_treatment_claims(product)
+        check(f"F22.3 不得宣称「{name}」：CAR-T 不在宣称里",
+              "CAR-T" not in got, f"实际 claims={got}")
+
+    # ==================================================================
+    # ④ F22.4 显式除外（explicit exclusion）→ 仍须压制
+    # ==================================================================
+    exclusion_cases = [
+        ("K4-1「CAR-T治疗不支持报销」",
+         {"key_benefits": ["CAR-T治疗不支持报销"], "highlights": ""}),
+        ("K4-2「不含CAR-T治疗费用报销」",
+         {"key_benefits": ["不含CAR-T治疗费用报销"], "highlights": ""}),
+    ]
+    for name, product in exclusion_cases:
+        got = pd._medical_treatment_claims(product)
+        check(f"F22.4 显式除外必须压制「{name}」：CAR-T 不在宣称里",
+              "CAR-T" not in got, f"实际 claims={got}")
+
+    # ==================================================================
+    # ⑤ F22.5 verified positive（官方要求 alongside verified positive）
+    # ==================================================================
+    positive_cases = [
+        ("K5-1「含CAR-T治疗费用报销」",
+         {"key_benefits": ["含CAR-T治疗费用报销"], "highlights": ""}, "CAR-T"),
+        ("K5-2「CAR-T治疗费用可报销」",
+         {"key_benefits": ["CAR-T治疗费用可报销"], "highlights": ""}, "CAR-T"),
+        ("K5-3「覆盖CAR-T细胞免疫治疗」",
+         {"key_benefits": ["覆盖CAR-T细胞免疫治疗"], "highlights": ""}, "CAR-T"),
+        ("K5-4「含质子重离子治疗费用报销」",
+         {"key_benefits": ["含质子重离子治疗费用报销"], "highlights": ""}, "质子重离子"),
+        ("K5-5「特药费用可报销」",
+         {"key_benefits": ["特药费用可报销"], "highlights": ""}, "特药"),
+    ]
+    for name, product, must in positive_cases:
+        got = pd._medical_treatment_claims(product)
+        check(f"F22.5 不得过度收紧「{name}」：{must} 仍可正常宣称",
+              must in got, f"实际 claims={got}")
+
+    # ==================================================================
+    # ⑥ F22.6 源码级断言（防改回）
+    # ==================================================================
+    src = open(os.path.join(os.path.dirname(__file__), "plan_designer.py"),
+               "r", encoding="utf-8").read()
+    check("F22.6 源码级：不确定判定函数已定义",
+          "def _has_uncertainty(" in src)
+    check("F22.6 源码级：记录级不确定证据判定已定义",
+          "def _record_uncertain_keywords(" in src)
+    check("F22.6 源码级：不确定 / 疑问 / 条件性词表已定义",
+          "_UNCERTAINTY_MARKERS" in src)
+    check("F22.6 源码级：「以……为准」通用形态已覆盖",
+          "_RE_SUBJECT_TO" in src)
+    check("F22.6 源码级：_occurrence_is_affirmative 必须过不确定守卫",
+          "_has_uncertainty(blob, el_lo, el_hi)" in src)
+    check("F22.6 源码级：_medical_treatment_claims 必须调用记录级不确定闸",
+          "_record_uncertain_keywords(product)" in src)
+    check("F22.6 源码级：记录级不确定闸必须压制宣称",
+          src.count("if ok and kw in record_uncertain:") >= 2)
+
+    return True
+
+
 def main():
     print("=" * 60)
     print("ClawHub 审计整改测试（任务 2 R4/R5/R6/R7 + 任务 3 SQP-3/SDI-3/SDI-4）")
@@ -3223,6 +3375,7 @@ def main():
     test_f19_residual_h_exclusion_and_reimbursement()
     test_f20_residual_i_bare_string_identifier()
     test_f21_residual_j_post_treatment_negation()
+    test_f22_residual_k_uncertainty_guard()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)

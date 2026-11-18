@@ -366,6 +366,39 @@ _POST_TREATMENT_MAX_GAP = 12
 # 肯定/授权词（用于「明确肯定表述」判定；落在否定词内部的一律不算）
 _AFFIRM_MARKERS = ("含", "包含", "涵盖", "覆盖", "可报销", "报销", "给付", "支持", "承保")
 
+# ⚠ 官方 SDI-4 残余 K（2026-11-18 线上复扫 · insurance-advisor-china v2.4.20
+#   · Excessive Agency · MEDIUM · issueCount=1 · score=12）remediation 原文：
+#     「Require validated, treatment-specific affirmative coverage decisions and
+#       preserve applicable conditions before emitting benefit claims. Treat questions,
+#       uncertainty, conditional eligibility, pending verification, and conflicting
+#       evidence as unverified, suppressing affirmative claims rather than relying on
+#       keyword presence.」
+# → 肯定授权**不能只看关键字在场**：疑问 / 不确定性 / 条件性 / 待核实表述
+#   → 该次出现的肯定证据**不成立** → 按 unverified 压制（**不**产出无条件承保宣称）。
+#
+#   官方给的三个反例：
+#     「CAR-T治疗是否报销待核实」（疑问 + 待核实）
+#     「可能包含CAR-T治疗」（可能性）
+#     「CAR-T报销以核保结果为准」（条件性）
+#
+# ⚠ 语料实测（2584 款 products.json）：事实源字段（key_benefits / highlights）里
+#   「含治疗手段 + 不确定词」的共现为 **0 处** → 本守卫对真实数据零影响，
+#   只针对扫描器的**对抗样本**生效。
+_UNCERTAINTY_MARKERS = (
+    # 疑问（是否 / 能否 …）
+    "是否", "能否", "可否", "有无", "是不是",
+    # 待核实 / 未确定
+    "待核实", "待确认", "待明确", "待定", "需核实", "需确认", "尚待",
+    "不确定", "未知", "存疑", "尚未",
+    # 可能性（非确定表述）
+    "可能", "或许", "也许", "大概", "或将", "原则上",
+    # 条件性 / 视情况 / 需另行确认
+    "视情况", "视实际", "视情形", "视核保", "视保险",
+    "详见条款", "具体以", "另行确认", "需另行", "经确认",
+)
+# 「以……为准」通用形态（以核保结果为准 / 以实际理赔为准 / 以合同为准 …）
+_RE_SUBJECT_TO = re.compile(r"以[^。；！？!?;:\n，,]{0,14}为准")
+
 # 上下文窗口：否定词与其绑定的关键词出现之间的距离上限（字符）
 _NEG_CONTEXT_WINDOW = 30
 # 语义子句边界：句号/分号/问号/叹号/冒号/换行/逗号 —— 否定语境不跨子句传播
@@ -1186,6 +1219,58 @@ def _record_exclusion_keywords(product):
     return out
 
 
+def _split_clauses(text):
+    """按**语义子句边界**切分文本 → [clause, ...]
+
+    ⚠ 子句边界口径与 `_CLAUSE_BREAKS` 一致（普通空白**不是**边界）。
+       官方 SDI-4 残余 K：不确定表述必须与**相关治疗手段同子句**才算数 ——
+       否则「产品名含治疗手段 + 其它段落含可能」这类偶然共现会造成误压制。
+    """
+    if not text:
+        return []
+    out = []
+    buf = []
+    for ch in text:
+        buf.append(ch)
+        if ch in _CLAUSE_BREAKS:
+            out.append("".join(buf))
+            buf = []
+    if buf:
+        out.append("".join(buf))
+    return out
+
+
+def _record_uncertain_keywords(product):
+    """**整条产品记录**内存在**不确定表述**的治疗手段集合（官方 SDI-4 残余 K）
+
+    口径：逐个**文本叶子**独立判定 —— 某个治疗手段出现所在的**子句**里带
+          疑问 / 不确定性 / 条件性 / 待核实表述 → 该治疗手段在本产品记录内
+          属「未经确认」→ 不得对外宣称（**跨字段 / 跨元素同样成立**，
+          与官方 2.4.15 的记录级冲突口径一致）。
+
+    ⚠ 官方 remediation 原文：
+      「Treat questions, uncertainty, conditional eligibility, pending verification,
+        and conflicting evidence as unverified, suppressing affirmative claims rather
+        than relying on keyword presence.」
+    """
+    out = set()
+    if not product:
+        return out
+    for text in _product_text_leaves(product):
+        if not text or not text.strip():
+            continue
+        if not any(kw in text for kw in _TREATMENT_CLAIMS):
+            continue                      # 不含任何治疗手段 → 跳过（性能）
+        for clause in _split_clauses(text):
+            if not any(kw in clause for kw in _TREATMENT_CLAIMS):
+                continue
+            if not _has_uncertainty(clause, 0, len(clause)):
+                continue
+            for kw, _s, _e in _treatment_occurrences(clause):
+                out.add(kw)
+    return out
+
+
 def _medical_fact_owner_map(product):
     """事实源文本的**字段归属映射** → (blob, owner)
 
@@ -1271,6 +1356,26 @@ def _has_affirmative(text, base, spans, excluded=(), owner=None, field=None):
     return False
 
 
+def _has_uncertainty(blob, lo, hi):
+    """片段内是否存在**疑问 / 不确定 / 条件性 / 待核实**表述 → 肯定授权证据不成立
+
+    ⚠ 官方 SDI-4 残余 K（2026-11-18 线上复扫 · v2.4.20 · Excessive Agency · MEDIUM）：
+      「The affirmative-evidence check accepts words such as 「报销」 or 「含」 without
+        establishing that the surrounding statement actually confirms coverage.」
+
+    口径：肯定授权**不能只靠关键字在场**。字段元素里出现疑问（是否报销）、
+          不确定性（可能包含）、条件性（以核保结果为准）、待核实（待核实）
+          → 该次出现的肯定证据**不成立** → 按 unverified 压制，**不**产出无条件宣称。
+    """
+    if not blob or lo >= hi or hi > len(blob):
+        return False
+    seg = blob[lo:hi]
+    for m in _UNCERTAINTY_MARKERS:
+        if m in seg:
+            return True
+    return bool(_RE_SUBJECT_TO.search(seg))
+
+
 def _element_bounds(blob, owner, s, e):
     """该次出现所属**字段元素**的边界 → (lo, hi)
 
@@ -1323,6 +1428,11 @@ def _occurrence_is_affirmative(blob, occ, occurrences, spans, scope_map=None,
         if o_s >= e and o_s < next_start:
             next_start = o_s
     el_lo, el_hi = _element_bounds(blob, owner, s, e)
+    # ⚠ 不确定 / 条件性表述 → 该次出现的肯定授权证据**不成立**（官方 SDI-4 残余 K）
+    #    （「CAR-T治疗是否报销待核实」「可能包含CAR-T治疗」「CAR-T报销以核保结果为准」
+    #      → 肯定关键字在场，但这句话**并没有**确认承保 → 按 unverified 压制）
+    if _has_uncertainty(blob, el_lo, el_hi):
+        return False
     win_lo = max(prev_end, el_lo)
     win_hi = min(next_start, el_hi)
     head, head_off = _clause_head(blob[win_lo:s])
@@ -1394,6 +1504,10 @@ def _medical_treatment_claims(product):
     all_scopes = tuple(sc for scopes in scope_map.values() for sc in scopes)
     # ⑩-0 **记录级**除外证据（整条产品记录，不限字段 / 元素）—— 官方 2.4.15 SDI-4 #2
     record_excluded = _record_exclusion_keywords(product)
+    # ⚠ 记录级**不确定**证据（官方 SDI-4 残余 K · 2026-11-18 线上复扫 · v2.4.20）：
+    #   同一治疗手段在记录内任一处带疑问 / 不确定 / 条件性 / 待核实表述
+    #   → 属「未经确认」→ 一律不宣称（跨字段 / 跨元素同样成立）。
+    record_uncertain = _record_uncertain_keywords(product)
     claims = []
     for kw in _TREATMENT_CLAIMS:
         k_occ = [o for o in occurrences if o[0] == kw]
@@ -1431,6 +1545,9 @@ def _medical_treatment_claims(product):
                     break
             if ok and record_conflict:
                 # 除外证据出现在**其它字段**（记录级）→ 同样按 unverified 处理
+                ok = False
+            if ok and kw in record_uncertain:
+                # 不确定证据出现在**其它字段**（记录级）→ 同样按 unverified 处理
                 ok = False
             # ⑩-1-1 结构化压制闸（**每一个宣称生成分支**都必须过）：
             #      自由文本肯定证据**不得**覆盖结构化状态
@@ -1495,6 +1612,10 @@ def _medical_treatment_claims(product):
             conflict_unresolved = True
         if not ok and conflict_unresolved and _structured_authority_resolves(product, kw):
             ok = True                        # 结构化、权威字段裁决适用性
+        # ⚠ 记录级不确定证据 → 一律压制（**不得**被结构化裁决翻案：
+        #   官方口径「Treat ... uncertainty ... and conflicting evidence as unverified」）
+        if ok and kw in record_uncertain:
+            ok = False
         # ⑩-1-2 结构化压制闸（**每一个宣称生成分支**都必须过）：
         #      自由文本肯定证据**不得**覆盖结构化状态
         #      （官方 2.4.17 复扫 SDI-4 · free text must not override）。
