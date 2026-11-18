@@ -332,6 +332,37 @@ _NEG_MARKERS = tuple(sorted(
     set(_NEG_MARKERS_FORWARD + _NEG_MARKERS_BACKWARD + _NEG_MARKERS_BOTH),
     key=len, reverse=True))
 
+# ⚠ 官方 SDI-4 残余 J（2026-11-18 线上复扫 · insurance-advisor-china v2.4.19
+#   · MEDIUM · Excessive Agency · issueCount=1 · score=12）remediation 原文：
+#     「Handle post-treatment exclusions such as 「CAR-T治疗不支持报销」 and
+#       「CAR-T治疗不包含在保障范围」 by binding exclusion semantics to the
+#       relevant treatment regardless of word order, while preventing
+#       reimbursement words inside those exclusions from authorizing coverage.
+#       Treat uncertain or conflicting interpretations as unverified and
+#       suppress affirmative claims.」
+#
+# 根因：「不支持」「不包含」等是**纯前瞻型**否定词 —— 否定词出现在治疗手段
+#      **之后**（post-treatment negation）时：
+#      ① 前瞻作用域落在治疗手段**之后** → 绑不到前面的治疗手段；
+#      ② 否定词跨度不含谓词 → 其后的「报销」**落在跨度之外**
+#         → 通过肯定授权检查 → 产出「含CAR-T治疗」的**承保宣称**；
+#      ③ 记录级除外证据复用同一套判定 → 同样漏判。
+#
+# 修法（两处，均在否定/除外判定层）：
+#   A. **复合除外短语**：「<否定词><除外谓词>」（如「不支持报销」「不包含在保障
+#      范围」）是**一个**除外短语 —— 谓词纳入否定词跨度（其内的「报销」不再
+#      充当肯定授权证据）+ 该短语**双向**绑定（否定词在治疗手段之后时同样
+#      绑定到相关治疗手段）；
+#   B. **post-treatment 回溯绑定**：纯前瞻型否定词若**前瞻作用域内没有任何
+#      治疗手段** → 其被排除对象在它**之前** → 回溯绑定到最近一次治疗手段
+#      出现（真实语料存在「质子重离子不含」形态）。
+#
+# 除外谓词表（跟在否定词**后面**、表示「不做什么」的谓语部分）
+_PREDICATE_TAILS = ("在保障范围", "在承保范围", "在保险范围",
+                    "报销", "支付", "赔付", "给付", "承保")
+# post-treatment 回溯绑定：否定词与被否定治疗手段之间的**连接词**长度上限
+_POST_TREATMENT_MAX_GAP = 12
+
 # 肯定/授权词（用于「明确肯定表述」判定；落在否定词内部的一律不算）
 _AFFIRM_MARKERS = ("含", "包含", "涵盖", "覆盖", "可报销", "报销", "给付", "支持", "承保")
 
@@ -370,7 +401,13 @@ def _treatment_occurrences(blob):
 
 
 def _negation_marker_spans(blob):
-    """blob 中全部否定/除外词的出现位置 → [(start, end, marker), ...]"""
+    """blob 中全部否定/除外词的出现位置 → [(start, end, marker), ...]
+
+    ⚠ 官方 SDI-4 残余 J：**复合除外短语**（否定词 + 紧邻除外谓词，如
+       「不支持报销」「不包含在保障范围」）会**额外**产出一条跨度更大的复合标记 ——
+       谓词被纳入否定跨度（其内的「报销」不再充当肯定授权证据），且该复合
+       标记**双向**绑定（否定词在治疗手段**之后**时同样绑定到它）。
+    """
     spans = []
     if not blob:
         return spans
@@ -379,8 +416,115 @@ def _negation_marker_spans(blob):
         while i != -1:
             spans.append((i, i + len(m), m))
             i = blob.find(m, i + 1)
+    for ms, me, marker in list(spans):
+        comp = _compound_exclusion_span(blob, ms, me, marker)
+        if comp:
+            spans.append(comp)
     spans.sort(key=lambda s: (s[0], s[1]))
     return spans
+
+
+def _marker_directions(marker):
+    """否定词的绑定方向 → (forward, backward)
+
+    ⚠ 静态词表口径**不变**（_NEG_MARKERS_FORWARD / _NEG_MARKERS_BACKWARD /
+       _NEG_MARKERS_BOTH）；**不在任何静态词表里**的是**动态复合除外短语**
+       （如「不支持报销」「不包含在保障范围」）→ **双向**绑定
+       （官方 SDI-4 残余 J：regardless of word order）。
+    """
+    if marker in _NEG_MARKERS_BOTH:
+        return True, True
+    if marker in _NEG_MARKERS_BACKWARD:
+        return False, True
+    if marker in _NEG_MARKERS_FORWARD:
+        return True, False
+    return True, True
+
+
+def _predicate_tail_after(blob, pos):
+    """否定词之后**紧邻**的除外谓词 → (谓词结束位置, 谓词) 或 None
+
+    ⚠ 扫描在遇到**语义子句边界**或**另一个治疗手段出现**时停止 ——
+       「不支持CAR-T治疗费用报销」这种（治疗手段在否定词**之后**）形态由
+       原有的**前瞻绑定**处理，不得误判成复合短语（否则会把「报销」整个
+       圈进否定跨度，破坏「治疗手段在否定词之后」的绑定口径）。
+    """
+    i = pos
+    n = len(blob)
+    while i < n:
+        ch = blob[i]
+        if ch in _CLAUSE_BREAKS:
+            return None
+        if ch in _WHITESPACE_CHARS:
+            i += 1
+            continue
+        for kw in _TREATMENT_CLAIMS:
+            if blob.startswith(kw, i):
+                return None
+        for pt in _PREDICATE_TAILS:
+            if blob.startswith(pt, i):
+                return i + len(pt), pt
+        i += 1
+    return None
+
+
+def _compound_exclusion_span(blob, ms, me, marker):
+    """否定词 + 紧邻除外谓词 → 复合除外短语 (start, end, compound_text) 或 None
+
+    ⚠ 只对**纯前瞻型**否定词生效（_NEG_MARKERS_BOTH 里的「不可报销」等本身
+       已含谓词；_NEG_MARKERS_BACKWARD 本身就是回溯型）。
+    """
+    if marker not in _NEG_MARKERS_FORWARD:
+        return None
+    hit = _predicate_tail_after(blob, me)
+    if not hit:
+        return None
+    pe, _pt = hit
+    return (ms, pe, blob[ms:pe])
+
+
+def _post_treatment_bindings(blob, occurrences, spans, owner=None):
+    """post-treatment negation（否定词在治疗手段**之后**）→ [(o_s, o_e, sc, ec), ...]
+
+    官方 SDI-4 残余 J（2026-11-18 线上复扫 · v2.4.19 · MEDIUM）remediation 原文：
+      「... by binding exclusion semantics to the relevant treatment regardless
+        of word order ...」
+
+    口径：
+      ① 否定词的**前瞻作用域**内**没有**任何治疗手段出现
+         → 该否定词的被排除对象在**它之前**；
+      ② 回溯作用域（同一语义子句内 · 字段边界截断 · 上下文窗口内）里
+         **最近**的一次治疗手段出现 → 即被否定的那个治疗手段；
+      ③ 否定词与该次出现之间的**连接词**长度 ≤ _POST_TREATMENT_MAX_GAP
+         （避免跨句跨词误绑）。
+
+    ⚠ 复合除外短语（「不支持报销」等）本身已是**双向**标记 → 由通用回溯绑定
+       处理；这里只处理**纯前瞻型**且**没有**复合短语的否定词。
+    """
+    out = []
+    if not blob or not occurrences:
+        return out
+    for ms, me, marker in spans:
+        forward, backward = _marker_directions(marker)
+        if not forward or backward:
+            continue              # 已是双向（复合短语 / BOTH 词）→ 通用回溯已覆盖
+        fs, fe = _scope_bounds(blob, ms, me, True, owner)
+        if any(fs <= o_s < fe for _kw, o_s, o_e in occurrences):
+            continue              # ① 前瞻作用域里有治疗手段 → 被排除对象在否定词之后
+        bs, be = _scope_bounds(blob, ms, me, False, owner)
+        best = None
+        for _kw, o_s, o_e in occurrences:
+            if not (bs <= o_e <= be):
+                continue
+            if ms - o_e > _NEG_CONTEXT_WINDOW:
+                continue
+            if ms - o_e > _POST_TREATMENT_MAX_GAP:
+                continue          # ③ 连接词过长 → 不绑
+            if best is None or o_e > best[1]:
+                best = (o_s, o_e)
+        if best is not None:
+            out.append((best[0], best[1], bs, be))
+    return out
 
 
 def _is_scope_boundary(blob, i, owner=None):
@@ -440,8 +584,7 @@ def _negation_context(blob, owner=None):
     spans = _negation_marker_spans(blob)
     bound = set()
     for ms, me, marker in spans:
-        forward = marker in _NEG_MARKERS_FORWARD or marker in _NEG_MARKERS_BOTH
-        backward = marker in _NEG_MARKERS_BACKWARD or marker in _NEG_MARKERS_BOTH
+        forward, backward = _marker_directions(marker)
         if forward:
             s, e = _scope_bounds(blob, ms, me, True, owner)
             for _kw, o_s, o_e in occurrences:
@@ -452,6 +595,9 @@ def _negation_context(blob, owner=None):
             for _kw, o_s, o_e in occurrences:
                 if s <= o_e <= e and ms - o_e <= _NEG_CONTEXT_WINDOW:
                     bound.add((o_s, o_e))
+    # ⚠ post-treatment 回溯绑定（官方 SDI-4 残余 J · 2026-11-18 线上复扫）
+    for o_s, o_e, _sc, _ec in _post_treatment_bindings(blob, occurrences, spans, owner):
+        bound.add((o_s, o_e))
     return occurrences, spans, bound
 
 
@@ -518,8 +664,7 @@ def _negation_scope_map(blob, occurrences=None, spans=None, owner=None):
     out = {}
     for ms, me, marker in spans:
         f_m = owner[ms] if (owner is not None and ms < len(owner)) else -1
-        forward = marker in _NEG_MARKERS_FORWARD or marker in _NEG_MARKERS_BOTH
-        backward = marker in _NEG_MARKERS_BACKWARD or marker in _NEG_MARKERS_BOTH
+        forward, backward = _marker_directions(marker)
         if forward:
             s, e = _scope_bounds(blob, ms, me, True, owner)
             for _kw, o_s, o_e in occurrences:
@@ -530,6 +675,11 @@ def _negation_scope_map(blob, occurrences=None, spans=None, owner=None):
             for _kw, o_s, o_e in occurrences:
                 if s <= o_e <= e and ms - o_e <= _NEG_CONTEXT_WINDOW:
                     out.setdefault((o_s, o_e), []).append((s, e, f_m))
+    # ⚠ post-treatment 回溯绑定（官方 SDI-4 残余 J · 2026-11-18 线上复扫）
+    #    —— 该次出现的除外作用域 = 回溯作用域（否定词之前的语义片段）
+    for o_s, o_e, sc, ec in _post_treatment_bindings(blob, occurrences, spans, owner):
+        f_m = owner[o_s] if (owner is not None and o_s < len(owner)) else -1
+        out.setdefault((o_s, o_e), []).append((sc, ec, f_m))
     return out
 
 

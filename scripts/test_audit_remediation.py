@@ -2996,6 +2996,189 @@ def test_f20_residual_i_bare_string_identifier(pd=None):
     return True
 
 
+def test_f21_residual_j_post_treatment_negation(pd=None):
+    """F21 (SDI-4 残余 J · 官方 2026-11-18 线上复扫 · 2.4.19): post-treatment 否定必须绑定
+
+    官方 finding 原文（insurance-advisor-china v2.4.19 · scripts/plan_designer.py 442-454）：
+      「Some exclusion markers remain forward-only, so a product statement such as
+        「CAR-T治疗不支持报销」 does not negate the preceding CAR-T occurrence; the
+        subsequent 「报销」 can instead satisfy the affirmative-evidence check and
+        generate 「含CAR-T治疗」. The record-level exclusion check uses the same
+        incomplete logic, and absent structured coverage fields provide no
+        suppression, making this particularly consequential in an insurance-advice
+        skill where users may rely on a false coverage claim.」
+
+    官方 remediation 原文：
+      「Handle post-treatment exclusions such as 「CAR-T治疗不支持报销」 and
+        「CAR-T治疗不包含在保障范围」 by binding exclusion semantics to the relevant
+        treatment regardless of word order, while preventing reimbursement words
+        inside those exclusions from authorizing coverage. Treat uncertain or
+        conflicting interpretations as unverified and suppress affirmative claims.
+        Add end-to-end regression tests covering these examples, alternative negation
+        wording, punctuation and spacing variants, and records without structured
+        coverage fields.」
+
+    根因：
+      ① 「不支持」「不包含」等是**纯前瞻型**否定词 —— 否定词在治疗手段**之后**
+         （post-treatment negation）时，前瞻作用域落在治疗手段之后 → 绑不到它；
+      ② 否定词跨度不含谓词 → 其后的「报销」落在跨度之外 → 通过肯定授权检查；
+      ③ 记录级除外证据 `_record_exclusion_keywords()` 复用同一套判定 → 同样漏判
+         （真实语料存在「质子重离子不含」形态）。
+
+    修法（两库同口径）：
+      A. **复合除外短语**：「<否定词><除外谓词>」是一个除外短语 —— 谓词纳入否定
+         跨度 + 该短语**双向**绑定；
+      B. **post-treatment 回溯绑定**：纯前瞻否定词若前瞻作用域内无治疗手段 →
+         回溯绑定到最近一次治疗手段出现。
+
+    断言口径（官方原文）：「asserting that no unconditional treatment claim is
+    emitted」→ 断言被排除的治疗手段**不得**出现在宣称里（**不**写「claims 必须
+    恰好等于 []」这类过严断言）；同时用 F21.6 守住**不得过度收紧**。
+    """
+    print("\n[F21] post-treatment 否定必须绑定到治疗手段（SDI-4 残余 J · 官方 2026-11-18 线上复扫 · 2.4.19）")
+    if pd is None:
+        import plan_designer as pd  # china 版：模块已直接 import
+
+    # ==================================================================
+    # ① F21.1 官方原文给出的两个形态 → 不得产出无条件承保宣称
+    # ==================================================================
+    official_cases = [
+        ("J1-1「CAR-T治疗不支持报销」",
+         {"key_benefits": ["CAR-T治疗不支持报销"], "highlights": ""}),
+        ("J1-2「CAR-T治疗不包含在保障范围」",
+         {"key_benefits": ["CAR-T治疗不包含在保障范围"], "highlights": ""}),
+    ]
+    for name, product in official_cases:
+        got = pd._medical_treatment_claims(product)
+        suffix = pd._medical_treatment_suffix(product)
+        check(f"F21.1 不得宣称「{name}」：CAR-T 不在宣称里",
+              "CAR-T" not in got, f"实际 claims={got}")
+        check(f"F21.1 不得宣称「{name}」：suffix 不含「含CAR-T」",
+              "含CAR-T" not in suffix, f"实际 suffix={suffix!r}")
+
+    # ==================================================================
+    # ② F21.2 同义否定措辞变体 → 不得宣称
+    # ==================================================================
+    wording_cases = [
+        ("J2-1「CAR-T治疗不支持医保报销」",
+         {"key_benefits": ["CAR-T治疗不支持医保报销"], "highlights": ""}),
+        ("J2-2「CAR-T治疗不涵盖报销费用」",
+         {"key_benefits": ["CAR-T治疗不涵盖报销费用"], "highlights": ""}),
+        ("J2-3「CAR-T治疗不包括报销」",
+         {"key_benefits": ["CAR-T治疗不包括报销"], "highlights": ""}),
+        ("J2-4「质子重离子治疗不支持报销」",
+         {"key_benefits": ["质子重离子治疗不支持报销"], "highlights": ""}),
+        ("J2-5「CAR-T治疗不予报销」",
+         {"key_benefits": ["CAR-T治疗不予报销"], "highlights": ""}),
+        ("J2-6「CAR-T治疗不可报销」",
+         {"key_benefits": ["CAR-T治疗不可报销"], "highlights": ""}),
+        ("J2-7「质子重离子不含」（真实语料形态）",
+         {"key_benefits": ["含质子重离子治疗费用报销"], "highlights": "",
+          "weakness": ["质子重离子不含"]}),
+    ]
+    for name, product in wording_cases:
+        got = pd._medical_treatment_claims(product)
+        suffix = pd._medical_treatment_suffix(product)
+        check(f"F21.2 不得宣称「{name}」：被排除治疗手段不在宣称里",
+              not any(t in got for t in ("CAR-T", "质子重离子")),
+              f"实际 claims={got}")
+        check(f"F21.2 不得宣称「{name}」：suffix 不含「含」",
+              "含CAR-T" not in suffix and "含质子重离子" not in suffix,
+              f"实际 suffix={suffix!r}")
+
+    # ==================================================================
+    # ③ F21.3 标点 / 空白变体 → 不得宣称（普通空白不构成语义边界）
+    # ==================================================================
+    punct_cases = [
+        ("J3-1 空格分隔「CAR-T治疗 不支持报销」",
+         {"key_benefits": ["CAR-T治疗 不支持报销"], "highlights": ""}),
+        ("J3-2 全角空格「CAR-T治疗　不支持报销」",
+         {"key_benefits": ["CAR-T治疗　不支持报销"], "highlights": ""}),
+        ("J3-3 逗号分句「CAR-T治疗，不支持报销」",
+         {"key_benefits": ["CAR-T治疗，不支持报销"], "highlights": ""}),
+        ("J3-4 句号结尾「CAR-T治疗不支持报销。」",
+         {"key_benefits": ["CAR-T治疗不支持报销。"], "highlights": ""}),
+        ("J3-5「CAR-T治疗不支持报销费用」",
+         {"key_benefits": ["CAR-T治疗不支持报销费用"], "highlights": ""}),
+    ]
+    for name, product in punct_cases:
+        got = pd._medical_treatment_claims(product)
+        check(f"F21.3 不得宣称「{name}」：CAR-T 不在宣称里",
+              "CAR-T" not in got, f"实际 claims={got}")
+
+    # ==================================================================
+    # ④ F21.4 跨字段（记录级冲突）→ 不得宣称
+    # ==================================================================
+    cross_field_cases = [
+        ("J4-1 key_benefits 除外 + highlights 肯定",
+         {"key_benefits": ["CAR-T治疗不支持报销"], "highlights": "含CAR-T治疗费用报销"}),
+        ("J4-2 key_benefits 肯定 + highlights 除外",
+         {"key_benefits": ["含CAR-T治疗费用报销"], "highlights": "CAR-T治疗不支持报销"}),
+    ]
+    for name, product in cross_field_cases:
+        got = pd._medical_treatment_claims(product)
+        check(f"F21.4 不得宣称「{name}」：CAR-T 不在宣称里",
+              "CAR-T" not in got, f"实际 claims={got}")
+
+    # ==================================================================
+    # ⑤ F21.5 无结构化覆盖字段 → 自由文本不得自行授权
+    # ==================================================================
+    no_struct_cases = [
+        ("J5-1 无结构化字段 · 仅除外文本",
+         {"key_benefits": ["CAR-T治疗不支持报销"], "highlights": ""}),
+        ("J5-2 无结构化字段 · 除外在 notes",
+         {"key_benefits": ["含CAR-T治疗费用报销"], "highlights": "",
+          "notes": "CAR-T治疗不支持报销"}),
+    ]
+    for name, product in no_struct_cases:
+        got = pd._medical_treatment_claims(product)
+        check(f"F21.5 无结构化字段时不得宣称「{name}」：CAR-T 不在宣称里",
+              "CAR-T" not in got, f"实际 claims={got}")
+
+    # ==================================================================
+    # ⑥ F21.6 不得过度收紧：真正的承保证明 → 仍须正常宣称
+    # ==================================================================
+    positive_cases = [
+        ("J6-1「含CAR-T治疗费用报销」",
+         {"key_benefits": ["含CAR-T治疗费用报销"], "highlights": ""}, "CAR-T"),
+        ("J6-2「CAR-T治疗费用可报销」",
+         {"key_benefits": ["CAR-T治疗费用可报销"], "highlights": ""}, "CAR-T"),
+        ("J6-3「覆盖CAR-T细胞免疫治疗」",
+         {"key_benefits": ["覆盖CAR-T细胞免疫治疗"], "highlights": ""}, "CAR-T"),
+        ("J6-4「支持CAR-T治疗但不支持质子重离子治疗」",
+         {"key_benefits": ["支持CAR-T治疗但不支持质子重离子治疗"], "highlights": ""}, "CAR-T"),
+        ("J6-5「含CAR-T治疗费用报销」+「质子重离子除外」",
+         {"key_benefits": ["含CAR-T治疗费用报销", "质子重离子除外"], "highlights": ""}, "CAR-T"),
+        ("J6-6「含质子重离子治疗费用报销」",
+         {"key_benefits": ["含质子重离子治疗费用报销"], "highlights": ""}, "质子重离子"),
+    ]
+    for name, product, must in positive_cases:
+        got = pd._medical_treatment_claims(product)
+        check(f"F21.6 不得过度收紧「{name}」：{must} 仍可正常宣称",
+              must in got, f"实际 claims={got}")
+
+    # ==================================================================
+    # ⑦ F21.7 源码级断言（防改回）
+    # ==================================================================
+    src = open(os.path.join(os.path.dirname(__file__), "plan_designer.py"),
+               "r", encoding="utf-8").read()
+    check("F21.7 源码级：复合除外短语判定已定义",
+          "def _compound_exclusion_span(" in src)
+    check("F21.7 源码级：post-treatment 回溯绑定已定义",
+          "def _post_treatment_bindings(" in src)
+    check("F21.7 源码级：否定词方向口径已统一到 _marker_directions",
+          "def _marker_directions(" in src
+          and "_marker_directions(marker)" in src)
+    check("F21.7 源码级：_negation_context 必须调用 post-treatment 回溯绑定",
+          "_post_treatment_bindings(blob, occurrences, spans, owner)" in src)
+    check("F21.7 源码级：_negation_scope_map 必须登记 post-treatment 作用域",
+          src.count("_post_treatment_bindings(blob, occurrences, spans, owner)") >= 2)
+    check("F21.7 源码级：除外谓词表已定义",
+          "_PREDICATE_TAILS" in src)
+
+    return True
+
+
 def main():
     print("=" * 60)
     print("ClawHub 审计整改测试（任务 2 R4/R5/R6/R7 + 任务 3 SQP-3/SDI-3/SDI-4）")
@@ -3039,6 +3222,7 @@ def main():
     test_f18_residual_g_conflicting_decision_keys()
     test_f19_residual_h_exclusion_and_reimbursement()
     test_f20_residual_i_bare_string_identifier()
+    test_f21_residual_j_post_treatment_negation()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)
