@@ -1,7 +1,7 @@
 ---
 name: insurance-advisor-china
 description: 中国大陆AI保险顾问。为个人和家庭提供全方位的保险咨询、产品对比、方案设计、投保指导。当用户询问保险配置、保险方案、产品对比、重疾险/医疗险/寿险/意外险/储蓄险推荐、保费计算、保障缺口分析、需求分析、核保合规、理赔等问题时使用。发布产物仅含 SKILL.md + 3 个只读参考文件（references/products.json、insurance-knowledge.md、compliance.md）+ 3 个运行时脚本（needs_analyzer / premium_calculator / plan_designer）；数据清洗脚本与回归测试脚本是本地维护工具，不随发布产物分发。
-version: 2.4.19
+version: 2.4.20
 tags: insurance, china, financial, advisor, product-comparison, medical, family-protection, health
 last_published: 2026-11-18
 allowed-tools:
@@ -742,6 +742,47 @@ fallback 三件套 / SKILL.md 引用 / 联系方式展示策略与本 skill 既�
 ---
 
 ## 更新日志
+- v2.4.20 (2026-11-18)：**官方 2.4.19 复扫后整改（SDI-4 变体 · post-treatment 否定必须绑定到治疗手段）**：
+  - **官方 2.4.19 复扫结果（scanner 2.12.0，官方扫描包实测）**：
+    `issueCount=1 / score=12 / severity=LOW / recommendation=CAUTION /
+    clawscan verdict=suspicious`（finding = **SDI-4×1** · Excessive Agency · MEDIUM）
+  - **官方 finding 原文**：
+    「Some exclusion markers remain forward-only, so a product statement such as
+     「CAR-T治疗不支持报销」 does not negate the preceding CAR-T occurrence; the subsequent
+     「报销」 can instead satisfy the affirmative-evidence check and generate 「含CAR-T治疗」.
+     The record-level exclusion check uses the same incomplete logic, and absent structured
+     coverage fields provide no suppression, making this particularly consequential in an
+     insurance-advice skill where users may rely on a false coverage claim when purchasing
+     insurance.」
+  - **官方 remediation 原文（本轮实现的唯一依据）**：
+    「Handle post-treatment exclusions such as 「CAR-T治疗不支持报销」 and
+     「CAR-T治疗不包含在保障范围」 by binding exclusion semantics to the relevant treatment
+     regardless of word order, while preventing reimbursement words inside those exclusions
+     from authorizing coverage. Treat uncertain or conflicting interpretations as unverified
+     and suppress affirmative claims. Add end-to-end regression tests covering these examples,
+     alternative negation wording, punctuation and spacing variants, and records without
+     structured coverage fields.」
+  - **根因（三处同源）**：
+    ① 「不支持」「不包含」等是**纯前瞻型**否定词 —— 否定词出现在治疗手段**之后**
+       （post-treatment negation）时，前瞻作用域落在治疗手段**之后** → 绑不到前面的治疗手段；
+    ② 否定词跨度**不含谓词** → 其后的「报销」落在跨度之外 → 通过肯定授权检查 →
+       产出「含CAR-T治疗」的**承保宣称**；
+    ③ 记录级除外证据 `_record_exclusion_keywords()` 复用同一套判定 → 同样漏判。
+  - **修法（两库同口径 · 业务逻辑零改动）**：
+    A. **复合除外短语**：「<否定词><除外谓词>」（如「不支持报销」「不包含在保障范围」）
+       视为**一个**除外短语 —— 谓词纳入否定跨度（其内的「报销」不再充当肯定授权证据）
+       + 该短语**双向**绑定（否定词在治疗手段之后时同样绑定到它）；
+    B. **post-treatment 回溯绑定**：纯前瞻否定词若**前瞻作用域内无任何治疗手段** →
+       回溯绑定到最近一次治疗手段出现（真实语料存在「质子重离子不含」形态）。
+  - **新增测试**：`test_f21_residual_j_post_treatment_negation()`（39 项断言）——
+    官方两个形态 / 同义措辞变体 / 标点与空白变体 / 跨字段记录级冲突 /
+    无结构化覆盖字段 / **不得过度收紧**（真正承保证明仍正常宣称）/ 源码级防改回。
+  - **实测复现（修复前 → 修复后）**：
+    `_medical_treatment_claims({'key_benefits':['CAR-T治疗不支持报销'],'highlights':''})`
+    → `['CAR-T']`（**假承保宣称**）→ `[]` ✓
+  - **全语料回归**：2584 款产品逐条对比旧/新宣称 → **0 处差异**（无误压制）；
+    真实语料「质子重离子不含」的记录级除外证据由 `set()` → `{'质子重离子'}` ✓
+  - **业务逻辑零改动**（仅否定/除外判定层；产品库数据文件、选品、保费、方案逻辑均未改动）。
 - v2.4.9 (2026-11-14)：**官方 2.4.8 复扫后整改（SDI-4 变体 · 除外作用域内的肯定词不得授权承保宣称）**：
   - **官方 2.4.8 复扫结果（scanner 2.12.0，官方扫描包实测）**：
     `issueCount=17 / score=81 / severity=CRITICAL / recommendation=DO_NOT_INSTALL /
