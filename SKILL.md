@@ -1,9 +1,9 @@
 ---
 name: insurance-advisor-china
 description: 中国大陆AI保险顾问。为个人和家庭提供全方位的保险咨询、产品对比、方案设计、投保指导。当用户询问保险配置、保险方案、产品对比、重疾险/医疗险/寿险/意外险/储蓄险推荐、保费计算、保障缺口分析、需求分析、核保合规、理赔等问题时使用。发布产物仅含 SKILL.md + 3 个只读参考文件（references/products.json、insurance-knowledge.md、compliance.md）+ 3 个运行时脚本（needs_analyzer / premium_calculator / plan_designer）；数据清洗脚本与回归测试脚本是本地维护工具，不随发布产物分发。
-version: 2.4.21
+version: 2.4.22
 tags: insurance, china, financial, advisor, product-comparison, medical, family-protection, health
-last_published: 2026-11-18
+last_published: 2026-11-19
 allowed-tools:
   - read
   - exec
@@ -742,6 +742,54 @@ fallback 三件套 / SKILL.md 引用 / 联系方式展示策略与本 skill 既�
 ---
 
 ## 更新日志
+- v2.4.22 (2026-11-19)：**官方 2.4.21 复扫后整改（SDI-4 变体 · 条件化承保决定不得转为无条件承保宣称）**：
+  - **官方 2.4.21 复扫结果（scanner 2.12.0，官方扫描包实测）**：
+    `issueCount=1 / score=12 / severity=LOW / recommendation=CAUTION /
+    clawscan verdict=suspicious`（finding = **SDI-4×1** · Excessive Agency · MEDIUM）
+  - **官方 finding 原文**：
+    「Conditional structured coverage decisions can become unconditional treatment-benefit claims.」
+    「Conditional treatment coverage can still be converted into an unconditional benefit claim
+     despite the documented suppression requirement.」
+  - **官方 remediation 原文（本轮实现的唯一依据）**：
+    「Validate structured treatment entries against an explicit schema that includes applicable
+      conditions and exclusions. Classify conditional, malformed, or unresolved decisions as
+      unverified unless their applicability to the customer has been established, and do not let
+      a covered=true flag alone resolve conflicting exclusion evidence. Preserve verified
+      restrictions in generated benefit descriptions …」
+    「Require validated, treatment-specific coverage decisions with explicit eligibility conditions,
+      exclusions, and reimbursement limits before generating benefit claims. Preserve those
+      conditions in the output; if they cannot be reliably interpreted or rendered, suppress the
+      affirmative claim and mark coverage as unverified. Add regression tests for restrictions
+      such as 仅限、须、需、经审批、指定医院 and structured …」
+  - **根因（两条独立缺陷 · 方向相反）**：
+    ① **过度收紧**：结构化权威字段的「显式除外裁决信号」被当成**普遍前置条件**
+       → 结构化 `covered=True` **永远无法**解决记录级冲突
+       → 实测正例（covered=True + 文本「含CAR-T治疗 不含CAR-T治疗」）宣称被压成 `[]`
+       → 即「实际可保的 CAR-T 被说成不可保」，比原缺陷更糟；
+    ② **条件泄漏**：记录级「适用条件」检测**只扫文本叶子**，
+       **看不到结构化条目里的条件字段**（如 `eligibility: 仅限指定医院`）
+       → 官方要求的「条件无法渲染 → 压制」在「文本自带肯定证据」这条路径上
+       **没有对应通道** → 条件被静默丢弃。
+  - **修法（两库同口径 · 业务逻辑零改动 · 仅肯定授权判定层）**：
+    ① 「显式裁决信号」从**普遍前置条件**降级为**显式声明未裁决才阻断**
+       （`exclusion_resolved: False` 之类 → 冲突未解决 → 压制；
+        `True` 或未声明 → 不阻断）；
+    ② 条件通道**同时覆盖文本叶子与结构化条目** → 两个宣称产出分支
+       **共用**同一个 `record_condition` → 两侧口径自动一致；
+    ③ 否定（negative / ambiguous / contradictory）与**条件**是两套**独立闸门**，
+       不混成前置条件：否定 → 一律不得宣称；条件 → 条件无法渲染 → 不得无条件宣称；
+       纯肯定（无否定、无条件）→ 正常授权，可裁决跨字段冲突。
+  - **新增测试**：`test_f23_residual_lmn_conditions_and_structured_authority()` ——
+    条件压制组（扁平 / 嵌套 / 无冲突三种）+ 结构化 covered=True 保留组
+    （dict 形态 / 裸布尔 / list dict 形态）+ 源码级防改回。
+  - **实测复现（修复前 → 修复后）**：
+    结构化条目携带条件（`eligibility: 仅限指定医院`）+ 文本「含CAR-T治疗」
+    → `['CAR-T']`（**条件被丢弃的无条件宣称**）→ `[]` ✓
+    结构化 `covered=True` + 文本「含CAR-T治疗 不含CAR-T治疗」
+    → `[]`（**过度收紧，正例被误杀**）→ `['CAR-T']` ✓
+  - **全语料回归**：2584 款产品逐条对比旧/新宣称 → **0 处差异**（无误压制、无漏压制）。
+  - **业务逻辑零改动**（仅肯定授权判定层；产品库数据文件、选品、保费、方案逻辑均未改动）。
+  - **红线未改动**：400-860-0058 / 安盛天平保险销售有限公司 保持原样。
 - v2.4.21 (2026-11-18)：**官方 2.4.20 复扫后整改（SDI-4 变体 · 不确定 / 条件性表述不得转为承保证言）**：
   - **官方 2.4.20 复扫结果（scanner 2.12.0，官方扫描包实测）**：
     `issueCount=1 / score=12 / severity=LOW / recommendation=CAUTION /
