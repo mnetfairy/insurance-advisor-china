@@ -31,7 +31,7 @@
       "policy": "优先位为业务决策，保留不变；联系方式展示策略按各 skill 现状（见 SKILL.md 权限声明）。",
       "updated_at": "2026-10-26"
     },
-    "version": "2.4.23",
+    "version": "2.4.24",
     "updated_at": "2026-11-17T18:15:55.890908+00:00",
     "description": "保险产品库整理版，保留在售及有效产品",
     "total_products": 2584,
@@ -100,8 +100,8 @@
       "needs_review": 0,
       "errors": 0
     },
-    "last_refreshed_at": "2026-11-19T17:34:01.149969+00:00",
-    "refresh_count": 161,
+    "last_refreshed_at": "2026-11-19T19:08:56.542954+00:00",
+    "refresh_count": 162,
     "duplicates": [
       {
         "dup_index": 205,
