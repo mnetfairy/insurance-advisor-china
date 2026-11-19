@@ -2245,14 +2245,15 @@ def test_f17_residual_f_structured_authority(pd=None):
         ("结构化 covered=True 显式肯定：正常承保必须保留",
          {"treatment_coverage": {"CAR-T": True},
           "key_benefits": ["含CAR-T治疗"], "highlights": ""}, ["CAR-T"]),
-        ("结构化 covered=True 可解决记录级冲突",
-         {"treatment_coverage": {"CAR-T": True},
+        ("结构化 covered=True + 显式除外裁决：可解决记录级冲突（残余 M 新口径）",
+         {"treatment_coverage": {"CAR-T": {"covered": True, "exclusion_resolved": True}},
           "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}, ["CAR-T"]),
         ("结构化 list dict covered=True：正常承保必须保留",
          {"coverage_items": [{"treatment": "CAR-T", "covered": True}],
           "key_benefits": ["含CAR-T治疗"], "highlights": ""}, ["CAR-T"]),
-        ("结构化 list dict covered=True 可解决记录级冲突",
-         {"coverage_items": [{"treatment": "CAR-T", "covered": True}],
+        ("结构化 list dict covered=True + 显式除外裁决：可解决记录级冲突（残余 M 新口径）",
+         {"coverage_items": [{"treatment": "CAR-T", "covered": True,
+                              "exclusion_resolved": True}],
           "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}, ["CAR-T"]),
         ("无冲突的正常肯定承保必须保留（记录级口径不得误伤）",
          {"key_benefits": ["含质子重离子治疗"], "highlights": ""}, ["质子重离子"]),
@@ -2263,6 +2264,64 @@ def test_f17_residual_f_structured_authority(pd=None):
         got = pd._medical_treatment_claims(product)
         check(f"F17.2 不得过度收紧场景「{name}」：claims == {expect}", got == expect,
               f"实际 {got}")
+
+    # ==================================================================
+    # ②-2 残余 L/M（官方 2026-11-18 线上复扫 · ai v2.4.21）口径（2026-11-19 修正）：
+    #      · 结构化 covered=True **本身即权威裁决** → 可解决记录级冲突
+    #        （⚠ 不得再把「显式除外裁决信号」当**普遍前置条件** —— 那是过度收紧）
+    #      · 条目携带**适用条件** → 条件无法渲染 → 必须压制
+    #      · 条目**显式声明冲突未裁决**（exclusion_resolved=False）→ 必须压制
+    # ==================================================================
+    must_suppress = [
+        ("带适用条件的 covered=True + 正文冲突 → 必须压制",
+         {"coverage_items": [{"treatment": "CAR-T", "covered": True,
+                              "condition": "限二级以上医院"}],
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}),
+        ("带嵌套资格条件的 covered=True + 正文冲突 → 必须压制",
+         {"coverage_items": [{"treatment": "CAR-T", "covered": True,
+                              "eligibility": {"医院等级": "二级以上"}}],
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}),
+        ("带适用条件的 covered=True + 正文肯定（无冲突）→ 必须压制",
+         {"coverage_items": [{"treatment": "CAR-T", "covered": True,
+                              "eligibility": "仅限指定医院"}],
+          "key_benefits": ["含CAR-T治疗"], "highlights": ""}),
+        ("显式声明冲突未裁决（exclusion_resolved=False）+ 正文冲突 → 必须压制",
+         {"treatment_coverage": {"CAR-T": {"covered": True,
+                                           "exclusion_resolved": False}},
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}),
+    ]
+    for name, product in must_suppress:
+        got = pd._medical_treatment_claims(product)
+        check(f"F17.2 残余 L/M 反向口径「{name}」：CAR-T 不在宣称里",
+              "CAR-T" not in got, f"实际 {got}")
+        check(f"F17.2 残余 L/M 反向口径「{name}」：不得给出肯定裁决",
+              pd._structured_authority_resolves(product, "CAR-T") is False)
+
+    # ②-2-1 结构化 covered=True **本身即权威裁决** → 必须能解决记录级冲突
+    #       （2026-11-19 修正：此前把「显式除外裁决信号」当普遍前置条件 →
+    #        布尔形态取不到 dict 条目 / list dict 形态无裁决信号 →
+    #        结构化 covered=True 永远无法授权 → 过度收紧（误伤正例））
+    must_keep_resolves = [
+        ("dict 形态 covered=True + 正文冲突 → 可解决冲突",
+         {"treatment_coverage": {"CAR-T": {"covered": True}},
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}),
+        ("裸布尔 covered=True + 正文冲突 → 可解决冲突",
+         {"treatment_coverage": {"CAR-T": True},
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}),
+        ("list dict 形态 covered=True + 正文冲突 → 可解决冲突",
+         {"coverage_items": [{"treatment": "CAR-T", "covered": True}],
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}),
+        ("dict 形态 covered=True + 显式除外裁决 + 正文冲突 → 可解决冲突",
+         {"treatment_coverage": {"CAR-T": {"covered": True,
+                                          "exclusion_resolved": True}},
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}),
+    ]
+    for name, product in must_keep_resolves:
+        got = pd._medical_treatment_claims(product)
+        check(f"F17.2 残余 L/M 保留口径「{name}」：CAR-T 仍可宣称",
+              "CAR-T" in got, f"实际 {got}")
+        check(f"F17.2 残余 L/M 保留口径「{name}」：结构化权威给出肯定裁决",
+              pd._structured_authority_resolves(product, "CAR-T") is True)
 
     # ==================================================================
     # ③ 源码级断言（防改回）
@@ -2447,8 +2506,9 @@ def test_f18_residual_g_conflicting_decision_keys(pd=None):
         ("一致 affirmative（两个决定键都是 True）",
          {"treatment_coverage": {"CAR-T": {"covered": True, "is_covered": True}},
           "key_benefits": ["含CAR-T治疗"], "highlights": ""}, ["CAR-T"]),
-        ("一致 affirmative（结构化字段 + 正文冲突）",
-         {"treatment_coverage": {"CAR-T": {"covered": True, "is_covered": True}},
+        ("一致 affirmative + 显式除外裁决（结构化字段 + 正文冲突 · 残余 M 新口径）",
+         {"treatment_coverage": {"CAR-T": {"covered": True, "is_covered": True,
+                                          "exclusion_resolved": True}},
           "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}, ["CAR-T"]),
         ("显式类型化肯定（原有残余 F 口径不得被破坏）",
          {"treatment_coverage": {"CAR-T": True},
@@ -2682,8 +2742,9 @@ def test_f19_residual_h_exclusion_and_reimbursement(pd=None):
         ("list dict covered=True",
          {"coverage_items": [{"treatment": "CAR-T", "covered": True}],
           "key_benefits": ["含CAR-T治疗"], "highlights": ""}),
-        ("一致 affirmative + 正文冲突（可解决记录级冲突）",
-         {"treatment_coverage": {"CAR-T": {"covered": True, "is_covered": True}},
+        ("一致 affirmative + 显式除外裁决 + 正文冲突（可解决记录级冲突 · 残余 M 新口径）",
+         {"treatment_coverage": {"CAR-T": {"covered": True, "is_covered": True,
+                                          "exclusion_resolved": True}},
           "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}),
     ]
     for name, product in must_keep:
@@ -3331,6 +3392,193 @@ def test_f22_residual_k_uncertainty_guard(pd=None):
     return True
 
 
+def test_f23_residual_lmn_conditions_and_structured_authority(pd=None):
+    """F23 (SDI-4 残余 L/M/N · 官方 2026-11-18 线上复扫 · 2.4.21): 条件 / 结构化裁决
+
+    【残余 L · china v2.4.21 · L1359-1376 · Excessive Agency / MEDIUM】
+      finding: "Conditional treatment coverage can become an unconditional benefit claim
+                despite documented suppression of conditional statements."
+      remediation: "Require validated, treatment-specific coverage decisions with explicit
+                    applicability conditions before generating benefit claims. Preserve those
+                    conditions in the output, or suppress the claim when conditions cannot be
+                    reliably interpreted; do not treat affirmative free-text keywords as
+                    sufficient authorization. Add regression tests for hospital restrictions,
+                    prior authorization, designated-drug lists, eligibility requirements, and
+                    conditional structured entries."
+
+    【残余 M · ai v2.4.21 · L1617-1629 · Excessive Agency / MEDIUM】
+      finding: "Structured affirmative flags can override exclusions without preserving
+                coverage conditions."
+      remediation: "Require treatment-specific, validated coverage decisions that explicitly
+                    resolve conflicting exclusions and include applicable conditions. Preserve
+                    those conditions in generated benefit descriptions; if a conflict or
+                    condition cannot be reliably interpreted and rendered, suppress the claim and
+                    report it as unverified. Add regression tests combining affirmative flags,
+                    textual exclusions, and nested eligibility conditions."
+
+    【残余 N · ai v2.4.21 · L1691-1704 · Excessive Agency / MEDIUM】
+      finding: "Critical-illness benefit derivation converts excluded mild-illness coverage
+                into an affirmative benefit."
+      remediation: "Derive mild-illness coverage and disease counts from validated,
+                    product-specific structured fields rather than keyword presence. Suppress
+                    affirmative claims when evidence is negative, uncertain, conditional, or
+                    contradictory, and preserve relevant limitations in the output."
+
+    修法（两库同口径 · 业务逻辑零改动 · 仅判定层）：
+      L. 适用条件闸（仅限指定医院 / 需转诊 / 预授权 / 目录内 / 符合条件 …）
+         → 条件无法在对外文案里渲染 → 肯定授权证据**不成立**；
+      M. 结构化条目携带适用条件 → 不得无条件宣称；结构化 covered=True **本身即
+         权威裁决** → 可解决记录级冲突（不得再要求「显式除外裁决信号」当普遍
+         前置条件）；显式声明「冲突未裁决」→ 不得授权；
+      N. `_crx_disease_claim` 感知除外 / 条件 / 不确定表述。
+    """
+    print("\n[F23] 适用条件与结构化裁决（SDI-4 残余 L/M/N · 官方 2026-11-18 线上复扫 · 2.4.21）")
+    if pd is None:
+        import plan_designer as pd  # china 版：模块已直接 import
+
+    # ==================================================================
+    # ① F23.1 残余 L：条件性表述 → 不得产出无条件承保宣称
+    # ==================================================================
+    condition_cases = [
+        ("L1-1「仅限指定医院CAR-T治疗可报销」",
+         {"key_benefits": ["仅限指定医院CAR-T治疗可报销"], "highlights": ""}),
+        ("L1-2「CAR-T治疗需转诊后可报销」",
+         {"key_benefits": ["CAR-T治疗需转诊后可报销"], "highlights": ""}),
+        ("L1-3「CAR-T治疗限于社保目录内」",
+         {"key_benefits": ["CAR-T治疗限于社保目录内"], "highlights": ""}),
+        ("L1-4「CAR-T治疗须经审核通过」",
+         {"key_benefits": ["CAR-T治疗须经审核通过"], "highlights": ""}),
+        ("L1-5「CAR-T治疗限二级以上医院」",
+         {"key_benefits": ["CAR-T治疗限二级以上医院"], "highlights": ""}),
+        ("L1-6 跨字段：key_benefits 肯定 + highlights 带条件",
+         {"key_benefits": ["含CAR-T治疗费用报销"], "highlights": "仅限指定医院可报销"}),
+    ]
+    for name, product in condition_cases:
+        got = pd._medical_treatment_claims(product)
+        suffix = pd._medical_treatment_suffix(product)
+        check(f"F23.1 不得宣称「{name}」：CAR-T 不在宣称里",
+              "CAR-T" not in got, f"实际 claims={got}")
+        check(f"F23.1 不得宣称「{name}」：suffix 不含「含CAR-T」",
+              "含CAR-T" not in suffix, f"实际 suffix={suffix!r}")
+
+    # ==================================================================
+    # ② F23.2 残余 M：结构化肯定覆盖除外证据的收紧口径
+    # ==================================================================
+    structured_must_suppress = [
+        ("M1-3 covered=True + 适用条件 + 正文冲突",
+         {"coverage_items": [{"treatment": "CAR-T", "covered": True,
+                              "condition": "限二级以上医院"}],
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}),
+        ("M1-4 covered=True + 嵌套资格条件 + 正文冲突",
+         {"coverage_items": [{"treatment": "CAR-T", "covered": True,
+                              "eligibility": {"医院等级": "二级以上"}}],
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}),
+        ("M1-5 covered=True + 适用条件 + 正文肯定（无冲突）",
+         {"coverage_items": [{"treatment": "CAR-T", "covered": True,
+                              "eligibility": "仅限指定医院"}],
+          "key_benefits": ["含CAR-T治疗"], "highlights": ""}),
+        ("M1-6 显式声明冲突未裁决（exclusion_resolved=False）+ 正文冲突",
+         {"treatment_coverage": {"CAR-T": {"covered": True,
+                                          "exclusion_resolved": False}},
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}),
+    ]
+    for name, product in structured_must_suppress:
+        got = pd._medical_treatment_claims(product)
+        check(f"F23.2 不得宣称「{name}」：CAR-T 不在宣称里",
+              "CAR-T" not in got, f"实际 claims={got}")
+        check(f"F23.2 不得给出肯定裁决「{name}」：_structured_authority_resolves 为假",
+              pd._structured_authority_resolves(product, "CAR-T") is False)
+
+    structured_must_keep = [
+        ("M2-1 covered=True + 显式除外裁决 → 可解决冲突",
+         {"treatment_coverage": {"CAR-T": {"covered": True, "exclusion_resolved": True}},
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}),
+        ("M2-2 无冲突的正常承保必须保留",
+         {"key_benefits": ["含CAR-T治疗费用报销"], "highlights": ""}),
+        # ⚠ 2026-11-19 修正：结构化 covered=True **本身即权威裁决** →
+        #   可解决记录级冲突（不得再要求「显式除外裁决信号」当普遍前置条件）
+        ("M2-3 dict 形态 covered=True → 可解决记录级冲突",
+         {"treatment_coverage": {"CAR-T": {"covered": True}},
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}),
+        ("M2-4 裸布尔 covered=True → 可解决记录级冲突",
+         {"treatment_coverage": {"CAR-T": True},
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}),
+        ("M2-5 list dict 形态 covered=True → 可解决记录级冲突",
+         {"coverage_items": [{"treatment": "CAR-T", "covered": True}],
+          "key_benefits": ["含CAR-T治疗 不含CAR-T治疗"], "highlights": ""}),
+    ]
+    for name, product in structured_must_keep:
+        got = pd._medical_treatment_claims(product)
+        check(f"F23.2 不得过度收紧「{name}」：CAR-T 仍可正常宣称",
+              "CAR-T" in got, f"实际 claims={got}")
+        check(f"F23.2 不得过度收紧「{name}」：结构化权威给出肯定裁决",
+              pd._structured_authority_resolves(product, "CAR-T") is True)
+
+    # ==================================================================
+    # ③ F23.3 残余 N：重疾轻症宣称不得反转明确除外
+    # ==================================================================
+    crx_must_suppress = [
+        ("N1-1「120种重疾，不含轻症」", "120种重疾，不含轻症"),
+        ("N1-2「120种重疾，轻症除外」", "120种重疾，轻症除外"),
+        ("N1-3「120种重疾，不含轻症保障」", "120种重疾，不含轻症保障"),
+        ("N1-4「120种重疾，无轻症」", "120种重疾，无轻症"),
+    ]
+    for name, hl in crx_must_suppress:
+        got = pd._crx_disease_claim({"highlights": hl})
+        check(f"F23.3 不得宣称「{name}」：轻症宣称为空串",
+              got == "", f"实际 {got!r}")
+    crx_must_keep = [
+        ("N2-1「120种重疾+60种轻症」", "120种重疾+60种轻症"),
+        ("N2-2「保障120种重疾+60种轻症，含身故责任」", "保障120种重疾+60种轻症，含身故责任"),
+    ]
+    for name, hl in crx_must_keep:
+        got = pd._crx_disease_claim({"highlights": hl})
+        check(f"F23.3 不得过度收紧「{name}」：轻症宣称正常产出",
+              got != "", f"实际 {got!r}")
+
+    # ==================================================================
+    # ④ F23.4 正例（条件 / 结构化收紧不得误伤正常承保）
+    # ==================================================================
+    positive_cases = [
+        ("L3-1「含CAR-T治疗费用报销」",
+         {"key_benefits": ["含CAR-T治疗费用报销"], "highlights": ""}, "CAR-T"),
+        ("L3-2「CAR-T治疗费用可报销」",
+         {"key_benefits": ["CAR-T治疗费用可报销"], "highlights": ""}, "CAR-T"),
+        ("L3-3「覆盖CAR-T细胞免疫治疗」",
+         {"key_benefits": ["覆盖CAR-T细胞免疫治疗"], "highlights": ""}, "CAR-T"),
+        ("L3-4「含质子重离子治疗费用报销」",
+         {"key_benefits": ["含质子重离子治疗费用报销"], "highlights": ""}, "质子重离子"),
+    ]
+    for name, product, must in positive_cases:
+        got = pd._medical_treatment_claims(product)
+        check(f"F23.4 不得过度收紧「{name}」：{must} 仍可正常宣称",
+              must in got, f"实际 claims={got}")
+
+    # ==================================================================
+    # ⑤ F23.5 源码级断言（防改回）
+    # ==================================================================
+    src = open(os.path.join(os.path.dirname(__file__), "plan_designer.py"),
+               "r", encoding="utf-8").read()
+    check("F23.5 源码级：适用条件词表已定义", "_CONDITION_MARKERS" in src)
+    check("F23.5 源码级：适用条件判定函数已定义", "def _has_condition(" in src)
+    check("F23.5 源码级：记录级条件词表已定义",
+          "def _record_condition_keywords(" in src)
+    check("F23.5 源码级：肯定授权判定必须过适用条件闸",
+          "_has_condition(blob, el_lo, el_hi)" in src)
+    check("F23.5 源码级：结构化条件键表已定义", "_STRUCTURED_CONDITION_KEYS" in src)
+    check("F23.5 源码级：结构化除外裁决键表已定义", "_STRUCTURED_RESOLUTION_KEYS" in src)
+    check("F23.5 源码级：结构化裁决必须检查适用条件",
+          "_structured_entry_has_condition(" in src)
+    check("F23.5 源码级：结构化裁决必须显式拦截「冲突未裁决」声明",
+          "_structured_entry_declares_unresolved(" in src)
+    check("F23.5 源码级：条件通道必须覆盖结构化条目",
+          "_structured_condition_keywords(" in src)
+    check("F23.5 源码级：_crx_disease_claim 必须过除外 / 条件判定",
+          "_crx_subject_unconfirmed(" in src)
+
+    return True
+
+
 def main():
     print("=" * 60)
     print("ClawHub 审计整改测试（任务 2 R4/R5/R6/R7 + 任务 3 SQP-3/SDI-3/SDI-4）")
@@ -3376,6 +3624,7 @@ def main():
     test_f20_residual_i_bare_string_identifier()
     test_f21_residual_j_post_treatment_negation()
     test_f22_residual_k_uncertainty_guard()
+    test_f23_residual_lmn_conditions_and_structured_authority()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)

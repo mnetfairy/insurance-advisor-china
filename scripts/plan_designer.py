@@ -399,6 +399,36 @@ _UNCERTAINTY_MARKERS = (
 # 「以……为准」通用形态（以核保结果为准 / 以实际理赔为准 / 以合同为准 …）
 _RE_SUBJECT_TO = re.compile(r"以[^。；！？!?;:\n，,]{0,14}为准")
 
+# ⚠ 官方 SDI-4 残余 L（2026-11-18 线上复扫 · insurance-advisor-china v2.4.21 ·
+#   L1359-1376 · Excessive Agency · MEDIUM）remediation 原文：
+#     「Require validated, treatment-specific coverage decisions with explicit
+#       applicability conditions before generating benefit claims. Preserve those
+#       conditions in the output, or suppress the claim when conditions cannot be
+#       reliably interpreted; do not treat affirmative free-text keywords as sufficient
+#       authorization. Add regression tests for hospital restrictions, prior
+#       authorization, designated-drug lists, eligibility requirements, and conditional
+#       structured entries.」
+# → **适用条件 / 限制**（仅限指定医院、需转诊、预授权、目录内、符合条件 …）同样
+#   不构成「无条件承保授权」：条件无法在对外文案里渲染 → 肯定授权证据**不成立**。
+#
+# ⚠ 语料实测（2584 款 products.json）：事实源字段里「含治疗手段 + 条件词」的共现
+#   为 **0 处**（479 款含「N种重疾」的 highlights 里也为 0 处）→ 本闸对真实数据
+#   零影响，只针对扫描器的**对抗样本**生效。
+_CONDITION_MARKERS = (
+    # 适用范围限制（仅限 / 只限 / 限于 …）
+    "仅限", "仅在", "仅可", "仅能", "只限", "限于", "限指定", "限特定",
+    # 医疗机构 / 医院等级限制
+    "指定医院", "指定医疗", "二级以上", "三级以上", "三甲", "定点医院",
+    "定点医疗", "公立医院", "医院等级",
+    # 转诊 / 预授权 / 审批
+    "需转诊", "预授权", "事先授权", "事前审批", "需审批", "经审批",
+    # 药品目录 / 清单 / 社保范围
+    "药品目录", "目录内", "目录外", "社保目录", "清单内", "指定药品",
+    "限社保", "社保范围内",
+    # 资格条件 / 审核
+    "符合条件", "满足条件", "达到条件", "经审核", "审核通过", "须经", "需经",
+)
+
 # 上下文窗口：否定词与其绑定的关键词出现之间的距离上限（字符）
 _NEG_CONTEXT_WINDOW = 30
 # 语义子句边界：句号/分号/问号/叹号/冒号/换行/逗号 —— 否定语境不跨子句传播
@@ -747,6 +777,24 @@ _STRUCTURED_ITEM_ID_KEYS = ("treatment", "treatment_name", "treatment_id",
                             "name", "id", "key", "item", "benefit")
 # 结构化字段里**承保决定**的键名 —— 必须是显式布尔 True 才算肯定授权
 _STRUCTURED_DECISION_KEYS = ("covered", "is_covered")
+
+# ⚠ 官方 SDI-4 残余 M（2026-11-18 线上复扫 · ai-insurance-advisor v2.4.21 ·
+#   L1617-1629 · Excessive Agency · MEDIUM）remediation 原文：
+#     「Require treatment-specific, validated coverage decisions that explicitly
+#       resolve conflicting exclusions and include applicable conditions. Preserve those
+#       conditions in generated benefit descriptions; if a conflict or condition cannot be
+#       reliably interpreted and rendered, suppress the claim and report it as unverified.」
+# → 结构化条目携带**适用条件** → 条件无法渲染 → **不得**无条件宣称；
+# → 覆盖文本除外证据必须有**显式**的「除外已裁决」信号。
+_STRUCTURED_CONDITION_KEYS = ("condition", "conditions", "eligibility",
+                               "eligibility_conditions", "requirement", "requirements",
+                               "condition_note", "precondition", "preconditions",
+                               "notes", "note", "caveat", "caveats", "restriction",
+                               "restrictions", "subject_to", "limit", "limits")
+# 「除外冲突已裁决」的**显式**信号（必须是布尔 True）
+_STRUCTURED_RESOLUTION_KEYS = ("exclusion_resolved", "exclusions_resolved",
+                               "conflict_resolved", "conflicts_resolved",
+                               "exclusion_resolution", "resolves_exclusion")
 # 结构化字段值里的**否定语义**词表（已规范化：小写 + 去空白）
 # ⚠️ 命中否定语义 → 该治疗手段**不得**被授权，且必须**主动压制**。
 _STRUCTURED_NEGATION_TOKENS = (
@@ -1061,6 +1109,168 @@ def _structured_authority_states(product, norm_kw):
     return states
 
 
+def _structured_matching_entries(product, keyword):
+    """该治疗手段在**全部**结构化权威字段里的**匹配条目**（dict 形态）→ [entry, ...]
+
+    ⚠ 只收 dict 形态条目（承载条件 / 裁决信号的字段只可能出现在 dict 里）。
+    """
+    out = []
+    if not product:
+        return out
+    norm_kw = _normalize_treatment_identifier(keyword)
+    if not norm_kw:
+        return out
+    for field in _STRUCTURED_AUTHORITY_FIELDS:
+        value = product.get(field)
+        if isinstance(value, dict):
+            for key, val in value.items():
+                if not isinstance(key, str):
+                    continue
+                if _normalize_treatment_identifier(key) != norm_kw:
+                    continue
+                if isinstance(val, dict):
+                    out.append(val)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                if not isinstance(item, dict):
+                    continue
+                ident = _structured_item_identifier(item)
+                if not ident:
+                    continue
+                if _normalize_treatment_identifier(ident) != norm_kw:
+                    continue
+                out.append(item)
+    return out
+
+
+def _structured_entry_has_condition(entry):
+    """该结构化条目是否携带**适用条件**（条件无法渲染 → 不得无条件宣称）"""
+    if not isinstance(entry, dict):
+        return False
+    for key, val in entry.items():
+        if not isinstance(key, str):
+            continue
+        if key.strip().lower() not in _STRUCTURED_CONDITION_KEYS:
+            continue
+        if val is None or val is False:
+            continue
+        if isinstance(val, str) and not val.strip():
+            continue
+        if isinstance(val, (list, tuple, dict, set)) and not val:
+            continue
+        return True
+    return False
+
+
+def _treatment_keywords_for_identifier(identifier):
+    """结构化条目的**治疗手段标识** → 它命中的对外宣称关键词集合
+
+    口径：与文本侧**同一套**规范化标识 + 标识边界判定
+         （`_normalize_treatment_identifier` + `_structured_bare_string_matches`）
+         → 「CAR-T」「CAR-T治疗」「car-t」都命中关键词「CAR-T」；
+           「CAR-TX」**不**命中（「X」是标识延续字符 → 不得越界授权）。
+    """
+    out = set()
+    if not isinstance(identifier, str) or not identifier.strip():
+        return out
+    norm = _normalize_treatment_identifier(identifier)
+    if not norm:
+        return out
+    for kw in _TREATMENT_CLAIMS:
+        if _structured_bare_string_matches(
+                norm, _normalize_treatment_identifier(kw)):
+            out.add(kw)
+    return out
+
+
+def _structured_condition_keywords(product):
+    """结构化权威字段里**携带适用条件**的治疗手段集合（官方 SDI-4 残余 L/M）
+
+    ⚠ 官方 2026-11-18 线上复扫（v2.4.21）SDI-4 remediation 原文：
+      「if a conflict or condition cannot be reliably interpreted and rendered,
+        suppress the claim and report it as unverified.」
+      → 「适用条件」通道**不得**只扫自由文本叶子 —— 结构化条目里的条件字段
+        （condition / eligibility / requirement / restrictions …）此前**漏扫**
+        → 条件无法渲染却照样产出无条件宣称（**S3 泄漏**）。
+
+    口径：结构化权威字段里的条目（dict 形态 / list 形态）若携带
+         `_STRUCTURED_CONDITION_KEYS` 里的条件字段 → 该条目对应的治疗手段
+         属「带条件」→ 条件无法在对外文案里渲染 → **不得无条件宣称**。
+         与自由文本叶子的条件通道**同一口径**（合并进 `record_condition`）。
+    """
+    out = set()
+    if not product:
+        return out
+    for field in _STRUCTURED_AUTHORITY_FIELDS:
+        value = product.get(field)
+        if isinstance(value, dict):
+            for key, val in value.items():
+                if not isinstance(key, str):
+                    continue
+                # ⚠ 值不是 dict / 值里没有条件字段 → 该条目**不带**条件
+                if not _structured_entry_has_condition(val):
+                    continue
+                out |= _treatment_keywords_for_identifier(key)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                if not isinstance(item, dict):
+                    continue
+                ident = _structured_item_identifier(item)
+                if not ident:
+                    continue
+                if not _structured_entry_has_condition(item):
+                    continue
+                out |= _treatment_keywords_for_identifier(ident)
+    return out
+
+
+def _structured_entry_resolves_exclusion(entry):
+    """该结构化条目是否**显式**声明「除外冲突已裁决」（布尔 True）。
+
+    ⚠ 该信号是**加强**信号（结构化条目显式确认冲突已解决），
+       **不是**结构化肯定授权的**普遍前置条件** —— 结构化 `covered=True`
+       本身就是权威裁决（详见 `_structured_entry_declares_unresolved`）。
+    """
+    if not isinstance(entry, dict):
+        return False
+    for key, val in entry.items():
+        if not isinstance(key, str):
+            continue
+        if key.strip().lower() in _STRUCTURED_RESOLUTION_KEYS and val is True:
+            return True
+    return False
+
+
+def _structured_entry_declares_unresolved(entry):
+    """该结构化条目是否**显式声明**「除外冲突**未**裁决」→ 不得给出肯定裁决
+
+    ⚠ 官方 2.4.15 复扫 SDI-4 #1 remediation 原文：
+      「Require an affirmative coverage decision plus applicable conditions and
+        explicit resolution of conflicting exclusions」
+      → 「显式声明**已**裁决」（布尔 True）是**加强**信号；
+        「显式声明**未**裁决」（False / 其它非 True 值）→ 冲突**未**解决
+        → **不得**授权。
+
+    ⚠ 「显式声明已裁决」**不是**结构化肯定授权的**普遍前置条件** ——
+       结构化 `covered=True` 本身就是**权威裁决**（官方口径：记录级冲突由
+       结构化字段逐项裁决）。把「显式声明已裁决」当成普遍前置条件会让
+       「结构化 covered=True 解决记录级冲突」的正例**永远无法授权**
+       → **过度收紧**（把实际可保的 CAR-T 说成不可保）。
+    """
+    if not isinstance(entry, dict):
+        return False
+    if _structured_entry_resolves_exclusion(entry):
+        return False                   # 显式声明**已**裁决 → 不阻断
+    for key, val in entry.items():
+        if not isinstance(key, str):
+            continue
+        if key.strip().lower() not in _STRUCTURED_RESOLUTION_KEYS:
+            continue
+        # 声明了裁决信号但值**不是**布尔 True → 未裁决 / 畸形 → 阻断
+        return True
+    return False
+
+
 def _structured_authority_resolves(product, keyword):
     """结构化、权威的产品字段能否裁决该治疗手段的「包含 / 除外」冲突。
 
@@ -1098,7 +1308,28 @@ def _structured_authority_resolves(product, keyword):
     #     before allowing any affirmative resolution.」
     # → 全部**匹配条目**（跨所有结构化权威字段）都必须是 affirmative；
     #   任意一条 negative / contradictory / ambiguous → **不得**给出肯定裁决。
-    return all(state == "affirmative" for state in states)
+    if not all(state == "affirmative" for state in states):
+        return False
+    # ⚠ 官方 SDI-4 残余 M（2026-11-18 线上复扫 · ai v2.4.21 · L1617-1629）：
+    #   「Structured affirmative flags can override exclusions without preserving coverage
+    #     conditions.」
+    entries = _structured_matching_entries(product, keyword)
+    # ① 条目携带**适用条件** → 条件无法在对外文案里渲染 → 不得无条件宣称
+    #    （条件通道与记录级条件集合 **同一口径**：`_record_condition_keywords`
+    #      已把结构化条目的条件字段纳入 `record_condition` → 非否定分支 /
+    #      mixed-negation 分支两个产出分支行为一致）
+    if any(_structured_entry_has_condition(e) for e in entries):
+        return False
+    # ② 「除外冲突已裁决」：**显式声明未裁决** → 冲突未解决 → 不得授权。
+    #    ⚠ 「显式声明已裁决」**不是**普遍前置条件 —— 结构化 `covered=True`
+    #      本身就是权威裁决（官方口径：记录级冲突由结构化字段逐项裁决）。
+    #      若把它当成普遍前置条件：布尔形态 `{"CAR-T": True}` 取不到 dict 条目
+    #      （entries 为空 → any([]) 恒假）、list dict 形态条目也没有裁决信号
+    #      → 结构化 covered=True **永远**无法解决记录级冲突 → 过度收紧
+    #      （把实际可保的 CAR-T 说成不可保）。
+    if any(_structured_entry_declares_unresolved(e) for e in entries):
+        return False
+    return True
 
 
 def _structured_authority_denies(product, keyword):
@@ -1253,6 +1484,18 @@ def _record_uncertain_keywords(product):
         and conflicting evidence as unverified, suppressing affirmative claims rather
         than relying on keyword presence.」
     """
+    return _record_flagged_keywords(product, _has_uncertainty)
+
+
+def _record_flagged_keywords(product, checker):
+    """**整条产品记录**内被 checker 判为「未经确认」的治疗手段集合
+
+    checker(文本, lo, hi) → bool（片段是否命中某类表述：不确定 / 适用条件 …）
+
+    口径：逐个**文本叶子**独立判定 —— 某个治疗手段出现所在的**子句**里命中 checker
+          → 该治疗手段在本产品记录内属「未经确认」→ 不得对外宣称
+          （**跨字段 / 跨元素同样成立**，与官方 2.4.15 的记录级冲突口径一致）。
+    """
     out = set()
     if not product:
         return out
@@ -1264,10 +1507,32 @@ def _record_uncertain_keywords(product):
         for clause in _split_clauses(text):
             if not any(kw in clause for kw in _TREATMENT_CLAIMS):
                 continue
-            if not _has_uncertainty(clause, 0, len(clause)):
+            if not checker(clause, 0, len(clause)):
                 continue
             for kw, _s, _e in _treatment_occurrences(clause):
                 out.add(kw)
+    return out
+
+
+def _record_condition_keywords(product):
+    """**整条产品记录**内存在**适用条件 / 限制**表述的治疗手段集合（官方 SDI-4 残余 L）
+
+    口径（**两条通道合并成一个集合** → 两个产出分支行为一致）：
+      ① 文本叶子：逐个**文本叶子**独立判定 —— 某个治疗手段出现所在的**子句**里
+         带适用条件（仅限指定医院 / 需转诊 / 预授权 / 目录内 / 符合条件 …）
+         → 该治疗手段在本产品记录内**带条件** → 不得**无条件**宣称
+         （跨字段 / 跨元素同样成立）；
+      ② 结构化条目：结构化权威字段里的条目携带**适用条件字段**
+         （condition / eligibility / requirement / restrictions …）
+         → 同样属「带条件」→ 条件无法在对外文案里渲染 → 不得无条件宣称。
+
+    ⚠ 官方 2026-11-18 线上复扫（v2.4.21）SDI-4 remediation 原文：
+      「if a conflict or condition cannot be reliably interpreted and rendered,
+        suppress the claim and report it as unverified.」
+      → 条件通道**不得**只扫自由文本叶子（结构化条件此前**漏扫** → 泄漏）。
+    """
+    out = _record_flagged_keywords(product, _has_condition)
+    out |= _structured_condition_keywords(product)
     return out
 
 
@@ -1376,6 +1641,24 @@ def _has_uncertainty(blob, lo, hi):
     return bool(_RE_SUBJECT_TO.search(seg))
 
 
+def _has_condition(blob, lo, hi):
+    """片段内是否存在**适用条件 / 限制** → 肯定授权证据不成立
+
+    ⚠ 官方 SDI-4 残余 L（2026-11-18 线上复扫 · v2.4.21 · Excessive Agency · MEDIUM）：
+      「conditional text such as 「仅限指定医院CAR-T治疗可报销」 can pass and become the
+        unconditional output 「含CAR-T治疗」, losing the hospital restriction.」
+
+    口径：条件无法在对外文案里渲染 → 该次出现的肯定证据**不成立** → 压制。
+    """
+    if not blob or lo >= hi or hi > len(blob):
+        return False
+    seg = blob[lo:hi]
+    for m in _CONDITION_MARKERS:
+        if m in seg:
+            return True
+    return False
+
+
 def _element_bounds(blob, owner, s, e):
     """该次出现所属**字段元素**的边界 → (lo, hi)
 
@@ -1432,6 +1715,9 @@ def _occurrence_is_affirmative(blob, occ, occurrences, spans, scope_map=None,
     #    （「CAR-T治疗是否报销待核实」「可能包含CAR-T治疗」「CAR-T报销以核保结果为准」
     #      → 肯定关键字在场，但这句话**并没有**确认承保 → 按 unverified 压制）
     if _has_uncertainty(blob, el_lo, el_hi):
+        return False
+    # ⚠ 适用条件 / 限制 → 同样不构成无条件授权（官方 SDI-4 残余 L）
+    if _has_condition(blob, el_lo, el_hi):
         return False
     win_lo = max(prev_end, el_lo)
     win_hi = min(next_start, el_hi)
@@ -1508,6 +1794,10 @@ def _medical_treatment_claims(product):
     #   同一治疗手段在记录内任一处带疑问 / 不确定 / 条件性 / 待核实表述
     #   → 属「未经确认」→ 一律不宣称（跨字段 / 跨元素同样成立）。
     record_uncertain = _record_uncertain_keywords(product)
+    # ⚠ 记录级**适用条件**证据（官方 SDI-4 残余 L · 2026-11-18 线上复扫 · v2.4.21）：
+    #   同一治疗手段在记录内任一处带适用条件（仅限指定医院 / 需转诊 / 目录内 …）
+    #   → 条件无法渲染 → 不得**无条件**宣称。
+    record_condition = _record_condition_keywords(product)
     claims = []
     for kw in _TREATMENT_CLAIMS:
         k_occ = [o for o in occurrences if o[0] == kw]
@@ -1548,6 +1838,9 @@ def _medical_treatment_claims(product):
                 ok = False
             if ok and kw in record_uncertain:
                 # 不确定证据出现在**其它字段**（记录级）→ 同样按 unverified 处理
+                ok = False
+            if ok and kw in record_condition:
+                # 适用条件出现在**其它字段**（记录级）→ 不得无条件宣称
                 ok = False
             # ⑩-1-1 结构化压制闸（**每一个宣称生成分支**都必须过）：
             #      自由文本肯定证据**不得**覆盖结构化状态
@@ -1615,6 +1908,8 @@ def _medical_treatment_claims(product):
         # ⚠ 记录级不确定证据 → 一律压制（**不得**被结构化裁决翻案：
         #   官方口径「Treat ... uncertainty ... and conflicting evidence as unverified」）
         if ok and kw in record_uncertain:
+            ok = False
+        if ok and kw in record_condition:
             ok = False
         # ⑩-1-2 结构化压制闸（**每一个宣称生成分支**都必须过）：
         #      自由文本肯定证据**不得**覆盖结构化状态
@@ -1684,10 +1979,51 @@ def _crx_coverage_period(product):
     return (product.get("coverage_period") or "").strip()
 
 
+def _crx_subject_unconfirmed(text, subject):
+    """subject（轻症 / 「N种重疾」）在 text 中是否**未经确认**
+
+    口径（**子句级**）：subject 出现所在的子句内出现
+          ① 明确除外（不含 / 不包含 / 除外 / 不保 / 不赔 …），或
+          ② 适用条件（仅限指定医院 / 需转诊 / 目录内 …），或
+          ③ 不确定表述（是否 / 待核实 / 以…为准 …）
+          → 该项**未经确认** → 不得产出肯定宣称。
+
+    ⚠ 官方 SDI-4 残余 N（2026-11-18 线上复扫 · ai v2.4.21 · L1691-1704）：
+      「…「120种重疾，不含轻症」 becomes 「120种重疾+轻症保障」, reversing an explicit
+        exclusion.」
+    """
+    if not text or not subject:
+        return False
+    for clause in _split_clauses(text):
+        idx = clause.find(subject)
+        if idx == -1:
+            continue
+        head = clause[:idx].rstrip()
+        tail = clause[idx + len(subject): idx + len(subject) + 12]
+        for mk in ("不含", "不包含", "不包括", "不纳入", "不涵盖", "不覆盖"):
+            if head.endswith(mk):
+                return True
+        if head.endswith("无"):
+            return True
+        for mk in ("除外", "不在保障范围", "不保", "不赔", "不覆盖",
+                   "无保障", "不承保", "不支持"):
+            if mk in tail:
+                return True
+        if _has_condition(clause, 0, len(clause)):
+            return True
+        if _has_uncertainty(clause, 0, len(clause)):
+            return True
+    return False
+
+
 def _crx_disease_claim(product):
     """重疾病种/轻症宣称：只认 highlights 字符串（须含「轻症」且能提取到「N种重疾」）。
 
     ⚠️ key_benefits 是 list → 元素级 "轻症" in list 恒 False → 不可作事实源。
+
+    ⚠️ 官方 SDI-4 残余 N（2026-11-18 线上复扫 · ai-insurance-advisor v2.4.21 ·
+       L1691-1704 · Excessive Agency · MEDIUM）：轻症 / 病种数被**明确除外**或带
+       **条件 / 不确定**表述时，**不得**产出「N种重疾+轻症保障」。
     """
     if not product:
         return ""
@@ -1696,6 +2032,10 @@ def _crx_disease_claim(product):
         return ""
     m = re.search(r"(\d+)\s*种重疾", hl)
     if not m:
+        return ""
+    if _crx_subject_unconfirmed(hl, "轻症"):
+        return ""
+    if _crx_subject_unconfirmed(hl, m.group(0)):
         return ""
     return f"{m.group(1)}种重疾+轻症保障"
 
