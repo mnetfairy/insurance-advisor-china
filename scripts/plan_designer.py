@@ -1979,6 +1979,211 @@ def _crx_coverage_period(product):
     return (product.get("coverage_period") or "").strip()
 
 
+# ══════════════════════════════════════════════════════════════════════
+# 官方 SDI-4 残余 N · 第二轮（2026-11-21 线上复扫 · v2.4.26 · Excessive Agency）
+#
+#   finding (china 2.4.26):
+#     「The critical-illness benefit generator can turn an explicit mild-illness
+#       exclusion into an affirmative coverage claim.」
+#   explanation (china 2.4.26):
+#     「The exclusion guard remains incomplete: highlights such as 「120种重疾，不保轻症」
+#       pass because _crx_subject_unconfirmed does not recognize 「不保」 before the
+#       subject, causing _crx_disease_claim to output 「120种重疾+轻症保障」.」
+#   explanation (ai 2.4.26):
+#     「The exclusion guard recognizes only selected negation phrases and word orders:
+#       for example, highlights containing 「120种重疾，不承保轻症」 pass because
+#       「不承保」 is checked after the subject but not before it.」
+#   remediation:
+#     「If free-text interpretation remains necessary, handle exclusions before and
+#       after the subject consistently rather than relying on a small prefix list,
+#       and reconcile contradictory evidence throughout the product record.」
+#
+# 旧实现的缺陷（**词序单向**）：
+#   head（subject 之前）只用极小的前缀表（不含 / 不包含 / 不包括 / 不纳入 / 不涵盖 /
+#   不覆盖 + head.endswith("无")），tail（subject 之后）才有完整标记表
+#   → 「120种重疾，不承保轻症」「不保轻症」「不赔轻症」等**前置除外**被漏判
+#   → 明确除外被反转成肯定承保宣称。
+#
+# 本轮修复：
+#   ① head / tail **共用同一套**除外标记集合（词序双向，词序无关）；
+#   ② 标记与 subject 之间**允许填充词**（不承保的轻症 / 不承保轻症疾病）；
+#   ③ post-subject 除外（轻症不保 / 轻症除外 / 轻症不予赔付）同样压制；
+#   ④ 矛盾陈述（既有肯定又有除外）压制；
+#   ⑤ 弱标记「无」必须**紧邻** subject（避免「无明显缺点 / 无重大既往症」误伤）；
+#   ⑥ 除外标记若指向**另一个保障对象**（住院津贴 / 身故责任 …）→ 与 subject 无关。
+# ══════════════════════════════════════════════════════════════════════
+
+# 统一除外标记集合（head / tail **双向共用**）
+_CRX_EXCLUSION_MARKERS = (
+    # 前向否定（标记 → subject，中间允许填充词）
+    "不含", "不包含", "不包括", "不纳入", "不涵盖", "不覆盖",
+    "不保", "不赔", "不承保", "不支持", "不负责", "不承担",
+    # 范围 / 责任排除（后向否定：subject → 标记）
+    "不在保障范围", "无保障", "除外", "不予给付", "不予赔付", "不予支付",
+)
+# 弱标记：必须**紧邻** subject 才算除外
+# （全语料 62 款产品的非 highlights 字段含「无」字样，如「无明显缺点」
+#   「无重大既往症」「无条件」——子串匹配会大面积误伤）
+_CRX_EXCLUSION_WEAK_MARKERS = ("无",)
+# 弱标记在 subject **之后**时允许的搭配（避免「无上限」这类中性表述被当成除外）
+_CRX_WEAK_TAIL_FORMS = (
+    "无保障", "无理赔", "无给付", "无赔付", "无责任", "无条件",
+    "无限制", "无承保", "无保单", "无豁免", "无附加",
+)
+# 除外标记若指向**另一个保障对象** → 该除外与 subject 无关
+_CRX_OTHER_OBJECT_CUES = (
+    "住院津贴", "津贴", "身故", "死亡", "全残", "伤残", "豁免", "等待期",
+    "犹豫期", "护理", "年金", "现金价值", "满期", "返还", "增值", "保费",
+    "免赔额", "免赔", "投保", "地区", "城市", "医院", "门诊", "职业",
+    "分红", "万能", "账户", "储蓄", "意外", "续保", "住院", "医疗",
+    "费用", "手术", "药品", "特药", "交通", "救护", "康复", "母婴",
+    "生育", "体检", "牙齿", "寿险", "定寿", "重疾", "疾病", "给付",
+)
+# 肯定承保线索（矛盾陈述判定用）
+_CRX_AFFIRMATIVE_CUES = (
+    "包含", "覆盖", "保障", "承保", "赔付", "给付", "保险金", "含", "保",
+)
+# 否定语境守卫：线索**前 2 字**内出现这些字 → 该线索不是肯定表述
+_CRX_NEGATION_GUARDS = ("不", "未", "无", "非", "除", "免", "拒", "勿")
+
+
+def _crx_occurrences(text, subject):
+    """subject 在 text 中的**全部**出现位置（词序无关的扫描基础）。"""
+    out = []
+    if not text or not subject:
+        return out
+    start = 0
+    while True:
+        i = text.find(subject, start)
+        if i == -1:
+            return out
+        out.append(i)
+        start = i + len(subject)
+
+
+def _crx_gap_targets_other_object(gap):
+    """gap 段是否指向**另一个保障对象**（住院津贴 / 身故责任 …）
+
+    → 该除外表述与 subject 无关（避免「含轻症，不保住院津贴」被误伤）。
+    """
+    if not gap:
+        return False
+    for cue in _CRX_OTHER_OBJECT_CUES:
+        if cue in gap:
+            return True
+    return False
+
+
+def _crx_clause_excludes_subject(clause, subject):
+    """clause 内是否存在**指向 subject** 的明确除外表述（双向 + 允许填充词）
+
+    口径：
+      · head（subject 之前）出现标记 → 除外（中文否定**前向**绑定：「不承保轻症」）
+      · tail（subject 之后）出现标记 → 除外（中文否定**后向**绑定：「轻症不保」）
+      · 标记与 subject 之间**允许填充词**（「不承保的轻症」「不承保轻症疾病」）
+      · 标记若指向**另一个保障对象** → 与 subject 无关（不压制）
+    """
+    if not clause or not subject:
+        return False
+    for occ in _crx_occurrences(clause, subject):
+        head = clause[:occ]
+        tail = clause[occ + len(subject):]
+
+        # ── head 侧：否定**前向**绑定（标记 → subject）──
+        for mk in _CRX_EXCLUSION_MARKERS:
+            pos = head.rfind(mk)
+            while pos != -1:
+                gap = head[pos + len(mk):]
+                if not _crx_gap_targets_other_object(gap):
+                    return True
+                pos = head.rfind(mk, 0, pos)
+        # 弱标记「无」必须**紧邻** subject
+        if head.rstrip().endswith(_CRX_EXCLUSION_WEAK_MARKERS):
+            return True
+
+        # ── tail 侧：否定**后向**绑定（subject → 标记）──
+        hits = []
+        for mk in _CRX_EXCLUSION_MARKERS:
+            start = 0
+            while True:
+                pos = tail.find(mk, start)
+                if pos == -1:
+                    break
+                hits.append((pos, pos + len(mk)))
+                start = pos + len(mk)
+        hits.sort()
+        for i, (s, e) in enumerate(hits):
+            before = tail[hits[i - 1][1] if i else 0:s]
+            after = tail[e:]
+            if _crx_gap_targets_other_object(before):
+                continue
+            if _crx_gap_targets_other_object(after):
+                continue
+            return True
+        # 弱标记「无」：仅在紧邻 subject 且搭配属除外语义时成立
+        if tail == "无" or any(tail.startswith(f) for f in _CRX_WEAK_TAIL_FORMS):
+            return True
+    return False
+
+
+def _crx_has_affirmative_cue(seg):
+    """seg 内是否存在**未被否定**的肯定承保线索（否定守卫：线索前 2 字）"""
+    if not seg:
+        return False
+    for cue in _CRX_AFFIRMATIVE_CUES:
+        start = 0
+        while True:
+            pos = seg.find(cue, start)
+            if pos == -1:
+                break
+            start = pos + len(cue)
+            pre = seg[max(0, pos - 2):pos]
+            if any(g in pre for g in _CRX_NEGATION_GUARDS):
+                continue
+            return True
+    return False
+
+
+def _crx_clause_affirms_subject(clause, subject):
+    """clause 内是否存在**指向 subject 的肯定承保表述**（矛盾陈述判定用）"""
+    if not clause or not subject:
+        return False
+    for occ in _crx_occurrences(clause, subject):
+        lo = max(0, occ - 12)
+        hi = min(len(clause), occ + len(subject) + 12)
+        if _crx_has_affirmative_cue(clause[lo:hi]):
+            return True
+        pre = clause[max(0, occ - 4):occ].rstrip()
+        if pre.endswith("种"):          # 「N种轻症」形态的病种数肯定
+            return True
+    return False
+
+
+def _crx_record_contradiction(product, subject):
+    """产品记录内是否存在**矛盾陈述**（肯定承保 + 除外并存）→ 未经确认 → 压制
+
+    官方 remediation（原文）：
+      「reconcile contradictory evidence throughout the product record」
+      「Add regression tests for ... conflicting statements, checking the final
+        generated plan.」
+    """
+    if not product or not subject:
+        return False
+    affirmative = False
+    excluded = False
+    for text in _product_text_leaves(product):
+        if not isinstance(text, str) or subject not in text:
+            continue
+        for clause in _split_clauses(text):
+            if subject not in clause:
+                continue
+            if _crx_clause_excludes_subject(clause, subject):
+                excluded = True
+            if _crx_clause_affirms_subject(clause, subject):
+                affirmative = True
+    return affirmative and excluded
+
+
 def _crx_subject_unconfirmed(text, subject):
     """subject（轻症 / 「N种重疾」）在 text 中是否**未经确认**
 
@@ -1988,27 +2193,29 @@ def _crx_subject_unconfirmed(text, subject):
           ③ 不确定表述（是否 / 待核实 / 以…为准 …）
           → 该项**未经确认** → 不得产出肯定宣称。
 
-    ⚠ 官方 SDI-4 残余 N（2026-11-18 线上复扫 · ai v2.4.21 · L1691-1704）：
-      「…「120种重疾，不含轻症」 becomes 「120种重疾+轻症保障」, reversing an explicit
-        exclusion.」
+    ⚠ 官方 SDI-4 残余 N（2026-11-21 线上复扫 · v2.4.26 · Excessive Agency）：
+      finding:「The critical-illness benefit generator can turn an explicit
+        mild-illness exclusion into an affirmative coverage claim.」
+      explanation（china）:「…highlights such as 「120种重疾，不保轻症」 pass because
+        _crx_subject_unconfirmed does not recognize 「不保」 **before** the subject,
+        causing _crx_disease_claim to output 「120种重疾+轻症保障」.」
+      explanation（ai）:「…the exclusion guard recognizes only selected negation phrases
+        and word orders: for example, highlights containing 「120种重疾，不承保轻症」 pass
+        because 「不承保」 is checked after the subject but not before it.」
+      remediation:「…handle exclusions before and after the subject consistently rather
+        than relying on a small prefix list, and reconcile contradictory evidence
+        throughout the product record.」
+
+      → **head（subject 之前）与 tail（subject 之后）必须共用同一套除外标记集合**
+        （词序双向），且标记与 subject 之间允许填充词；post-subject 除外同样压制。
     """
     if not text or not subject:
         return False
     for clause in _split_clauses(text):
-        idx = clause.find(subject)
-        if idx == -1:
+        if subject not in clause:
             continue
-        head = clause[:idx].rstrip()
-        tail = clause[idx + len(subject): idx + len(subject) + 12]
-        for mk in ("不含", "不包含", "不包括", "不纳入", "不涵盖", "不覆盖"):
-            if head.endswith(mk):
-                return True
-        if head.endswith("无"):
+        if _crx_clause_excludes_subject(clause, subject):
             return True
-        for mk in ("除外", "不在保障范围", "不保", "不赔", "不覆盖",
-                   "无保障", "不承保", "不支持"):
-            if mk in tail:
-                return True
         if _has_condition(clause, 0, len(clause)):
             return True
         if _has_uncertainty(clause, 0, len(clause)):
@@ -2021,9 +2228,10 @@ def _crx_disease_claim(product):
 
     ⚠️ key_benefits 是 list → 元素级 "轻症" in list 恒 False → 不可作事实源。
 
-    ⚠️ 官方 SDI-4 残余 N（2026-11-18 线上复扫 · ai-insurance-advisor v2.4.21 ·
-       L1691-1704 · Excessive Agency · MEDIUM）：轻症 / 病种数被**明确除外**或带
-       **条件 / 不确定**表述时，**不得**产出「N种重疾+轻症保障」。
+    ⚠️ 官方 SDI-4 残余 N（2026-11-21 线上复扫 · v2.4.26 · Excessive Agency）：轻症 /
+       病种数被**明确除外**（含 subject **之前**的除外 —— 词序双向）、带
+       **条件 / 不确定**表述、或产品记录内**存在矛盾陈述**时，
+       **不得**产出「N种重疾+轻症保障」。
     """
     if not product:
         return ""
@@ -2036,6 +2244,9 @@ def _crx_disease_claim(product):
     if _crx_subject_unconfirmed(hl, "轻症"):
         return ""
     if _crx_subject_unconfirmed(hl, m.group(0)):
+        return ""
+    # 官方 remediation：reconcile contradictory evidence throughout the product record
+    if _crx_record_contradiction(product, "轻症"):
         return ""
     return f"{m.group(1)}种重疾+轻症保障"
 

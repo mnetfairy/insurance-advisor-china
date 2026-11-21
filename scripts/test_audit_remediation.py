@@ -3579,6 +3579,228 @@ def test_f23_residual_lmn_conditions_and_structured_authority(pd=None):
     return True
 
 
+def test_f24_residual_n2_bidirectional_exclusion(pd=None):
+    """F24（官方 SDI-4 残余 N 第二轮 · 2026-11-21 线上复扫 · v2.4.26）
+
+    【官方 finding（china 2.4.26 · Excessive Agency · 原文）】
+      "The critical-illness benefit generator can turn an explicit mild-illness
+       exclusion into an affirmative coverage claim."
+
+    【官方 explanation（china 2.4.26 · 原文）】
+      "The exclusion guard remains incomplete: highlights such as 「120种重疾，不保轻症」
+       pass because _crx_subject_unconfirmed does not recognize 「不保」 before the
+       subject, causing _crx_disease_claim to output 「120种重疾+轻症保障」."
+
+    【官方 explanation（ai 2.4.26 · 原文）】
+      "The exclusion guard recognizes only selected negation phrases and word orders:
+       for example, highlights containing 「120种重疾，不承保轻症」 pass because
+       「不承保」 is checked after the subject but not before it."
+
+    【官方 remediation（原文）】
+      "…handle exclusions before and after the subject consistently rather than
+       relying on a small prefix list, and reconcile contradictory evidence
+       throughout the product record."
+      "Add regression tests for 「120种重疾，不保轻症」, 「120种重疾，不赔轻症」,
+       post-subject exclusions, and conflicting statements, checking the final
+       generated plan."
+
+    覆盖：
+      ① head（subject **之前**）除外：不承保 / 不保 / 不赔 / 不含 / 不覆盖 …
+      ② 标记与 subject 之间**有填充词**（intervening words after negation）
+      ③ post-subject 除外（轻症不保 / 轻症除外 / 轻症不予赔付 / 轻症不在保障范围）
+      ④ **矛盾陈述**（同一条 highlights 里既有肯定又有除外）
+      ⑤ **最终生成方案文案**不得出现「120种重疾+轻症保障」/「轻症保障」
+      ⑥ 不得过度收紧：明确肯定承保的正例仍须产出轻症宣称
+    """
+    print("\nTest F24: 除外词序双向识别 + 矛盾陈述压制（官方 SDI-4 残余 N 第二轮）")
+    PD = pd or plan_designer
+
+    # ==================================================================
+    # ① 官方点名的前置除外（head 侧 · subject 之前）
+    # ==================================================================
+    head_must_suppress = [
+        ("N2-1「120种重疾，不承保轻症」（官方 ai 原文点名）", "120种重疾，不承保轻症"),
+        ("N2-2「120种重疾，不保轻症」（官方 china 原文点名）", "120种重疾，不保轻症"),
+        ("N2-3「120种重疾，不赔轻症」（官方 china 原文点名）", "120种重疾，不赔轻症"),
+        ("N2-4「120种重疾，不含轻症」", "120种重疾，不含轻症"),
+        ("N2-5「120种重疾，不包含轻症」", "120种重疾，不包含轻症"),
+        ("N2-6「120种重疾，不包括轻症」", "120种重疾，不包括轻症"),
+        ("N2-7「120种重疾，不纳入轻症」", "120种重疾，不纳入轻症"),
+        ("N2-8「120种重疾，不涵盖轻症」", "120种重疾，不涵盖轻症"),
+        ("N2-9「120种重疾，不覆盖轻症」", "120种重疾，不覆盖轻症"),
+        ("N2-10「120种重疾，不支持轻症」", "120种重疾，不支持轻症"),
+        ("N2-11「120种重疾，不在保障范围轻症」", "120种重疾，不在保障范围轻症"),
+        ("N2-12「120种重疾，除外轻症」", "120种重疾，除外轻症"),
+        ("N2-13「120种重疾，无轻症」", "120种重疾，无轻症"),
+    ]
+    for name, hl in head_must_suppress:
+        check(f"F24.1 不得宣称「{name}」：轻症宣称为空串",
+              PD._crx_disease_claim({"highlights": hl}) == "",
+              f"实际 {PD._crx_disease_claim({'highlights': hl})!r}")
+        check(f"F24.1 不得宣称「{name}」：_crx_subject_unconfirmed 为真",
+              PD._crx_subject_unconfirmed(hl, "轻症") is True)
+
+    # ==================================================================
+    # ② 标记与 subject 之间**有填充词**（intervening words after negation）
+    # ==================================================================
+    filler_must_suppress = [
+        ("N2-14「120种重疾，不承保轻症疾病」", "120种重疾，不承保轻症疾病"),
+        ("N2-15「120种重疾，不保轻症保障」", "120种重疾，不保轻症保障"),
+        ("N2-16「120种重疾，不含轻症疾病」", "120种重疾，不含轻症疾病"),
+        ("N2-17「120种重疾，不赔轻症保障责任」", "120种重疾，不赔轻症保障责任"),
+        ("N2-18「120种重疾，不承保的轻症」", "120种重疾，不承保的轻症"),
+        ("N2-19「120种重疾，不包含部分轻症」", "120种重疾，不包含部分轻症"),
+    ]
+    for name, hl in filler_must_suppress:
+        check(f"F24.2 不得宣称「{name}」：轻症宣称为空串",
+              PD._crx_disease_claim({"highlights": hl}) == "",
+              f"实际 {PD._crx_disease_claim({'highlights': hl})!r}")
+
+    # ==================================================================
+    # ③ post-subject 除外（subject 之后）
+    # ==================================================================
+    post_must_suppress = [
+        ("N2-20「轻症不予赔付」（官方 china 原文点名）", "轻症不予赔付"),
+        ("N2-21「轻症不保」", "轻症不保"),
+        ("N2-22「轻症除外」", "轻症除外"),
+        ("N2-23「轻症不在保障范围」", "轻症不在保障范围"),
+        ("N2-24「120种重疾，轻症除外」", "120种重疾，轻症除外"),
+        ("N2-25「120种重疾，轻症不予给付」", "120种重疾，轻症不予给付"),
+        ("N2-26「120种重疾，轻症无保障」", "120种重疾，轻症无保障"),
+    ]
+    for name, hl in post_must_suppress:
+        check(f"F24.3 不得宣称「{name}」：轻症宣称为空串",
+              PD._crx_disease_claim({"highlights": hl}) == "",
+              f"实际 {PD._crx_disease_claim({'highlights': hl})!r}")
+
+    # ==================================================================
+    # ④ 矛盾陈述（同一条 highlights 里既有肯定又有除外）
+    # ==================================================================
+    conflict_must_suppress = [
+        ("N2-27「120种重疾，含轻症但不承保轻症」",
+         "120种重疾，含轻症但不承保轻症"),
+        ("N2-28「120种重疾，含轻症，轻症除外」",
+         "120种重疾，含轻症，轻症除外"),
+        ("N2-29「保障120种重疾+60种轻症，不赔轻症」",
+         "保障120种重疾+60种轻症，不赔轻症"),
+        ("N2-30「保障120种重疾+轻症，但轻症不保」",
+         "保障120种重疾+轻症，但轻症不保"),
+    ]
+    for name, hl in conflict_must_suppress:
+        check(f"F24.4 矛盾陈述不得宣称「{name}」：轻症宣称为空串",
+              PD._crx_disease_claim({"highlights": hl}) == "",
+              f"实际 {PD._crx_disease_claim({'highlights': hl})!r}")
+
+    # ④-b 记录级矛盾（highlights 肯定 + 其它字段除外）→ 官方 remediation：
+    #      「reconcile contradictory evidence throughout the product record」
+    check("F24.4 记录级矛盾（highlights 肯定 + notes 除外）必须压制",
+          PD._crx_disease_claim({
+              "highlights": "120种重疾+60种轻症",
+              "notes": "轻症不保，仅承保重疾"}) == "",
+          "实际 %r" % (PD._crx_disease_claim({
+              "highlights": "120种重疾+60种轻症",
+              "notes": "轻症不保，仅承保重疾"}),))
+
+    # ==================================================================
+    # ⑤ **最终生成方案文案**校验（官方 china remediation：checking the final
+    #     generated plan）—— 不得只看中间函数返回值
+    # ==================================================================
+    products = PD.load_products()
+    crx_real = next((p for p in products if p.get("type") == "重疾险"), None)
+    check("F24.5 产品库存在重疾险（用例有效）", crx_real is not None,
+          crx_real.get("name") if crx_real else "产品库无重疾险")
+
+    if crx_real is not None:
+        def _plan_text_for(highlights):
+            """把产品池里的重疾险换成 highlights 指定的那一款 → 生成全部方案 → 返回文案"""
+            adv = dict(crx_real)
+            adv["highlights"] = highlights
+            pool = [adv if p.get("type") == "重疾险" else p for p in products]
+            orig = PD.load_products
+            PD.load_products = lambda include_discontinued=False: list(pool)
+            try:
+                plans = PD.generate_all_plans(
+                    35, "男", 300000, 200000,
+                    {"death": 2000000, "critical_illness": 1500000,
+                     "hospital": 4000000})
+            finally:
+                PD.load_products = orig
+            chunks = []
+            for _pname, plan in plans.items():
+                if not plan:
+                    continue
+                for entry in (plan.get("products") or []):
+                    if entry.get("type") == "重疾险":
+                        chunks.append(str(entry.get("key_benefits") or ""))
+                        chunks.append(str(entry.get("coverage_period") or ""))
+                for feat in (plan.get("features") or []):
+                    chunks.append(str(feat))
+            return "\n".join(chunks)
+
+        for name, hl in [("N2-31「120种重疾，不承保轻症」", "120种重疾，不承保轻症"),
+                         ("N2-32「120种重疾，不保轻症」", "120种重疾，不保轻症"),
+                         ("N2-33「120种重疾，不赔轻症」", "120种重疾，不赔轻症"),
+                         ("N2-34「轻症不予赔付」", "轻症不予赔付")]:
+            text = _plan_text_for(hl)
+            check(f"F24.5 最终方案文案不得出现「120种重疾+轻症保障」「{name}」",
+                  "120种重疾+轻症保障" not in text,
+                  "实际方案文案含该宣称" if "120种重疾+轻症保障" in text else "")
+            check(f"F24.5 最终方案文案不得出现「轻症保障」「{name}」",
+                  "轻症保障" not in text,
+                  "实际方案文案含该宣称" if "轻症保障" in text else "")
+
+        # ⑤-b 正例：明确肯定承保 → 最终方案**必须**继续产出轻症宣称（不得过度收紧）
+        pos_text = _plan_text_for("120种重疾+60种轻症")
+        check("F24.5 正例：最终方案仍须产出「120种重疾+轻症保障」（不得过度收紧）",
+              "120种重疾+轻症保障" in pos_text,
+              f"实际方案文案={pos_text[:200]!r}")
+
+    # ==================================================================
+    # ⑥ 不得过度收紧：明确肯定承保的正例仍须产出轻症宣称
+    # ==================================================================
+    crx_must_keep = [
+        ("N2-35「120种重疾+60种轻症」", "120种重疾+60种轻症"),
+        ("N2-36「保障120种重疾+60种轻症，含身故责任」",
+         "保障120种重疾+60种轻症，含身故责任"),
+        ("N2-37「120种重疾，含轻症」", "120种重疾，含轻症"),
+        ("N2-38「120种重疾+轻症保障」", "120种重疾+轻症保障"),
+    ]
+    for name, hl in crx_must_keep:
+        got = PD._crx_disease_claim({"highlights": hl})
+        check(f"F24.6 不得过度收紧「{name}」：轻症宣称正常产出",
+              got != "", f"实际 {got!r}")
+
+    # ⑥-b 除外指向**另一个保障对象**时，不得误伤轻症宣称
+    other_object_cases = [
+        ("N2-39「120种重疾+60种轻症，不保住院津贴」",
+         "120种重疾+60种轻症，不保住院津贴"),
+        ("N2-40「保障120种重疾+60种轻症，不含住院津贴」",
+         "保障120种重疾+60种轻症，不含住院津贴"),
+    ]
+    for name, hl in other_object_cases:
+        got = PD._crx_disease_claim({"highlights": hl})
+        check(f"F24.6 不得过度收紧「{name}」：除外指向别的对象 → 轻症宣称正常产出",
+              got != "", f"实际 {got!r}")
+
+    # ==================================================================
+    # ⑦ 源码级断言（防改回）
+    # ==================================================================
+    src = open(os.path.join(os.path.dirname(__file__), "plan_designer.py"),
+               "r", encoding="utf-8").read()
+    check("F24.7 源码级：统一除外标记集合已定义",
+          "_CRX_EXCLUSION_MARKERS" in src)
+    check("F24.7 源码级：head / tail 必须共用同一套标记集合",
+          "_crx_clause_excludes_subject" in src)
+    check("F24.7 源码级：矛盾陈述（记录级）压制已实现",
+          "def _crx_record_contradiction(" in src)
+    check("F24.7 源码级：_crx_disease_claim 必须过记录级矛盾闸",
+          "_crx_record_contradiction(product" in src)
+    check("F24.7 源码级：不得回退到只做 head.endswith 的前缀表",
+          "head.endswith(mk)" not in src)
+
+    return True
+
+
 def main():
     print("=" * 60)
     print("ClawHub 审计整改测试（任务 2 R4/R5/R6/R7 + 任务 3 SQP-3/SDI-3/SDI-4）")
@@ -3625,6 +3847,7 @@ def main():
     test_f21_residual_j_post_treatment_negation()
     test_f22_residual_k_uncertainty_guard()
     test_f23_residual_lmn_conditions_and_structured_authority()
+    test_f24_residual_n2_bidirectional_exclusion()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)
