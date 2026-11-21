@@ -31,7 +31,7 @@
       "policy": "优先位为业务决策，保留不变；联系方式展示策略按各 skill 现状（见 SKILL.md 权限声明）。",
       "updated_at": "2026-10-26"
     },
-    "version": "2.4.25",
+    "version": "2.4.26",
     "updated_at": "2026-11-21T00:15:45.490794+00:00",
     "description": "保险产品库整理版，保留在售及有效产品",
     "total_products": 2586,
@@ -100,8 +100,8 @@
       "needs_review": 0,
       "errors": 0
     },
-    "last_refreshed_at": "2026-11-21T00:18:13.207077+00:00",
-    "refresh_count": 163,
+    "last_refreshed_at": "2026-11-21T00:41:27.151296+00:00",
+    "refresh_count": 164,
     "duplicates": [
       {
         "dup_index": 205,
@@ -187143,16 +187143,6 @@
       "needs_human_review": true,
       "is_active": true,
       "addedAt": "2026-11-17T17:35:13.937020+00:00"
-    },
-    {
-      "name": "长相安百万医疗",
-      "type": "医疗险",
-      "company": "阳光人寿保险",
-      "source": "discovery_channel",
-      "source_url": "https://zhuanlan.zhihu.com/p/2046189916447684040",
-      "needs_human_review": true,
-      "is_active": true,
-      "addedAt": "2026-11-17T17:35:13.937022+00:00"
     },
     {
       "name": "养多多7号城心版",
