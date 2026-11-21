@@ -31,10 +31,10 @@
       "policy": "优先位为业务决策，保留不变；联系方式展示策略按各 skill 现状（见 SKILL.md 权限声明）。",
       "updated_at": "2026-10-26"
     },
-    "version": "2.4.24",
-    "updated_at": "2026-11-17T18:15:55.890908+00:00",
+    "version": "2.4.25",
+    "updated_at": "2026-11-21T00:15:45.490794+00:00",
     "description": "保险产品库整理版，保留在售及有效产品",
-    "total_products": 2584,
+    "total_products": 2586,
     "active_products": 516,
     "dedup_applied": true,
     "verified_count": 50,
@@ -67,7 +67,7 @@
     "new_2025_products_added": 12,
     "enriched_products": 239,
     "cleanup_round2": "removed 8 additional garbage entries",
-    "daily_updated_at": "2026-11-18",
+    "daily_updated_at": "2026-11-21",
     "total_active": 516,
     "total_inactive": 2049,
     "last_updated": "2026-04-18",
@@ -86,8 +86,8 @@
       "定期寿险": 35,
       "终身寿险": 40
     },
-    "active_count": 544,
-    "lastUpdated": "2026-11-17T18:15:55.813221+00:00",
+    "active_count": 546,
+    "lastUpdated": "2026-11-21T00:15:45.412811+00:00",
     "policy_validity_check_at": "2026-07-12T17:15:47.479462+00:00",
     "policy_validity_check_summary": {
       "targets_total": 105,
@@ -100,8 +100,8 @@
       "needs_review": 0,
       "errors": 0
     },
-    "last_refreshed_at": "2026-11-19T19:08:56.542954+00:00",
-    "refresh_count": 162,
+    "last_refreshed_at": "2026-11-21T00:18:13.207077+00:00",
+    "refresh_count": 163,
     "duplicates": [
       {
         "dup_index": 205,
@@ -183634,7 +183634,7 @@
       },
       "renewal_terms": "The maximum age for continuing \"大护甲\" insurance is 80 years. Continuation requires no new health declaration if within 30 days of policy end. Policies may not be renewed if insurance is discontinued or age exceeds 80.",
       "health_disclosure": "Health disclosure is mandatory for insurance claims; nondisclosure can void coverage. Two-year nondisclosure period exists, but insurance company can't challenge claims after this period. Accurate health information is crucial for insurance approval and claims processing.",
-      "source_url": "https://www.xiaoyusan.com/bxzs_ywbx",
+      "source_url": "https://post.smzdm.com/p/ae6n8p93",
       "needs_human_review": true,
       "last_source": "discovery_channel",
       "id": "noid-5b14271adfe6",
@@ -186170,7 +186170,7 @@
       "type": "意外险",
       "company": "中国平安",
       "source": "discovery_channel",
-      "source_url": "https://www.xiaoyusan.com/bxzs_ywbx",
+      "source_url": "https://zhuanlan.zhihu.com/p/408324750",
       "needs_human_review": true,
       "is_active": true,
       "addedAt": "2026-11-02T17:32:03.637805+00:00",
@@ -187183,6 +187183,26 @@
       "needs_human_review": true,
       "is_active": true,
       "addedAt": "2026-11-17T17:35:13.937031+00:00"
+    },
+    {
+      "name": "海保福瑞未来2026养老年金险",
+      "type": "年金险",
+      "company": "海保人寿",
+      "source": "discovery_channel",
+      "source_url": "https://www.cqnews.net/1/detail/1418198134902595584/app/content_1418198134902595584.html",
+      "needs_human_review": false,
+      "is_active": true,
+      "addedAt": "2026-11-21T00:15:45.317753+00:00"
+    },
+    {
+      "name": "平安小神童7号少儿意外险",
+      "type": "意外险",
+      "company": "平安人寿保险",
+      "source": "discovery_channel",
+      "source_url": "https://post.smzdm.com/p/ae6n8p93",
+      "needs_human_review": false,
+      "is_active": true,
+      "addedAt": "2026-11-21T00:15:45.317764+00:00"
     }
   ]
 }
