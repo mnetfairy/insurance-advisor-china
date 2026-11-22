@@ -3511,6 +3511,18 @@ def test_f23_residual_lmn_conditions_and_structured_authority(pd=None):
         got = pd._medical_treatment_claims(product)
         check(f"F23.2 不得过度收紧「{name}」：CAR-T 仍可正常宣称",
               "CAR-T" in got, f"实际 claims={got}")
+    # ⚠ 2026-11-23 修正（**断言写错**，非代码行为问题 —— 见任务书 §4.3 F23.2）：
+    #   M2-2 用例**完全没有结构化字段**（key_benefits 裸文本 + 空 highlights）。
+    #   `_structured_authority_resolves` 的文档口径明确：「key_benefits /
+    #   highlights / tags 都是自由文本……不得用来裁决冲突 → 只认结构化字段」，
+    #   「其余一律不授权：裸字符串列表、字符串值、未知值……全部视为 ambiguous」。
+    #   ⇒ 无结构化字段 + 无冲突的产品，**不得**要求结构化权威给出肯定裁决；
+    #     但「不得过度收紧」的断言（宣称必须保留）成立。
+    for name, product in structured_must_keep:
+        if name.startswith("M2-2"):
+            check(f"F23.2 不得过度收紧「{name}」：无结构化字段 → 结构化权威**不作肯定裁决**",
+                  pd._structured_authority_resolves(product, "CAR-T") is False)
+            continue
         check(f"F23.2 不得过度收紧「{name}」：结构化权威给出肯定裁决",
               pd._structured_authority_resolves(product, "CAR-T") is True)
 
@@ -4062,6 +4074,377 @@ def test_f25_residual_o_disease_count_record_gate(pd=None):
     return True
 
 
+def test_f26_residual_pq_subject_and_category_exclusion(pd=None):
+    """F26（官方 SDI-4 残余 P + 残余 Q · 2026-11-22 线上复扫 · v2.4.30 · Excessive Agency · MEDIUM）
+
+    【官方 finding · 残余 P（china v2.4.30 · L2115-2122 · 原文）】
+      "The mild-illness exclusion guard can mistake the excluded subject's own
+       wording for another coverage object."
+
+    【官方 finding · 残余 P（ai v2.4.30 · L2119-2125 · 原文）】
+      "The mild-illness exclusion guard can convert an explicit exclusion into an
+       affirmative benefit claim."
+
+    【官方 remediation · 残余 P（ai v2.4.30 · 原文）】
+      "Replace keyword-presence authorization with validated, structured mild-illness
+       coverage decisions, preserving applicable conditions and suppressing unresolved
+       claims. If free-text parsing remains necessary, recognize「轻症疾病」as the same
+       coverage subject as「轻症」rather than treating「疾病」as a different object, and
+       handle exclusions consistently before and after that subject. Add regression tests
+       for「120种重疾，轻症疾病不保」and similar variants, asserting that the final
+       generated plans never claim mild-illness coverage."
+
+    【官方 finding · 残余 Q（china v2.4.29/2.4.30 · L2364-2387 · 原文）】
+      "Disease-count claims bypass record-wide exclusions that omit the numeric count."
+
+    【官方 finding · 残余 Q（ai v2.4.29 · L2368-2391 · 原文）】
+      "The documented record-wide disease-count safeguard misses exclusions of
+       critical-illness coverage when they do not repeat the numeric count."
+
+    【官方 remediation · 残余 Q（china v2.4.29/2.4.30 · 原文）】
+      "Validate critical-illness coverage and disease count separately across the entire
+       product record, binding exclusions to the underlying coverage category even when
+       no number is present. Suppress unsupported claims and explicitly report unresolved
+       evidence as unverified; ensure fallback benefit text does not continue asserting
+       excluded coverage. Add end-to-end regression tests combining affirmative counted
+       highlights with nonnumeric exclusions in other fields and verify the final plan output."
+
+    覆盖：
+      ① 同句「120种重疾，轻症疾病不保」→ 轻症宣称被压制
+      ② 跨字段（highlights 肯定 + key_benefits 除外）→ 轻症宣称被压制
+      ③ head 侧 / tail 侧除外 → 前后一致
+      ④ 正常对照「轻症疾病保险金」（利益名称）→ 轻症宣称**正常产出**
+      ⑤ 既有 F25.1「120种重疾不含轻症」语义不被破坏
+      ⑥ 类别级（无数字）重疾除外 → 病种数宣称被压制
+      ⑦ 同字段「含120种重疾」+「重疾疾病不保」→ 病种数宣称被压制
+      ⑧ 正常对照（无除外）→ 病种数宣称正常产出
+      ⑨ 类别级除外时**兜底文案**不得继续断言被除外保障
+      ⑩ 防过度收紧：「续保不保证」「身故则不赔付」「等待期内…不赔付」
+      ⑪ 源码级防改回断言（关键常量 / 函数存在 + 调用顺序）
+    """
+    print("\nTest F26: 残余 P（轻症疾病 = 轻症 同一 subject）+ 残余 Q（类别级重疾除外）")
+    if pd is None:
+        import plan_designer as PD
+        PD = PD
+    else:
+        PD = pd
+
+    # ── 官方 remediation（china P / china Q / ai Q 原文）要求
+    #   「assert the final generated plan」/「checking final plan benefits
+    #    rather than only helper outputs」→ 必须**走主流程**校验最终方案文案。
+    def _plan_text_for(highlights, key_benefits=None, extra=None):
+        """把产品池里的重疾险换成指定字段 → 生成全部方案 → 返回文案"""
+        pool_products = PD.load_products()
+        crx_real = next((p for p in pool_products if p.get("type") == "重疾险"), None)
+        if crx_real is None:
+            return ""
+        adv = dict(crx_real)
+        adv["highlights"] = highlights
+        if key_benefits is not None:
+            adv["key_benefits"] = key_benefits
+        if extra:
+            adv.update(extra)
+        pool = [adv if p.get("type") == "重疾险" else p for p in pool_products]
+        orig = PD.load_products
+        PD.load_products = lambda include_discontinued=False: list(pool)
+        try:
+            plans = PD.generate_all_plans(
+                35, "男", 300000, 200000,
+                {"death": 2000000, "critical_illness": 1500000,
+                 "hospital": 4000000})
+        finally:
+            PD.load_products = orig
+        chunks = []
+        for _pname, plan in plans.items():
+            if not plan:
+                continue
+            for entry in (plan.get("products") or []):
+                if entry.get("type") == "重疾险":
+                    chunks.append(str(entry.get("key_benefits") or ""))
+                    chunks.append(str(entry.get("coverage_period") or ""))
+            for feat in (plan.get("features") or []):
+                chunks.append(str(feat))
+        return "\n".join(chunks)
+
+    # ==================================================================
+    # ① F26.1 同句：「120种重疾，轻症疾病不保」→ 轻症宣称被压制
+    # ==================================================================
+    same_clause = [
+        ("P-1「120种重疾，轻症疾病不保」",
+         {"highlights": "120种重疾+轻症保障",
+          "key_benefits": ["120种重疾，轻症疾病不保"]}),
+        ("P-2「120种重疾，轻症疾病不予赔付」",
+         {"highlights": "120种重疾+轻症保障",
+          "key_benefits": ["120种重疾，轻症疾病不予赔付"]}),
+    ]
+    for name, prod in same_clause:
+        got = PD._crx_disease_claim(prod)
+        check(f"F26.1 同句轻症疾病除外必须压制「{name}」", got == "", f"实际 {got!r}")
+    # 官方 remediation（ai P 原文）：「asserting that the final generated plans
+    #   never claim mild-illness coverage」→ 走**主流程**校验最终方案文案
+    _plan_p = _plan_text_for("120种重疾+轻症保障", ["120种重疾，轻症疾病不保"])
+    check("F26.1 最终生成方案不得宣称「120种重疾+轻症保障」（残余 P）",
+          "120种重疾+轻症保障" not in _plan_p,
+          "最终方案文案含该宣称" if "120种重疾+轻症保障" in _plan_p else "")
+    check("F26.1 最终生成方案不得宣称「轻症保障」（残余 P）",
+          "轻症保障" not in _plan_p,
+          "最终方案文案含该宣称" if "轻症保障" in _plan_p else "")
+    # ⚠ 主侧 2026-11-23 补充实测：断言必须是**非退化**的 ——
+    #   高lights 若不含「轻症」/ 不含「N种重疾」，`_crx_disease_claim` 天然返回
+    #   '' → 断言恒真。故本组必须自检「去掉除外句后同一形状能产出宣称」。
+    _ctl_p = PD._crx_disease_claim({"highlights": "120种重疾+轻症保障"})
+    check("F26.1 用例有效性自检：无除外对照必须产出轻症宣称",
+          _ctl_p == "120种重疾+轻症保障", f"实际 {_ctl_p!r}")
+
+    # ==================================================================
+    # ② F26.2 跨字段：highlights 肯定 + key_benefits 除外 → 轻症宣称被压制
+    # ==================================================================
+    cross_field = [
+        ("P-3 跨字段 key_benefits「轻症疾病不保」",
+         {"highlights": "120种重疾+轻症保障", "key_benefits": ["轻症疾病不保"]}),
+        ("P-4 跨字段 notes「轻症疾病不保」",
+         {"highlights": "120种重疾+轻症保障", "notes": "轻症疾病不保"}),
+    ]
+    for name, prod in cross_field:
+        got = PD._crx_disease_claim(prod)
+        check(f"F26.2 跨字段轻症疾病除外必须压制「{name}」", got == "", f"实际 {got!r}")
+    _ctl_p2 = PD._crx_disease_claim({"highlights": "120种重疾+轻症保障",
+                                      "key_benefits": ["含60种轻症"]})
+    check("F26.2 用例有效性自检：无除外对照必须产出轻症宣称",
+          _ctl_p2 == "120种重疾+轻症保障", f"实际 {_ctl_p2!r}")
+
+    # ==================================================================
+    # ③ F26.3 head 侧 / tail 侧除外 → 前后一致
+    # ==================================================================
+    head_tail = [
+        ("P-5 head 侧「不保轻症疾病」",
+         {"highlights": "120种重疾+轻症保障", "key_benefits": ["不保轻症疾病"]}),
+        ("P-6 head 侧「轻症疾病不予赔付」（tail 侧标记 + 前置除外）",
+         {"highlights": "120种重疾+轻症保障", "key_benefits": ["轻症疾病不予赔付"]}),
+        ("P-7 tail 侧「轻症疾病不保，120种重疾」",
+         {"highlights": "120种重疾+轻症保障",
+          "key_benefits": ["轻症疾病不保，120种重疾"]}),
+    ]
+    for name, prod in head_tail:
+        got = PD._crx_disease_claim(prod)
+        check(f"F26.3 subject 前后除外必须一致压制「{name}」", got == "", f"实际 {got!r}")
+    _ctl_p3 = PD._crx_disease_claim({"highlights": "120种重疾+轻症保障",
+                                     "key_benefits": ["含60种轻症保障"]})
+    check("F26.3 用例有效性自检：无除外对照必须产出轻症宣称",
+          _ctl_p3 == "120种重疾+轻症保障", f"实际 {_ctl_p3!r}")
+
+    # ==================================================================
+    # ④ F26.4 正常对照：利益名称（非除外）→ 轻症宣称**正常产出**
+    # ==================================================================
+    keep_cases = [
+        ("P-8「轻症疾病保险金」（利益名称）",
+         {"highlights": "120种重疾+轻症保障", "key_benefits": ["轻症疾病保险金"]}),
+        ("P-9「轻症特定疾病保险金」（利益名称）",
+         {"highlights": "120种重疾+轻症保障", "key_benefits": ["轻症特定疾病保险金"]}),
+        ("P-10 正常对照「120种重疾+轻症保障」",
+         {"highlights": "120种重疾+轻症保障"}),
+        # ⚠ 主侧 2026-11-23 补充实测：利益名称若只出现在 key_benefits 且
+        #   highlights 不含「N种重疾」→ claim 天然为 '' → 断言会恒空；
+        #   故必须补 highlights 形态（highlights 本身含「轻症疾病保险金」）。
+        ("P-11 highlights「120种重疾+轻症疾病保险金」（利益名称在 highlights）",
+         {"highlights": "120种重疾+轻症疾病保险金"}),
+        ("P-12 highlights「含120种重疾+轻症疾病保险金」（利益名称在 highlights）",
+         {"highlights": "含120种重疾+轻症疾病保险金"}),
+    ]
+    for name, prod in keep_cases:
+        got = PD._crx_disease_claim(prod)
+        check(f"F26.4 不得过度收紧「{name}」：轻症宣称正常产出",
+              got != "" and "轻症" in got, f"实际 {got!r}")
+
+    # ==================================================================
+    # ⑤ F26.5 既有 F25.1「120种重疾不含轻症」语义不被破坏
+    #    （「不含」的宾语是**轻症** → 不是病种数除外 → 病种数本身仍成立；
+    #      轻症被除外 → 组合宣称「N种重疾+轻症保障」整体压制属**既有**语义，
+    #      本项只校验「病种数未被除外」）
+    # ==================================================================
+    got = PD._crx_clause_excludes_disease_count("120种重疾不含轻症", "120种重疾")
+    check("F26.5 既有 F25.1 语义不被破坏：「不含轻症」不算病种数除外",
+          got is False, f"实际 {got!r}")
+    code = PD._crx_record_disease_count_issue({"highlights": "120种重疾+60种轻症",
+                                               "key_benefits": ["120种重疾不含轻症"]},
+                                              "120种重疾")
+    check("F26.5 既有 F25.1 语义不被破坏：记录级病种数闸门不报 excluded",
+          code not in ("excluded", "category-excluded"), f"实际问题码 {code!r}")
+    got = PD._crx_disease_claim({"highlights": "120种重疾+轻症保障",
+                                 "key_benefits": ["120种重疾不含轻症"]})
+    check("F26.5 既有 F25.1 语义不被破坏：轻症被除外 → 组合宣称仍压制",
+          got == "", f"实际 {got!r}")
+    got = PD._crx_disease_claim({"highlights": "含120种重疾，重症不含轻症"})
+    check("F26.5 既有 F25.1 语义不被破坏：「含120种重疾，重症不含轻症」天然压制",
+          got == "", f"实际 {got!r}")
+    code = PD._crx_record_disease_count_issue(
+        {"highlights": "含120种重疾，重症不含轻症"}, "120种重疾")
+    check("F26.5 既有 F25.1 语义不被破坏：「不含轻症」不算类别级除外",
+          code not in ("excluded", "category-excluded"), f"实际问题码 {code!r}")
+
+    # ==================================================================
+    # ⑥ F26.6 类别级（无数字）重疾除外 → 病种数宣称被压制
+    # ==================================================================
+    category_excluded = [
+        ("Q-1 另一字段「重疾疾病不保」（无数字）",
+         {"highlights": "120种重疾+轻症保障", "key_benefits": ["重疾疾病不保"]}),
+        ("Q-2 另一字段「重大疾病责任免除」（无数字）",
+         {"highlights": "120种重疾+轻症保障", "key_benefits": ["重大疾病责任免除"]}),
+        ("Q-3 另一字段「重疾疾病不在保障范围」（无数字）",
+         {"highlights": "120种重疾+轻症保障", "key_benefits": ["重疾疾病不在保障范围"]}),
+        ("Q-4 另一字段「重疾疾病不予赔付」（无数字）",
+         {"highlights": "120种重疾+轻症保障", "key_benefits": ["重疾疾病不予赔付"]}),
+    ]
+    for name, prod in category_excluded:
+        got = PD._crx_disease_claim(prod)
+        check(f"F26.6 类别级重疾除外必须压制病种数「{name}」",
+              got == "" or "重疾" not in got, f"实际 {got!r}")
+        check(f"F26.6 类别级除外问题码为 category-excluded「{name}」",
+              PD._crx_record_disease_count_issue(prod, "120种重疾") == "category-excluded",
+              "实际 %r" % (PD._crx_record_disease_count_issue(prod, "120种重疾"),))
+    # ⚠ 主侧 2026-11-23 补充实测：highlights 必须带「120种重疾+轻症保障」
+    #   （不带「轻症」时 claim 恒为 '' → 断言恒真）→ 用无除外对照自检用例有效性
+    _ctl_q = PD._crx_disease_claim({"highlights": "120种重疾+轻症保障"})
+    check("F26.6 用例有效性自检：无除外对照必须产出病种数宣称",
+          _ctl_q == "120种重疾+轻症保障", f"实际 {_ctl_q!r}")
+
+    # ==================================================================
+    # ⑦ F26.7 同字段「含120种重疾」+「重疾疾病不保」→ 病种数宣称被压制
+    # ==================================================================
+    same_field_cases = [
+        ("Q-5 同字段 key_benefits「含120种重疾」+「重疾疾病不保」",
+         {"highlights": "120种重疾+轻症保障",
+          "key_benefits": ["含120种重疾", "重疾疾病不保"]}),
+        ("Q-6 同字段「120种重疾+轻症保障」+「重疾疾病不保」",
+         {"highlights": "120种重疾+轻症保障+重疾疾病不保"}),
+    ]
+    for name, prod in same_field_cases:
+        got = PD._crx_disease_claim(prod)
+        check(f"F26.7 同字段类别级除外必须压制「{name}」",
+              got == "" or "重疾" not in got, f"实际 {got!r}")
+    _ctl_q7 = PD._crx_disease_claim({"highlights": "120种重疾+轻症保障",
+                                      "key_benefits": ["含120种重疾"]})
+    check("F26.7 用例有效性自检：无除外对照必须产出病种数宣称",
+          _ctl_q7 == "120种重疾+轻症保障", f"实际 {_ctl_q7!r}")
+
+    # ==================================================================
+    # ⑧ F26.8 正常对照（无除外）→ 病种数宣称正常产出
+    # ==================================================================
+    got = PD._crx_disease_claim({"highlights": "120种重疾+轻症保障"})
+    check("F26.8 正常对照（无除外）：病种数宣称正常产出",
+          got == "120种重疾+轻症保障", f"实际 {got!r}")
+    check("F26.8 正常对照（无除外）：无问题码",
+          PD._crx_record_disease_count_issue({"highlights": "120种重疾+轻症保障"},
+                                             "120种重疾") == "",
+          "实际 %r" % (PD._crx_record_disease_count_issue(
+              {"highlights": "120种重疾+轻症保障"}, "120种重疾"),))
+
+    # ==================================================================
+    # ⑨ F26.9 类别级除外时兜底文案不得继续断言被除外保障
+    # ==================================================================
+    prod_q = {"highlights": "120种重疾+轻症保障", "key_benefits": ["重疾疾病不保"]}
+    fb = PD._crx_key_benefits(prod_q, 500000, "standard")
+    check("F26.9 类别级除外时兜底文案不得断言「N种重疾」",
+          not re.search(r"\d+\s*种重疾", fb or ""), f"实际 {fb!r}")
+    check("F26.9 类别级除外时兜底文案不得断言「重疾保障」",
+          "重疾保障" not in (fb or ""), f"实际 {fb!r}")
+    check("F26.9 类别级除外时兜底文案不得断言「确诊即赔付」",
+          "确诊即赔付" not in (fb or ""), f"实际 {fb!r}")
+    lim = PD._crx_ci_category_limitation(prod_q)
+    check("F26.9 类别级除外时须如实报告限制（unverified）",
+          isinstance(lim, dict) and lim.get("product_type") == "重疾险",
+          f"实际 {lim!r}")
+    check("F26.9 正常对照不得产生限制",
+          PD._crx_ci_category_limitation({"highlights": "120种重疾+轻症保障"}) is None)
+    # 官方 remediation（china Q / ai Q 原文）：「assert the final generated plan」
+    #   → 走**主流程**校验最终方案文案不得继续断言被除外的保障
+    _plan_q = _plan_text_for("120种重疾+轻症保障", ["重疾疾病不保"])
+    check("F26.9 最终生成方案不得宣称「120种重疾+轻症保障」（残余 Q）",
+          "120种重疾+轻症保障" not in _plan_q,
+          "最终方案文案含该宣称" if "120种重疾+轻症保障" in _plan_q else "")
+    check("F26.9 最终生成方案不得继续断言被除外保障「重疾保障，确诊即赔付」（残余 Q）",
+          "重疾保障，确诊即赔付" not in _plan_q,
+          "最终方案文案含该兜底宣称" if "重疾保障，确诊即赔付" in _plan_q else "")
+
+    # ==================================================================
+    # ⑩ F26.10 防过度收紧：下列句子不得被当成类别级重疾除外
+    # ==================================================================
+    not_category_exclusion = [
+        ("恒大人寿重疾保险续保不保证，保费随年龄增加。",
+         {"highlights": "120种重疾+轻症保障",
+          "key_benefits": ["恒大人寿重疾保险续保不保证，保费随年龄增加。"]}),
+        ("国华人寿重大疾病保险续保不保证，保费随年龄增加。",
+         {"highlights": "120种重疾+轻症保障",
+          "key_benefits": ["国华人寿重大疾病保险续保不保证，保费随年龄增加。"]}),
+        ("康福重疾险可能不保证续保。",
+         {"highlights": "120种重疾+轻症保障",
+          "key_benefits": ["康福重疾险可能不保证续保。"]}),
+        ("若未达到重疾标准身故则不赔付",
+         {"highlights": "120种重疾+轻症保障",
+          "key_benefits": ["若未达到重疾标准身故则不赔付"]}),
+        ("等待期为90天，未满期内轻重疾病不赔付。",
+         {"highlights": "120种重疾+轻症保障",
+          "key_benefits": ["等待期为90天，未满期内轻重疾病不赔付。"]}),
+        ("安心保险安福人生重大疾病保险不需要体检，仅需健康告知。",
+         {"highlights": "120种重疾+轻症保障",
+          "key_benefits": ["安心保险安福人生重大疾病保险不需要体检，仅需健康告知。"]}),
+        ("120种重疾不含轻症（既有 F25.1 语义）",
+         {"highlights": "120种重疾+轻症保障",
+          "key_benefits": ["120种重疾不含轻症"]}),
+    ]
+    for text, prod in not_category_exclusion:
+        got = PD._crx_disease_claim(prod)
+        if text.startswith("120种重疾不含轻症"):
+            # 既有 F25.1 语义：轻症被除外 → 组合宣称压制（**不是**类别级除外所致）
+            check(f"F26.10 不得当成类别级除外「{text[:24]}」：类别级判定不触发",
+                  PD._crx_record_ci_category_excluded(prod) is False)
+            continue
+        check(f"F26.10 不得当成类别级除外「{text[:24]}」：宣称须保留",
+              "120种重疾" in got, f"实际 {got!r}")
+
+    # ==================================================================
+    # ⑪ F26.11 源码级防改回断言
+    # ==================================================================
+    src = open(os.path.join(os.path.dirname(__file__), "plan_designer.py"),
+               "r", encoding="utf-8").read()
+    check("F26.11 源码级：subject 自身宾语尾巴常量已定义",
+          "_CRX_SUBJECT_OWN_TAILS" in src)
+    check("F26.11 源码级：subject span 归一化函数已定义",
+          "def _crx_subject_span_end(" in src)
+    check("F26.11 源码级：除外判定必须用 subject span（不得回退到裸 occ+len）",
+          "_crx_subject_span_end(clause, occ, subject)" in src)
+    check("F26.11 源码级：类别级重疾常量表已定义",
+          "_CRX_CI_CATEGORY_TOKENS" in src)
+    check("F26.11 源码级：类别级除外其它对象线索表已定义",
+          "_CRX_CI_OTHER_OBJECT_CUES" in src)
+    check("F26.11 源码级：类别级除外判定函数已定义",
+          "def _crx_clause_excludes_ci_category(" in src)
+    check("F26.11 源码级：记录级类别级除外判定已实现",
+          "def _crx_record_ci_category_excluded(" in src)
+    check("F26.11 源码级：记录级病种数闸门必须接入类别级判定",
+          "_crx_record_ci_category_excluded(product)" in src)
+    check("F26.11 源码级：兜底文案必须过类别级除外闸",
+          "_crx_record_ci_category_excluded(product)" in src
+          and "def _crx_ci_category_limitation(" in src)
+    _i_light = src.find('if _crx_record_contradiction(product, "轻症"):')
+    _i_count = src.find("if _crx_record_disease_count_issue(product, m.group(0)):")
+    check("F26.11 源码级：轻症矛盾闸须在病种数记录级闸之前",
+          _i_light != -1 and _i_count != -1 and _i_light < _i_count,
+          f"轻症闸={_i_light} 病种数闸={_i_count}")
+    # 类别级闸门必须**落在记录级病种数闸门函数内部**，且在冲突病种数检查之后
+    _i_gate = src.find("def _crx_record_disease_count_issue(")
+    _i_gate_end = src.find("\ndef ", _i_gate + 10)
+    _i_cat = src.find("if _crx_record_ci_category_excluded(product):", _i_gate)
+    _i_conflict = src.find('return "conflicting-count"', _i_gate)
+    check("F26.11 源码级：类别级闸门须落在记录级病种数闸门函数内",
+          _i_gate != -1 and _i_cat != -1 and _i_gate_end != -1
+          and _i_gate < _i_cat < _i_gate_end,
+          f"闸门定义={_i_gate} 类别闸={_i_cat} 函数结束={_i_gate_end}")
+    check("F26.11 源码级：类别级闸门须在冲突病种数检查之后",
+          _i_conflict != -1 and _i_cat != -1 and _i_conflict < _i_cat,
+          f"冲突检查={_i_conflict} 类别闸={_i_cat}")
+
+    return True
 def main():
     print("=" * 60)
     print("ClawHub 审计整改测试（任务 2 R4/R5/R6/R7 + 任务 3 SQP-3/SDI-3/SDI-4）")
@@ -4110,6 +4493,7 @@ def main():
     test_f23_residual_lmn_conditions_and_structured_authority()
     test_f24_residual_n2_bidirectional_exclusion()
     test_f25_residual_o_disease_count_record_gate()
+    test_f26_residual_pq_subject_and_category_exclusion()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)
