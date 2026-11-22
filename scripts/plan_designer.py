@@ -2184,6 +2184,210 @@ def _crx_record_contradiction(product, subject):
     return affirmative and excluded
 
 
+# ══════════════════════════════════════════════════════════════════════
+# 官方 SDI-4 残余 O（2026-11-22 线上复扫 · v2.4.28 · Excessive Agency · MEDIUM）
+#
+#   finding（两库原文逐字相同）：
+#     "Critical-illness disease-count claims bypass the documented record-wide
+#      contradiction check."
+#   remediation（ai 2.4.28 · 原文）：
+#     "Validate disease-count coverage across the entire product record before
+#      generating claims, rather than applying record-wide checks only to
+#      mild-illness coverage. Prefer a validated, structured disease-count
+#      decision with applicable conditions; suppress the count and report it as
+#      unverified when exclusions, uncertainty, or conflicting evidence remain
+#      unresolved. Add regression tests with affirmativ..."
+#   remediation（china 2.4.28 · 原文）：
+#     "Before emitting disease-count claims, reconcile evidence for
+#      critical-illness coverage and its count across the entire product
+#      record, rather than checking only mild-illness contradictions. Prefer
+#      validated structured coverage fields; suppress the count and report it
+#      as unverified when exclusions, conflicting counts, uncertainty, or
+#      uninterpretable conditions remain. Add regression tests that plac..."
+#
+# 旧实现的缺陷：
+#   记录级矛盾校验**只作用于轻症**（`_crx_record_contradiction(product, "轻症")`），
+#   **病种数**（「120种重疾」）从未做过记录级校验 → 记录内自相矛盾的病种数
+#   （highlights「120种重疾」vs key_benefits「100种重疾」）被原样对外宣称。
+#
+# 本轮修复（病种数专属闸门 · 记录级）：
+#   ① 记录内出现 ≥2 个不同病种数 → 证据冲突 → 压制；
+#   ② 病种数所在子句命中**除外 / 适用条件 / 不确定** → 压制；
+#   ③ 泛化病种数子句（病种数 / 疾病种类 … 且同句提到重疾）命中条件 / 不确定 → 压制；
+#   ④ 记录级矛盾陈述（复用既有 `_crx_record_contradiction`）→ 压制。
+#   → 命中即返回空串 → 自动落回既有 `_crx_key_benefits` 降级路径
+#     「重疾保障，确诊即赔付N万」（**不另造文案口径**）。
+#
+# ⚠ 关键坑（**不可**复用既有 `_crx_clause_excludes_subject` 去判「120种重疾」）：
+#   尾随除外标记的**作用对象**可能不是病种数 —— 「120种重疾不含轻症」里的
+#   「不含」指向的是**轻症**，不是「120种重疾」这个病种数；既有判定对
+#   「轻症」与「轻症疾病」的处理还不一致（取决于宾语里是否碰巧出现
+#   「疾病」「给付」等 cue）→ 误判。
+#   → 必须做**病种数专属**判定：除外标记**后紧跟的宾语**若是别的保障对象
+#     （轻症 / 中症 / 住院津贴 …）→ 该除外与病种数无关 → 不算命中；
+#     head 侧的除外（「不保120种重疾」）仍应命中。
+# ══════════════════════════════════════════════════════════════════════
+
+# 病种数（重疾病种数量）识别 —— module 级常量
+_CRX_DISEASE_COUNT_RE = re.compile(r"(\d+)\s*种重疾")
+# 泛化病种数表述（含这些词 → 该子句谈的是「病种数」而非具体数字）
+_CRX_GENERIC_COUNT_TOKENS = (
+    "病种数", "病种数量", "疾病数量", "疾病种类", "重疾种类", "重疾病种", "保障病种",
+)
+# 病种数**专属**的「其它保障对象」线索表：
+#   = 既有 `_CRX_OTHER_OBJECT_CUES` **剔除**「重疾 / 疾病 / 给付」
+#     （病种数自身的给付对象不能算「别的保障对象」）
+#     **并入**「轻症 / 中症」（轻症责任的除外标记宾语 —— 常见误判源）
+_CRX_COUNT_OTHER_OBJECT_CUES = (
+    "住院津贴", "津贴", "身故", "死亡", "全残", "伤残", "豁免", "等待期",
+    "犹豫期", "护理", "年金", "现金价值", "满期", "返还", "增值", "保费",
+    "免赔额", "免赔", "投保", "地区", "城市", "医院", "门诊", "职业",
+    "分红", "万能", "账户", "储蓄", "意外", "续保", "住院", "医疗",
+    "费用", "手术", "药品", "特药", "交通", "救护", "康复", "母婴",
+    "生育", "体检", "牙齿", "寿险", "定寿",
+    "轻症", "中症", "少儿特定疾病",
+)
+# 宾语窗口长度（与既有肯定线索窗口 `_crx_clause_affirms_subject` 同口径：12 字）
+_CRX_COUNT_OBJECT_WINDOW = 12
+
+
+def _crx_record_disease_counts(product):
+    """产品记录内出现的**全部**数字病种数 → set[str]
+
+    官方 remediation（ai 2.4.28 · 原文）：
+      「Validate disease-count coverage across the entire product record before
+        generating claims …」
+    官方 remediation（china 2.4.28 · 原文）：
+      「…reconcile evidence for critical-illness coverage and its count across
+        the entire product record …」
+    """
+    out = set()
+    if not product:
+        return out
+    for text in _product_text_leaves(product):
+        if not isinstance(text, str):
+            continue
+        for m in _CRX_DISEASE_COUNT_RE.finditer(text):
+            out.add(m.group(1))
+    return out
+
+
+def _crx_count_object_is_other(segment):
+    """segment（除外标记的宾语窗口）是否指向**别的保障对象**"""
+    if not segment:
+        return False
+    for cue in _CRX_COUNT_OTHER_OBJECT_CUES:
+        if cue in segment:
+            return True
+    return False
+
+
+def _crx_clause_excludes_disease_count(clause, subject):
+    """clause 内是否存在**指向病种数本身**的明确除外表述（病种数专属判定）
+
+    ⚠ 与 `_crx_clause_excludes_subject` 的差别：**病种数专属**。
+      除外标记**后紧跟的宾语**若指向**别的保障对象**（轻症 / 中症 / 住院津贴 …）
+      → 该除外与病种数**无关** → 不算命中：
+        「120种重疾不含轻症」 → 「不含」指向轻症 → 病种数仍成立（**不命中**）
+        「不保120种重疾」     → head 侧直接指向病种数 → **命中**
+        「120种重疾除外」     → tail 侧直接指向病种数 → **命中**
+      （复用既有判定会把「轻症除外」误当成「病种数除外」→ 过度收紧。）
+    """
+    if not clause or not subject:
+        return False
+    for occ in _crx_occurrences(clause, subject):
+        head = clause[:occ]
+        tail = clause[occ + len(subject):]
+
+        # ── head 侧：否定**前向**绑定（标记 → 病种数）──
+        for mk in _CRX_EXCLUSION_MARKERS:
+            pos = head.rfind(mk)
+            while pos != -1:
+                gap = head[pos + len(mk):]
+                if not _crx_count_object_is_other(gap):
+                    return True
+                pos = head.rfind(mk, 0, pos)
+        # 弱标记「无」必须**紧邻**病种数
+        if head.rstrip().endswith(_CRX_EXCLUSION_WEAK_MARKERS):
+            return True
+
+        # ── tail 侧：否定**后向**绑定（病种数 → 标记 → 宾语）──
+        #    宾语在标记**之后**（「不含轻症」→ 宾语是轻症 → 与病种数无关）
+        hits = []
+        for mk in _CRX_EXCLUSION_MARKERS:
+            start = 0
+            while True:
+                pos = tail.find(mk, start)
+                if pos == -1:
+                    break
+                hits.append((pos, pos + len(mk)))
+                start = pos + len(mk)
+        hits.sort()
+        for _s, e in hits:
+            after = tail[e:e + _CRX_COUNT_OBJECT_WINDOW]
+            # 除外标记指向**别的保障对象** → 与病种数无关（不压制）
+            if _crx_count_object_is_other(after):
+                continue
+            return True
+        # 弱标记「无」：仅在紧邻病种数且搭配属除外语义时成立
+        if tail == "无" or any(tail.startswith(f) for f in _CRX_WEAK_TAIL_FORMS):
+            return True
+    return False
+
+
+def _crx_record_disease_count_issue(product, subject):
+    """产品记录内**病种数**是否「未经确认」→ 问题码（空串 = 无问题）
+
+    官方 remediation（ai 2.4.28 · 原文）：
+      「…suppress the count and report it as unverified when exclusions,
+        uncertainty, or conflicting evidence remain unresolved.」
+    官方 remediation（china 2.4.28 · 原文）：
+      「…suppress the count and report it as unverified when exclusions,
+        conflicting counts, uncertainty, or uninterpretable conditions remain.」
+
+    问题码：
+      conflicting-count  记录内出现 ≥2 个不同病种数（证据冲突）
+      excluded           病种数所在子句命中除外
+      conditional        病种数所在子句命中适用条件
+      uncertain          病种数所在子句命中不确定表述
+      contradiction      记录级矛盾陈述（复用既有 `_crx_record_contradiction`）
+    """
+    if not product:
+        return ""
+    # ① 记录内病种数互相冲突 → 证据冲突（记录级）
+    if len(_crx_record_disease_counts(product)) > 1:
+        return "conflicting-count"
+    # ② 子句级（遵循残余 K 的「不确定表述必须与相关对象同子句才算数」原则）
+    for text in _product_text_leaves(product):
+        if not isinstance(text, str):
+            continue
+        for clause in _split_clauses(text):
+            m = _CRX_DISEASE_COUNT_RE.search(clause)
+            if m:
+                # 数字病种数子句 → 除外 / 条件 / 不确定
+                if _crx_clause_excludes_disease_count(clause, m.group(0)):
+                    return "excluded"
+                if _has_condition(clause, 0, len(clause)):
+                    return "conditional"
+                if _has_uncertainty(clause, 0, len(clause)):
+                    return "uncertain"
+                continue
+            # 泛化病种数子句（无具体数值 → 只查条件 / 不确定）
+            if not any(tok in clause for tok in _CRX_GENERIC_COUNT_TOKENS):
+                continue
+            if "重疾" not in clause:
+                continue
+            if _has_condition(clause, 0, len(clause)):
+                return "conditional"
+            if _has_uncertainty(clause, 0, len(clause)):
+                return "uncertain"
+    # ③ 记录级矛盾陈述（肯定承保 + 除外并存）
+    subj = re.sub(r"\s+", "", subject or "")
+    if subj and _crx_record_contradiction(product, subj):
+        return "contradiction"
+    return ""
+
+
 def _crx_subject_unconfirmed(text, subject):
     """subject（轻症 / 「N种重疾」）在 text 中是否**未经确认**
 
@@ -2247,6 +2451,12 @@ def _crx_disease_claim(product):
         return ""
     # 官方 remediation：reconcile contradictory evidence throughout the product record
     if _crx_record_contradiction(product, "轻症"):
+        return ""
+    # 官方 SDI-4 残余 O：病种数**记录级**闸门
+    #   （冲突病种数 / 病种数除外 / 病种数条件 / 病种数不确定 / 记录级矛盾）
+    #   → 命中即返回空串 → 自动落回 `_crx_key_benefits` 降级路径
+    #     「重疾保障，确诊即赔付N万」（不另造文案口径）
+    if _crx_record_disease_count_issue(product, m.group(0)):
         return ""
     return f"{m.group(1)}种重疾+轻症保障"
 
