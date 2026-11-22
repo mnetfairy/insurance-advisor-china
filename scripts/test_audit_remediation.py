@@ -4445,6 +4445,293 @@ def test_f26_residual_pq_subject_and_category_exclusion(pd=None):
           f"冲突检查={_i_conflict} 类别闸={_i_cat}")
 
     return True
+
+
+# ---------------------------------------------------------------------------
+# F27 · 官方 SDI-4 残余 R（2026-11-23 线上复扫 · v2.4.32 · Excessive Agency · MEDIUM）
+# ---------------------------------------------------------------------------
+def test_f27_residual_r_shared_coverage_state(pd=None):
+    """F27（官方 SDI-4 残余 R · 2026-11-23 线上复扫 · v2.4.32 · Excessive Agency · MEDIUM）
+
+    【官方 finding · 残余 R-1（china v2.4.32 · L2225-2232 · 原文）】
+      "The mild-illness exclusion guard still treats the excluded benefit's own
+       payment wording as another coverage object."
+
+    【官方 remediation · 残余 R-1（china v2.4.32 · 原文）】
+      "Prefer explicitly validated, structured mild-illness coverage decisions
+       rather than keyword-presence authorization. If free-text parsing remains
+       necessary, recognize payment and benefit-responsibility wording as part of
+       the same coverage subject, bind exclusions consistently in both directions,
+       and suppress unresolved interpretations. Add regression tests for
+       「轻症给付责任除外」, related payment-wording variants, and conflicting fields,
+       asserting that final generated plans never advertise excluded mild-illness coverage."
+
+    【官方 finding · 残余 R-2（china v2.4.32 · L2779-2795 · 原文）】
+      "Critical-illness exclusion suppression is bypassed by premium benefits and plan features."
+
+    【官方 remediation · 残余 R-2（china v2.4.32 · 原文）】
+      "Compute a shared, validated critical-illness coverage state before generating any
+       benefits, features, or descriptions. Apply exclusion and unresolved-conflict
+       suppression to both standard and premium branches and every downstream claim
+       surface, preserving an explicit unverified limitation instead. Add end-to-end
+       tests with category-level exclusions that verify the final JSON contains no
+       affirmative claims about the excluded coverage."
+
+    覆盖：
+      ① 轻症给付措辞除外（后向 + 前向）→ 轻症保障不得被宣称
+      ② 红线：带给付措辞但**无除外语义**的真实子句不得被误判（不得过度收紧）
+      ③ 类别级除外 → standard / premium 两个分支都必须为空串
+      ④ 类别级除外 → features 不得宣称「确诊即赔付」/「终身保障」
+      ⑤ 类别级除外 → 方案 description 不得宣称「含重疾保障」
+      ⑥ 类别级除外 → 限制文案（unverified）必须保留（**不得**一起删掉）
+      ⑦ 端到端：最终方案 JSON 不得含被除外保障的肯定宣称
+      ⑧ 无除外记录 → 一切宣称保持原样（零变化）
+      ⑨ 源码级防改回断言（共享状态必须先于任何宣称生成）
+    """
+    print("\nTest F27: 残余 R（轻症给付措辞除外 + 共享重疾保障已验证状态）")
+    if pd is None:
+        import plan_designer as PD
+        PD = PD
+    else:
+        PD = pd
+
+    # ==================================================================
+    # ① F27.1 轻症给付措辞的除外（后向 + 前向）→ 轻症保障不得被宣称
+    # ==================================================================
+    payment_exclusion_clauses = [
+        ("轻症给付责任除外", "后向：主体 → 标记"),
+        ("轻症保险金责任除外", "后向：主体 → 标记"),
+        ("轻症给付责任不承担", "后向：主体 → 标记"),
+        ("轻症给付责任不予赔付", "后向：主体 → 标记"),
+        ("给付责任不保轻症", "前向：标记 → 主体"),
+        ("保险金责任不保轻症", "前向：标记 → 主体"),
+    ]
+    for clause, direction in payment_exclusion_clauses:
+        excl = PD._crx_clause_excludes_subject(clause, "轻症")
+        check(f"F27.1 轻症给付措辞除外必须被识别（{direction}）「{clause}」",
+              excl is True, f"实际 {excl!r}")
+        prod = {"name": "T", "highlights": f"120种重疾+轻症疾病保险金，{clause}"}
+        kb = PD._crx_key_benefits(prod, 500000, "standard")
+        check(f"F27.1 被除外的轻症保障不得被宣称「{clause}」",
+              "轻症" not in (kb or ""), f"实际 {kb!r}")
+    # ⚠ 用例有效性自检：同一形状但**无除外**时必须产出轻症宣称
+    #   （否则本组断言恒真 → 测了个寂寞）
+    _ctl = PD._crx_key_benefits(
+        {"name": "T", "highlights": "120种重疾+轻症疾病保险金，40种轻症赔20%x6次"},
+        500000, "standard")
+    check("F27.1 用例有效性自检：无除外对照必须产出轻症宣称",
+          "轻症" in (_ctl or ""), f"实际 {_ctl!r}")
+
+    # ==================================================================
+    # ② F27.2 红线：带给付措辞但**无除外语义**的真实子句不得被误判
+    #    （真实语料 260 条：如「轻症赔付比例25%」「40种轻症赔20%x6次」
+    #      「轻症/中介阶梯式赔付」「被保险人轻症/重症豁免」）
+    # ==================================================================
+    benign_clauses = [
+        "轻症赔付比例25%",
+        "40种轻症赔20%x6次",
+        "轻症/中介阶梯式赔付",
+        "被保险人轻症/重症豁免",
+        "轻症赔付3次",
+        "特定心脑血管二次赔付80%",
+    ]
+    for clause in benign_clauses:
+        excl = PD._crx_clause_excludes_subject(clause, "轻症")
+        check(f"F27.2 不得把带给付措辞的正常表述误判为除外「{clause}」",
+              excl is False, f"实际 {excl!r}")
+        prod = {"name": "T", "highlights": f"120种重疾+轻症疾病保险金，{clause}"}
+        kb = PD._crx_key_benefits(prod, 500000, "standard")
+        check(f"F27.2 不得过度收紧「{clause}」：轻症宣称仍须产出",
+              "轻症" in (kb or ""), f"实际 {kb!r}")
+
+    # ==================================================================
+    # ③ F27.3 类别级除外 → standard / premium 两个分支都必须为空串
+    # ==================================================================
+    category_excluded_highlights = [
+        ("带病种数 + 类别级除外", "120种重疾+轻症疾病保险金，重疾疾病不保"),
+        ("无数字类别级除外", "重大疾病责任免除"),
+    ]
+    for tag, hl in category_excluded_highlights:
+        prod = {"name": "T", "highlights": hl}
+        for style in ("standard", "premium"):
+            kb = PD._crx_key_benefits(prod, 500000, style)
+            check(f"F27.3 类别级除外时 {style} 样式不得产出肯定宣称（{tag}）",
+                  kb == "", f"实际 {kb!r}")
+    _ctl3 = PD._crx_key_benefits({"name": "T", "highlights": "120种重疾+轻症疾病保险金"},
+                                 500000, "standard")
+    check("F27.3 用例有效性自检：无除外对照必须产出宣称",
+          _ctl3 != "", f"实际 {_ctl3!r}")
+
+    # ==================================================================
+    # ④ F27.4 类别级除外 → features 不得宣称「确诊即赔付」/「终身保障」
+    # ==================================================================
+    for tag, hl in category_excluded_highlights:
+        feat = PD._crx_feature({"name": "T", "highlights": hl})
+        leak = any(c in feat for c in ("确诊即赔付", "终身保障", "重疾多次赔付"))
+        check(f"F27.4 类别级除外时 features 不得宣称重疾利益（{tag}）",
+              not leak, f"实际 {feat!r}")
+    _ctl4 = PD._crx_feature({"name": "T", "highlights": "120种重疾+轻症疾病保险金"})
+    check("F27.4 用例有效性自检：无除外对照 features 仍须宣称重疾利益",
+          "确诊即赔付" in _ctl4, f"实际 {_ctl4!r}")
+
+    # ==================================================================
+    # ⑤ F27.5 类别级除外 → 方案 description 不得宣称「含重疾保障」
+    # ==================================================================
+    _entries = [{"type": "重疾险", "product_name": "T"},
+                {"type": "医疗险", "product_name": "M"}]
+    _records_excluded = [{"name": "T", "type": "重疾险", "highlights": "重大疾病责任免除"},
+                          {"name": "M", "type": "医疗险"}]
+    _desc_std = PD._build_plan_description("标准版", _entries, _records_excluded)
+    check("F27.5 类别级除外时标准版描述不得宣称「含重疾保障」",
+          "含重疾保障" not in _desc_std, f"实际 {_desc_std!r}")
+    check("F27.5 类别级除外时标准版描述不得把重疾保障列入保障范围",
+          "重疾保障" not in _desc_std, f"实际 {_desc_std!r}")
+    _desc_prem = PD._build_plan_description("全面版", _entries, _records_excluded)
+    check("F27.5 类别级除外时全面版描述不得宣称「含重疾保障」",
+          "含重疾保障" not in _desc_prem and "重疾保障" not in _desc_prem,
+          f"实际 {_desc_prem!r}")
+    _ctl5 = PD._build_plan_description(
+        "标准版", _entries,
+        [{"name": "T", "type": "重疾险", "highlights": "120种重疾+轻症疾病保险金"},
+         {"name": "M", "type": "医疗险"}])
+    check("F27.5 用例有效性自检：无除外对照描述须保留「含重疾保障」",
+          "含重疾保障" in _ctl5, f"实际 {_ctl5!r}")
+
+    # ==================================================================
+    # ⑥ F27.6 类别级除外 → 限制文案（unverified）必须保留
+    #    官方 remediation 原文：「preserving an explicit unverified limitation
+    #    instead」/「report the unresolved responsibility explicitly as unverified」
+    # ==================================================================
+    _lim = PD._crx_ci_category_limitation({"name": "T", "highlights": "重大疾病责任免除"})
+    check("F27.6 类别级除外时限制文案必须保留（官方要求 report as unverified）",
+          isinstance(_lim, dict) and _lim.get("product_type") == "重疾险",
+          f"实际 {_lim!r}")
+    check("F27.6 无除外记录时不得凭空产生限制",
+          PD._crx_ci_category_limitation(
+              {"name": "T", "highlights": "120种重疾+轻症疾病保险金"}) is None)
+
+    # ==================================================================
+    # ⑦ F27.7 端到端：最终方案 JSON 不得含被除外保障的肯定宣称
+    #    官方 remediation 原文：「verify the final JSON contains no affirmative
+    #    claims about the excluded coverage」
+    # ==================================================================
+    def _plan_text_for(highlights):
+        """把产品池里的重疾险换成指定 highlights → 生成全部方案 → 返回文案"""
+        pool_products = PD.load_products()
+        crx_real = next((p for p in pool_products if p.get("type") == "重疾险"), None)
+        if crx_real is None:
+            return "", []
+        adv = dict(crx_real)
+        adv["highlights"] = highlights
+        pool = [adv if p.get("type") == "重疾险" else p for p in pool_products]
+        orig = PD.load_products
+        PD.load_products = lambda include_discontinued=False: list(pool)
+        try:
+            plans = PD.generate_all_plans(
+                35, "男", 300000, 200000,
+                {"death": 2000000, "critical_illness": 1500000,
+                 "hospital": 4000000})
+        finally:
+            PD.load_products = orig
+        chunks = []
+        for _pname, plan in plans.items():
+            if not plan:
+                continue
+            chunks.append(str(plan.get("description") or ""))
+            for entry in (plan.get("products") or []):
+                chunks.append(str(entry.get("key_benefits") or ""))
+            for feat in (plan.get("features") or []):
+                chunks.append(str(feat))
+        return "\n".join(chunks), plans
+
+    _txt_excl, _plans_excl = _plan_text_for("120种重疾+轻症疾病保险金，重疾疾病不保")
+    for _bad in ("确诊即赔付", "含重疾保障", "重疾多次赔付",
+                 "重疾险保额高达年收入5倍", "寿险+重疾"):
+        check(f"F27.7 最终方案 JSON 不得含被除外保障的肯定宣称「{_bad}」",
+              _bad not in _txt_excl,
+              f"最终方案文案含该宣称" if _bad in _txt_excl else "")
+    # 被除外产品的 key_benefits 必须为空串（不得继续断言被除外保障）
+    _kb_leak = []
+    for _pname, _plan in (_plans_excl or {}).items():
+        if not _plan:
+            continue
+        for _entry in (_plan.get("products") or []):
+            if _entry.get("type") == "重疾险" and (_entry.get("key_benefits") or ""):
+                _kb_leak.append(f"{_pname}:{_entry.get('key_benefits')!r}")
+    check("F27.7 最终方案内重疾险条目的 key_benefits 必须为空串",
+          not _kb_leak, "；".join(_kb_leak))
+    # 限制必须如实出现在方案层（unverified 不得静默丢失）
+    _lim_found = False
+    for _pname, _plan in (_plans_excl or {}).items():
+        if not _plan:
+            continue
+        for _l in (_plan.get("limitations") or []):
+            if isinstance(_l, dict) and _l.get("product_type") == "重疾险":
+                _lim_found = True
+    check("F27.7 最终方案必须如实报告重疾保障限制（unverified）", _lim_found)
+    # ⚠ 用例有效性自检：同一流程但**无除外**时必须仍有肯定宣称
+    _txt_clean, _plans_clean = _plan_text_for("120种重疾+轻症疾病保险金")
+    check("F27.7 用例有效性自检：无除外对照最终方案仍须有肯定宣称",
+          "确诊即赔付" in _txt_clean, "最终方案文案无肯定宣称")
+
+    # ==================================================================
+    # ⑧ F27.8 无除外记录 → 一切宣称保持原样（零变化）
+    # ==================================================================
+    _clean_prod = {"name": "T", "type": "重疾险", "highlights": "120种重疾+轻症疾病保险金"}
+    check("F27.8 无除外记录：standard 宣称保持原样",
+          PD._crx_key_benefits(_clean_prod, 500000, "standard")
+          == "120种重疾+轻症保障，确诊即赔付50万",
+          f"实际 {PD._crx_key_benefits(_clean_prod, 500000, 'standard')!r}")
+    check("F27.8 无除外记录：premium 宣称保持原样",
+          PD._crx_key_benefits(_clean_prod, 500000, "premium")
+          == "重疾保障，保额50万",
+          f"实际 {PD._crx_key_benefits(_clean_prod, 500000, 'premium')!r}")
+    check("F27.8 无除外记录：features 保持原样",
+          PD._crx_feature(_clean_prod) == "重疾险确诊即赔付",
+          f"实际 {PD._crx_feature(_clean_prod)!r}")
+
+    # ==================================================================
+    # ⑨ F27.9 源码级防改回断言
+    # ==================================================================
+    src = open(os.path.join(os.path.dirname(__file__), "plan_designer.py"),
+               "r", encoding="utf-8").read()
+    check("F27.9 源码级：主体自身给付措辞豁免表已定义",
+          "_CRX_SUBJECT_OWN_PAYMENT_CUES" in src)
+    check("F27.9 源码级：主体自身给付措辞剔除函数已定义",
+          "def _crx_strip_subject_own_payment(" in src)
+    check("F27.9 源码级：gap 判定必须经主体自身给付措辞豁免（双向一致）",
+          "def _crx_subject_gap_targets_other_object(" in src
+          and "_crx_subject_gap_targets_other_object(gap, subject)" in src
+          and "_crx_subject_gap_targets_other_object(before, subject)" in src
+          and "_crx_subject_gap_targets_other_object(after, subject)" in src)
+    check("F27.9 源码级：记录级轻症除外判定已实现",
+          "def _crx_record_mild_excluded(" in src)
+    check("F27.9 源码级：共享的重疾保障已验证状态已实现",
+          "def _crx_ci_claim_state(" in src)
+    check("F27.9 源码级：方案层重疾已验证状态判定已实现",
+          "def _crx_plan_ci_allowed(" in src)
+    # 共享状态必须在 premium 分支**之前**求值（official: compute state *before*
+    #   generating any benefits）
+    _i_kb = src.find("def _crx_key_benefits(")
+    _i_state = src.find("state = _crx_ci_claim_state(product)", _i_kb)
+    _i_prem = src.find('if style == "premium":', _i_kb)
+    check("F27.9 源码级：共享状态必须先于 premium 分支求值",
+          _i_kb != -1 and _i_state != -1 and _i_prem != -1 and _i_state < _i_prem,
+          f"状态={_i_state} premium={_i_prem}")
+    _i_feat = src.find("def _crx_feature(")
+    check("F27.9 源码级：features 必须过共享状态闸",
+          _i_feat != -1
+          and src.find("_crx_ci_claim_state(product)", _i_feat) != -1)
+    check("F27.9 源码级：方案描述必须过方案层状态闸",
+          "def _build_plan_description(plan_name, products, product_records=None)" in src
+          and "_crx_plan_ci_allowed(products, product_records)" in src)
+    check("F27.9 源码级：_finalize_plan 必须把产品库记录传给描述生成器",
+          'plan.get("products", []), products)' in src)
+    check("F27.9 源码级：限制文案函数不得被删除",
+          "def _crx_ci_category_limitation(" in src
+          and "产品记录中存在重疾类别级除外表述" in src)
+    return True
+
 def main():
     print("=" * 60)
     print("ClawHub 审计整改测试（任务 2 R4/R5/R6/R7 + 任务 3 SQP-3/SDI-3/SDI-4）")
@@ -4494,6 +4781,7 @@ def main():
     test_f24_residual_n2_bidirectional_exclusion()
     test_f25_residual_o_disease_count_record_gate()
     test_f26_residual_pq_subject_and_category_exclusion()
+    test_f27_residual_r_shared_coverage_state()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)
