@@ -5733,6 +5733,314 @@ def test_f31_residual_t_same_family_binding(pd=None):
     return True
 
 
+
+def test_f32_residual_uv_backward_binding(pd=None):
+    """F32（官方 SDI-4 残余 U + 残余 V · 2026-11-24 · v2.4.36）
+
+    【官方 finding（china v2.4.36 · SDI-4 · Excessive Agency · MEDIUM · 原文）】
+      finding:
+        "The documented record-wide disease-count safeguard can discard an
+         explicit exclusion when another benefit is mentioned afterward."
+      explanation:
+        "The disease-count exclusion check skips an exclusion whenever its
+         following window mentions another benefit, even if the exclusion already
+         binds to the disease count: 「120种重疾除外但含身故保障」 is skipped
+         because the suffix contains 「身故」. With affirmative highlights such as
+         「120种重疾，含轻症保障」, the record-wide contradiction check can miss
+         the same exclusion, allowing the final standard plan to advertise
+         「120种重疾+轻症保障」. …"
+      remediation:
+        "Bind exclusions to their subjects using local grammatical scope:
+         postposed markers such as 「除外」 and 「责任免除」 must remain attached to
+         the preceding disease-count subject, regardless of a subsequent benefit
+         clause. Distinguish these from forward-binding exclusions such as
+         「不含轻症」, preferably using validated structured coverage decisions
+         rather than keyword windows. Propagate unresolved evidence as an explicit
+         limitation and suppress unsupported claims across benefits, features, and
+         descriptions. Add end-to-end regression tests combining affirmative
+         highlights with 「120种重疾除外但含身故保障」 in the same or another field,
+         asserting that final JSON never advertises the excluded disease-count
+         coverage."
+
+    【官方 finding（ai v2.4.36 · SDI-4 · Excessive Agency · MEDIUM · 原文）】
+      finding:
+        "Already-bound critical-illness exclusions are discarded when a later
+         phrase mentions another benefit."
+      explanation:
+        "The critical-illness exclusion checks can discard an exclusion because
+         the text following it mentions another benefit: for example,
+         「重疾除外但含身故保障」 is not classified as a category exclusion because
+         the suffix contains 「身故」. Combined with affirmative counted highlights
+         elsewhere, this allows downstream plans to advertise critical-illness
+         coverage despite conflicting exclusion evidence, without the
+         corresponding unverified limitation. …"
+      remediation:
+        "Bind each exclusion to its local coverage subject before evaluating
+         subsequent benefits, and do not let later phrases revoke an already-bound
+         exclusion. Prefer validated structured coverage decisions, reconcile
+         conflicts record-wide, and propagate unresolved states into benefits,
+         features, descriptions, and explicit limitations. Add end-to-end tests
+         pairing affirmative counted highlights with 「重疾除外但含身故保障」 and
+         equivalent exclusions in other fields for both standard and comprehensive
+         plans."
+
+    【官方 finding（ai v2.4.36 · SDI-4 · Excessive Agency · MEDIUM · 原文 · 残余 V）】
+      finding:
+        "Medical benefit generation can convert explicit noncoverage into an
+         affirmative treatment claim."
+      explanation:
+        "Medical claim authorization still relies on affirmative keywords and an
+         incomplete exclusion vocabulary: “CAR-T治疗不予给付” contains the
+         affirmative marker “给付”, but “不予给付” is not recognized by the medical
+         negation rules. With no other blocking evidence, this can become
+         “含CAR-T治疗”, reversing an explicit noncoverage statement into a
+         covered-benefit claim. …"
+      remediation:
+        "Require validated, treatment-specific coverage decisions before emitting
+         affirmative benefit claims, preserving applicable conditions and
+         suppressing unresolved evidence. If retaining free-text interpretation,
+         consistently recognize nonpayment expressions such as “不予给付” in both
+         authorization and record-wide exclusion checks, ensuring words within
+         those expressions cannot authorize coverage. Add regression tests that
+         verify final plan benefits and features never advertise treatments
+         explicitly excluded by the source record."
+
+    【根因（4 处 · 必须同时修）】
+      ① `_crx_clause_excludes_disease_count` tail 侧用「标记**之后** 12 字窗口」
+         判别的保障对象 → 后续保障从句撤销了已绑定的除外（残余 U-1）；
+      ② `_crx_clause_excludes_ci_category` tail 侧同写法（残余 U-2）；
+      ③ `_NEG_MARKERS_BOTH` 缺「不予给付 / 不予赔付」，而 `_AFFIRM_MARKERS` 含
+         「给付」→ 「CAR-T治疗不予给付」被当承保（残余 V）；
+      ④ **同源第三处（必需）**：`_crx_record_disease_count_issue` 第③步走
+         `_crx_record_contradiction` → 内部调用共享函数
+         `_crx_clause_excludes_subject` 的**非「症」主体分支** → 该分支同样有
+         「后续从句撤销除外」+ head 侧只看标记**之后**的缺陷
+         → 只改 ①② 的话验收器 ④ 仍会 FAIL（被判成 `contradiction`）。
+
+    【修法】
+      · 新增常量 `_CRX_BACKWARD_BINDING_MARKERS`（后向绑定标记：除外 / 责任免除 /
+        不在保障范围 / 无保障 / 不在保障责任范围 / 不予给付 / 不予赔付 / 不予支付）
+        ⚠ **不得**复用 / 扩写 `_CRX_POSTPOSED_EXCLUSION_MARKERS`（轻症路径
+          残余 T 口径 → 扩写会回归）；
+      · 病种数路径：后向标记 → 只看「标记**之前**」的片段判绑定对象，
+        **不再**用「标记之后」的窗口撤销已绑定的除外；
+      · 类别级路径：后向标记 → 直接判除外（跳过宾语窗口）；
+      · 共享函数 `_crx_clause_excludes_subject`：**仅非「症」主体分支**补同构
+        规则（轻症分支**一字不动**）；
+      · 医疗：`_NEG_MARKERS_BOTH` 追加「不予给付」「不予赔付」（与「不予报销」
+        同口径 · 双向绑定）→ 否定跨度吃掉内部的「给付 / 赔付」。
+
+    覆盖：
+      ① 病种数路径：后向绑定除外必须命中（残余 U-1）
+      ② 类别级路径：后向绑定除外必须成立（残余 U-2）
+      ③ 前向绑定口径**保持**（残余 U 红线 + 轻症路径官方 T-1 / T-2 一字不动）
+      ④ 防过度收紧：后向标记绑定**别的保障对象** → 不得误伤
+      ⑤ 残余 V · 医疗：不予给付 / 不予赔付 → 不得宣称 + 记录级除外证据收录
+      ⑥ 残余 V · 防过度收紧：肯定表述仍可宣称
+      ⑦ 端到端（**最终方案 JSON**）：被压制的保障不得出现在宣称面
+      ⑧ 源码级防改回断言
+    """
+    print("\nTest F32: 残余 U + 残余 V（后向绑定除外 + 不予给付/不予赔付）")
+    if pd is None:
+        import plan_designer as PD
+        PD = PD
+    else:
+        PD = pd
+
+    with open(os.path.join(SKILL_DIR, "references", "products.json"), encoding="utf-8") as _fh:
+        _PRODUCTS = json.load(_fh)["products"]
+    _NEEDS = {"death": 1000000, "critical_illness": 500000}
+
+    def _mutate_pool(highlights, other=""):
+        """把**所有**重疾险产品改成指定 highlights / 其它字段表述 → 返回产品池"""
+        pool = []
+        for _p in _PRODUCTS:
+            _q = dict(_p)
+            if (_q.get("type") or "") == "重疾险":
+                _q["highlights"] = highlights
+                _q["key_benefits"] = [highlights]
+                _q["notes"] = other
+                _q["suitable_for"] = ""
+                _q["weakness"] = []
+                _q["competitive_edge"] = ""
+            pool.append(_q)
+        return pool
+
+    def _plan(pool, kind):
+        if kind == "standard":
+            return PD.design_standard_plan(35, "男", 300000, 60000, _NEEDS, pool)
+        return PD.design_premium_plan(35, "男", 300000, 80000, _NEEDS, pool)
+
+    def _ci_entry(plan):
+        return next((e for e in plan.get("products", []) if e.get("type") == "重疾险"), None)
+
+    def _claim_text(plan):
+        """方案里**对外宣称面**的文案（不含 limitations —— 限制说明里提到「轻症」是如实报告）"""
+        chunks = [str(plan.get("description") or "")]
+        for _e in plan.get("products", []):
+            chunks.append(str(_e.get("key_benefits") or ""))
+        for _f in plan.get("features", []):
+            chunks.append(str(_f))
+        return "\n".join(chunks)
+
+    # ==================================================================
+    # ① F32.1 病种数路径：后向绑定除外必须命中（残余 U-1）
+    # ==================================================================
+    _COUNT_BACKWARD = [
+        ("notes", "120种重疾除外但含身故保障"),
+        ("key_benefits", ["120种重疾除外但含身故保障"]),
+        ("notes", "120种重疾责任免除但含身故保障"),
+        ("key_benefits", ["120种重疾责任免除但含身故保障"]),
+        ("notes", "120种重疾除外但含住院津贴"),
+        ("notes", "120种重疾不在保障范围但含身故保障"),
+        ("notes", "120种重疾不予给付但含身故保障"),
+    ]
+    for _field, _val in _COUNT_BACKWARD:
+        _prod = {"highlights": "120种重疾+60种轻症", _field: _val}
+        _code = PD._crx_record_disease_count_issue(_prod, "120种重疾")
+        check(f"F32.1 病种数后向除外必须命中（{_val}·{_field}）",
+              _code in ("excluded", "category-excluded"), f"实际 {_code!r}")
+        _got = PD._crx_disease_claim(_prod)
+        check(f"F32.1 病种数宣称必须压制（{_val}·{_field}）",
+              _got == "", f"实际 {_got!r}")
+
+    # ==================================================================
+    # ② F32.2 类别级路径：后向绑定除外必须成立（残余 U-2）
+    # ==================================================================
+    _CI_BACKWARD = [
+        ("notes", "重疾除外但含身故保障"),
+        ("key_benefits", ["重疾除外但含身故保障"]),
+        ("notes", "重疾责任免除但含身故保障"),
+        ("notes", "重疾不在保障范围但含身故保障"),
+    ]
+    for _field, _val in _CI_BACKWARD:
+        _prod = {"highlights": "120种重疾+60种轻症", _field: _val}
+        _excl = PD._crx_record_ci_category_excluded(_prod)
+        check(f"F32.2 类别级后向除外必须成立（{_val}·{_field}）",
+              bool(_excl), f"实际 {_excl!r}")
+        _code = PD._crx_record_disease_count_issue(_prod, "120种重疾")
+        check(f"F32.2 类别级除外须绑定到病种数（{_val}·{_field}）",
+              _code in ("excluded", "category-excluded"), f"实际 {_code!r}")
+        _got = PD._crx_disease_claim(_prod)
+        check(f"F32.2 病种数宣称必须压制（{_val}·{_field}）",
+              _got == "", f"实际 {_got!r}")
+
+    # ==================================================================
+    # ③ F32.3 前向绑定口径**保持**（残余 U 红线）+ 轻症路径官方口径**保持**
+    # ==================================================================
+    _FORWARD_KEEP_COUNT = [
+        "120种重疾不含轻症",
+        "120种重疾不保轻症",
+        "120种重疾不承保轻症",
+    ]
+    for _clause in _FORWARD_KEEP_COUNT:
+        _got = PD._crx_clause_excludes_disease_count(_clause, "120种重疾")
+        check(f"F32.3 前向绑定：病种数专属除外判定为 False（{_clause}）",
+              _got is False, f"实际 {_got!r}")
+    _MILD_KEEP = [
+        "轻症责任免除",
+        "责任免除轻症",
+        "轻症除外但含身故保障",
+        "轻症除外但含住院津贴",
+    ]
+    for _clause in _MILD_KEEP:
+        _got = bool(PD._crx_clause_excludes_subject(_clause, "轻症"))
+        check(f"F32.3 轻症路径官方口径保持（{_clause}）→ 必须判定为对轻症的除外",
+              _got, f"实际 {_got}")
+    for _clause in ("轻症不保住院津贴", "轻症不保身故责任", "住院津贴不保轻症"):
+        _got = bool(PD._crx_clause_excludes_subject(_clause, "轻症"))
+        check(f"F32.3 轻症路径红线保持（{_clause}）→ 与轻症无关，不得判定为除外",
+              not _got, f"实际 {_got}")
+
+    # ==================================================================
+    # ④ F32.4 防过度收紧：后向标记绑定**别的保障对象** → 不得误伤病种数
+    # ==================================================================
+    _OTHER_OBJECT = [
+        "120种重疾保障住院津贴除外",
+        "住院津贴除外后120种重疾照常承保",
+    ]
+    for _clause in _OTHER_OBJECT:
+        _prod = {"highlights": "120种重疾+60种轻症", "notes": _clause}
+        _code = PD._crx_record_disease_count_issue(_prod, "120种重疾")
+        check(f"F32.4 后向标记绑定别的对象时病种数不得误伤（{_clause}）",
+              _code == "", f"实际 {_code!r}")
+        _got = PD._crx_disease_claim(_prod)
+        check(f"F32.4 整句宣称不得受影响（{_clause}）",
+              _got != "", f"实际 {_got!r}")
+
+    # ==================================================================
+    # ⑤ F32.5 残余 V · 医疗：不予给付 / 不予赔付 → 不得宣称 + 除外证据收录
+    # ==================================================================
+    for _neg in ("CAR-T治疗不予给付", "CAR-T治疗不予赔付"):
+        _prod = {"key_benefits": [_neg], "highlights": _neg}
+        _claims = PD._medical_treatment_claims(_prod)
+        check(f"F32.5 「{_neg}」不得宣称 CAR-T 治疗",
+              not any("CAR-T" in c for c in _claims), f"实际 {_claims!r}")
+        _excl = PD._record_exclusion_keywords(_prod)
+        check(f"F32.5 「{_neg}」记录级除外证据必须收录 CAR-T 治疗",
+              any("CAR-T" in k for k in _excl), f"实际 {sorted(_excl)!r}")
+        try:
+            _kb = PD.derive_medical_key_benefits(_prod, [])
+            _blob = json.dumps(_kb, ensure_ascii=False)
+        except Exception as _e:  # noqa: BLE001
+            _blob = "__ERR__:%r" % (_e,)
+        check(f"F32.5 「{_neg}」端到端：最终 key_benefits 不得出现「含CAR-T治疗」",
+              "含CAR-T治疗" not in _blob, _blob[:300])
+
+    # ==================================================================
+    # ⑥ F32.6 残余 V · 防过度收紧：肯定表述仍可宣称
+    # ==================================================================
+    for _ok in ("含CAR-T治疗费用报销", "CAR-T治疗可报销"):
+        _prod = {"key_benefits": [_ok], "highlights": _ok}
+        _claims = PD._medical_treatment_claims(_prod)
+        check(f"F32.6 肯定表述「{_ok}」仍可宣称",
+              any("CAR-T" in c for c in _claims), f"实际 {_claims!r}")
+
+    # ==================================================================
+    # ⑦ F32.7 端到端（**最终方案 JSON**）：被压制的保障不得出现在宣称面
+    # ==================================================================
+    for _other in ("120种重疾除外但含身故保障", "重疾除外但含身故保障"):
+        for _kind, _kind_cn in (("standard", "标准版"), ("premium", "全面版")):
+            _pl = _plan(_mutate_pool("120种重疾+60种轻症", _other), _kind)
+            _entry = _ci_entry(_pl)
+            _kb = (_entry or {}).get("key_benefits") or ""
+            check(f"F32.7 端到端：{_other} → {_kind_cn}重疾条目不得宣称轻症",
+                  _entry is None or "轻症" not in _kb, f"实际 kb={_kb!r}")
+            _txt = _claim_text(_pl)
+            check(f"F32.7 端到端：{_other} → {_kind_cn}宣称面不得出现「轻症」",
+                  "轻症" not in _txt, f"宣称面文案含轻症：{_txt[:200]!r}")
+
+    # ==================================================================
+    # ⑧ F32.8 源码级防改回断言
+    # ==================================================================
+    src = open(os.path.join(SKILL_DIR, "scripts", "plan_designer.py"),
+               "r", encoding="utf-8").read()
+    check("F32.8 源码级：后向绑定标记表已定义",
+          "_CRX_BACKWARD_BINDING_MARKERS" in src)
+    check("F32.8 源码级：后向绑定标记表必须含「除外」「责任免除」「不予给付」「不予赔付」",
+          all(_c in src for _c in ('"除外"', '"责任免除"', '"不予给付"', '"不予赔付"')))
+    _post_block = src.split("_CRX_POSTPOSED_EXCLUSION_MARKERS = (")[1].split(")")[0]
+    check("F32.8 源码级：轻症路径后置型标记表**不得**被扩写（残余 T 口径保持）",
+          "不予给付" not in _post_block and "不予赔付" not in _post_block)
+    check("F32.8 源码级：病种数 tail 侧必须用**前置片段**判定后向标记",
+          "_crx_count_object_is_other(tail[:_s])" in src)
+    check("F32.8 源码级：病种数 head 侧必须用**前置片段**判定后向标记",
+          "_crx_count_object_is_other(head[:pos])" in src)
+    check("F32.8 源码级：类别级 tail 侧必须对后向标记直接判除外（不查宾语窗口）",
+          "_crx_ci_marker_positions(tail)" in src
+          and "mk in _CRX_BACKWARD_BINDING_MARKERS" in src)
+    check("F32.8 源码级：共享函数的非「症」分支必须按后向绑定判定（根因④）",
+          "mk in _CRX_BACKWARD_BINDING_MARKERS" in src
+          and "_crx_subject_gap_targets_other_object(head[:pos], subject)" in src)
+    check("F32.8 源码级：医疗否定词表必须含「不予给付」「不予赔付」（残余 V）",
+          '"不予给付", "不予赔付"' in src)
+    check("F32.8 源码级：残余 P 的 Tier A / Tier B 分层口径**不得**被改动",
+          "_CRX_DISTINCT_OBJECT_CUES" in src
+          and "_CRX_GENERIC_CUE_WORDS" in src
+          and "def _crx_gap_object_evidence(" in src)
+    return True
+
+
 def main():
     print("=" * 60)
     print("ClawHub 审计整改测试（任务 2 R4/R5/R6/R7 + 任务 3 SQP-3/SDI-3/SDI-4）")
@@ -5787,6 +6095,7 @@ def main():
     test_f29_residual_p_generic_cue_distinct_object()
     test_f30_residual_t_local_binding()
     test_f31_residual_t_same_family_binding()
+    test_f32_residual_uv_backward_binding()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)

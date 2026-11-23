@@ -326,8 +326,27 @@ _NEG_MARKERS_BACKWARD = ("除外", "不在保障范围", "不赔", "不予支付
 #   （否定词在治疗手段**之前** / **之后**都生效 → post-treatment negation）。
 # ⚠ 「报销」本身在 _AFFIRM_MARKERS 里 → 「不可报销」内的「报销」必须被
 #   否定作用域吃掉（不得同时被当成肯定授权证据）——由否定词跨度天然满足。
+# ⚠ 官方 SDI-4 残余 V（2026-11-24 公开复扫 · v2.4.36 · Excessive Agency · MEDIUM）
+#   finding（ai · 原文）：
+#     "Medical benefit generation can convert explicit noncoverage into an
+#      affirmative treatment claim."
+#   explanation（ai · 原文）：
+#     "Medical claim authorization still relies on affirmative keywords and an
+#      incomplete exclusion vocabulary: “CAR-T治疗不予给付” contains the
+#      affirmative marker “给付”, but “不予给付” is not recognized by the medical
+#      negation rules. With no other blocking evidence, this can become
+#      “含CAR-T治疗”, reversing an explicit noncoverage statement into a
+#      covered-benefit claim. …"
+#   remediation（ai · 原文）：
+#     "…consistently recognize nonpayment expressions such as “不予给付” in both
+#      authorization and record-wide exclusion checks, ensuring words within
+#      those expressions cannot authorize coverage. …"
+# → 「不予给付」「不予赔付」与「不予报销」**同口径**：**双向**绑定
+#   （否定跨度吃掉内部的「给付 / 赔付」→ 其不得充当肯定授权证据；
+#    记录级除外证据 `_record_exclusion_keywords` 复用同一套表 → 同步收录）。
 _NEG_MARKERS_BOTH = ("不予报销", "不可报销", "不报销", "无法报销", "不能报销",
-                     "不可支付", "不可赔付", "不承保")
+                     "不可支付", "不可赔付", "不承保",
+                     "不予给付", "不予赔付")
 _NEG_MARKERS = tuple(sorted(
     set(_NEG_MARKERS_FORWARD + _NEG_MARKERS_BACKWARD + _NEG_MARKERS_BOTH),
     key=len, reverse=True))
@@ -2503,6 +2522,26 @@ def _crx_gap_targets_other_object(gap):
 _CRX_POSTPOSED_EXCLUSION_MARKERS = (
     "责任免除", "除外", "不在保障范围", "无保障",
 )
+# ══════════════════════════════════════════════════════════════════════
+# 官方 SDI-4 残余 U（2026-11-24 公开复扫 · v2.4.36 · Excessive Agency · MEDIUM）
+#
+#   除外标记的**绑定方向**（局部语法作用域 · 官方 remediation 原文）：
+#     "postposed markers such as 「除外」 and 「责任免除」 must remain attached to
+#      the preceding disease-count subject, regardless of a subsequent benefit
+#      clause. Distinguish these from forward-binding exclusions such as
+#      「不含轻症」 …"
+#
+#   · **后向绑定**（postposed）→ 绑定到标记**前面**的主体；
+#     其后的「但含身故保障」属**后续子句** → **不得**撤销已绑定的除外。
+#   · **前向绑定**（preposed）→ 绑定到标记**后面**的宾语
+#     （现行口径**保持不变**：「不含轻症」→ 除外的是轻症，不是病种数）。
+#
+# ⚠ **不得**复用 / 扩写 `_CRX_POSTPOSED_EXCLUSION_MARKERS`（那是**轻症路径**
+#   残余 T 的口径，扩写会改变「轻症不予给付住院津贴」的判定 → 回归）。
+_CRX_BACKWARD_BINDING_MARKERS = (
+    "不在保障责任范围", "不在保障范围", "无保障", "责任免除", "除外",
+    "不予给付", "不予赔付", "不予支付",
+)
 # 局部语法作用域的边界 ①：子句分隔符
 _CRX_SCOPE_BREAK_CHARS = "，。；！？、,;!?"
 # 局部语法作用域的边界 ②：引入**后续子句**的连接词 / 保障动词
@@ -2616,6 +2655,13 @@ def _crx_clause_excludes_subject(clause, subject):
                 if _is_mild and _crx_preceding_binds_other_object(head, pos, subject):
                     pos = head.rfind(mk, 0, pos)
                     continue
+                if (mk in _CRX_BACKWARD_BINDING_MARKERS
+                        and _crx_subject_gap_targets_other_object(head[:pos], subject)):
+                    # ⚠ 官方 SDI-4 残余 U（根因④ · 同源第三处）：
+                    #   后向绑定标记绑定的是标记**之前**的主体 → 看「标记之前」
+                    #   的片段；命中**别的保障对象** → 与本主体无关（跳过）。
+                    pos = head.rfind(mk, 0, pos)
+                    continue
                 if not _crx_subject_gap_targets_other_object(gap, subject):
                     return True
                 pos = head.rfind(mk, 0, pos)
@@ -2660,7 +2706,13 @@ def _crx_clause_excludes_subject(clause, subject):
                     if _crx_subject_gap_targets_other_object(adj, subject):
                         continue
                 return True
-            # 病种数路径：沿用既有口径（**不动**）
+            # 病种数路径（非「症」主体）
+            if mk in _CRX_BACKWARD_BINDING_MARKERS:
+                # ⚠ 官方 SDI-4 残余 U（根因④ · 同源第三处）：
+                #   后向绑定标记 → 绑定**前面**的主体；**后续子句**里的别的保障
+                #   对象**不得**撤销已绑定的除外 → **不再**用「标记之后」的窗口
+                #   撤销（只看标记**之前**的片段，见上方 `before` 判定）。
+                return True
             if _crx_subject_gap_targets_other_object(after, subject):
                 continue
             return True
@@ -2847,6 +2899,15 @@ def _crx_clause_excludes_disease_count(clause, subject):
         for mk in _CRX_EXCLUSION_MARKERS:
             pos = head.rfind(mk)
             while pos != -1:
+                if mk in _CRX_BACKWARD_BINDING_MARKERS:
+                    # ⚠ 官方 SDI-4 残余 U：后向绑定标记（除外 / 责任免除 …）
+                    #   绑定的是标记**之前**的主体 → 只看「标记之前」的片段；
+                    #   命中**别的保障对象** → 与病种数无关（跳过）；
+                    #   否则 → 保守判除外（后续从句不得撤销）。
+                    if not _crx_count_object_is_other(head[:pos]):
+                        return True
+                    pos = head.rfind(mk, 0, pos)
+                    continue
                 gap = head[pos + len(mk):]
                 if not _crx_count_object_is_other(gap):
                     return True
@@ -2864,10 +2925,22 @@ def _crx_clause_excludes_disease_count(clause, subject):
                 pos = tail.find(mk, start)
                 if pos == -1:
                     break
-                hits.append((pos, pos + len(mk)))
+                hits.append((pos, pos + len(mk), mk))
                 start = pos + len(mk)
         hits.sort()
-        for _s, e in hits:
+        for _s, e, mk in hits:
+            if mk in _CRX_BACKWARD_BINDING_MARKERS:
+                # ⚠ 官方 SDI-4 残余 U（remediation 原文）：
+                #   "postposed markers such as 「除外」 and 「责任免除」 must
+                #    remain attached to the preceding disease-count subject,
+                #    regardless of a subsequent benefit clause."
+                #   → 后向绑定标记 → 绑定**前面**的病种数主体；
+                #     其后的「但含身故保障」属**后续子句** → **不得**撤销
+                #     （**不再**用「标记之后」的窗口撤销已绑定的除外）；
+                #     只看标记**之前**的片段（绑定的是别的保障对象 → 跳过）。
+                if _crx_count_object_is_other(tail[:_s]):
+                    continue
+                return True
             after = tail[e:e + _CRX_COUNT_OBJECT_WINDOW]
             # 除外标记指向**别的保障对象** → 与病种数无关（不压制）
             if _crx_count_object_is_other(after):
@@ -2947,7 +3020,7 @@ _CRX_CI_OBJECT_WINDOW = 12
 
 
 def _crx_ci_marker_positions(segment):
-    """segment 内「类别级除外标记」的位置 → [(start, end)]（已剔除「不保证」）"""
+    """segment 内「类别级除外标记」的位置 → [(start, end, marker)]（已剔除「不保证」）"""
     hits = []
     for mk in _CRX_CI_EXCLUSION_MARKERS:
         pos = 0
@@ -2959,7 +3032,7 @@ def _crx_ci_marker_positions(segment):
             # 「不保证」（续保不保证）不是除外标记 —— 保证 ≠ 承保
             if mk == "不保" and segment[i + len(mk):i + len(mk) + 1] == "证":
                 continue
-            hits.append((i, i + len(mk)))
+            hits.append((i, i + len(mk), mk))
     hits.sort()
     return hits
 
@@ -3012,24 +3085,35 @@ def _crx_clause_excludes_ci_category(clause):
                 continue
             # ── tail 侧：类别名词 → 除外标记 ──
             tail = clause[i + len(cat):]
-            for (s, e) in _crx_ci_marker_positions(tail):
+            for (s, e, mk) in _crx_ci_marker_positions(tail):
                 bridge = tail[:s]
                 if len(bridge) > _CRX_CI_BRIDGE_MAX:
                     continue
                 if _crx_ci_segment_has_other_object(bridge):
                     continue
+                if mk in _CRX_BACKWARD_BINDING_MARKERS:
+                    # ⚠ 官方 SDI-4 残余 U：后向绑定标记（除外 / 责任免除 …）
+                    #   → 绑定**前面**的类别名词；其后的「但含身故保障」属
+                    #     **后续子句** → **不得**撤销 → 不查标记之后的宾语窗口
+                    return True
                 obj = tail[e:e + _CRX_CI_OBJECT_WINDOW]
                 if _crx_ci_segment_has_other_object(obj):
                     continue
                 return True
             # ── head 侧：除外标记 → 类别名词 ──
             head = clause[:i]
-            for (s, e) in _crx_ci_marker_positions(head):
+            for (s, e, mk) in _crx_ci_marker_positions(head):
                 bridge = head[e:]
                 if len(bridge) > _CRX_CI_BRIDGE_MAX:
                     continue
                 if _crx_ci_segment_has_other_object(bridge):
                     continue
+                if mk in _CRX_BACKWARD_BINDING_MARKERS:
+                    # 后向绑定标记出现在类别名词**之前** → 它绑定的是**更前面**
+                    #   的对象；前置片段命中别的保障对象 → 与类别无关（跳过）
+                    if _crx_ci_segment_has_other_object(head[:s]):
+                        continue
+                    return True
                 obj = clause[e:e + _CRX_CI_OBJECT_WINDOW]
                 if _crx_ci_segment_has_other_object(obj):
                     continue
