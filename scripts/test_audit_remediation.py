@@ -4732,6 +4732,275 @@ def test_f27_residual_r_shared_coverage_state(pd=None):
           and "产品记录中存在重疾类别级除外表述" in src)
     return True
 
+
+# ---------------------------------------------------------------------------
+# F28 · 官方 SDI-4 残余 S（2026-11-23 线上复扫 · v2.4.33 · Excessive Agency · MEDIUM）
+# ---------------------------------------------------------------------------
+def test_f28_residual_s_shared_mild_state(pd=None):
+    """F28（官方 SDI-4 残余 S · 2026-11-23 线上复扫 · v2.4.33 · Excessive Agency · MEDIUM）
+
+    【官方 finding · 残余 S-1（china v2.4.33 · L2950-2959 · 原文）】
+      "The shared critical-illness state omits the promised unverified limitation when
+       mild-illness coverage is excluded."
+
+    【官方 explanation · 残余 S-1（china v2.4.33 · 原文）】
+      "When mild-illness coverage is excluded, `_crx_ci_claim_state` sets `unverified=True`
+       and `allowed=False`, but obtains its limitation exclusively from
+       `_crx_ci_category_limitation`, which returns nothing unless critical-illness coverage
+       itself has a category-level exclusion. Both plan builders likewise attach only
+       category-level limitations, leaving an unverified product's premium and coverage in
+       the plan without a corresponding explicit warning; this is particularly consequential
+       in insurance advice, where users may mistake a budget-feasible plan for verified
+       protection."
+
+    【官方 remediation · 残余 S-1（china v2.4.33 · 原文）】
+      "Return an explicit limitation whenever the shared state is unverified, distinguishing
+       mild-illness exclusions from critical-illness category exclusions. Have both plan
+       builders or the finalizer propagate that shared limitation into the final JSON for
+       retained products, and clarify that budget feasibility does not establish coverage
+       validity. Add end-to-end tests for mild-illness-only exclusions in both standard and
+       comprehensive plans, checking that unsupported claims are suppressed and the explicit
+       warning remains present."
+
+    【官方 finding · 残余 S-2（ai v2.4.33 · L2825-2838 · 原文）】
+      "Record-wide mild-illness conditions and uncertainty can be discarded when generating
+       affirmative benefit claims."
+
+    【官方 remediation · 残余 S-2（ai v2.4.33 · 原文）】
+      "Compute a shared, record-wide mild-illness coverage state before generating claims,
+       checking all relevant fields for exclusions, uncertainty, conditions, and conflicting
+       evidence. Prefer validated, treatment-specific structured coverage decisions; preserve
+       applicable conditions in output, or suppress the mild-illness claim and add an explicit
+       unverified limitation when they cannot be reliably interpreted. Add end-to-end tests
+       pairing affirmative highlights with conditional or uncertain mild-illness statements in
+       other fields, asserting that final JSON does not advertise unconditional mild-illness
+       coverage."
+
+    覆盖：
+      ① 轻症单独除外 → 共享状态的 limitation 必须**非空**、且 unverified 且 not allowed（S-1）
+      ② 轻症除外与「重疾类别级除外」的限制文案必须**可区分**；并澄清「预算可行 ≠ 保障已核实」（S-1）
+      ③ 端到端：轻症单独除外 → **标准版**方案须保留如实限制说明、不得宣称轻症（S-1 e2e）
+      ④ 端到端：轻症单独除外 → **全面版**方案须保留如实限制说明、不得宣称轻症（S-1 e2e）
+      ⑤ 其它字段的不确定 / 条件表述 → 共享状态须判定为未经确认 + 如实限制说明（S-2）
+      ⑥ 端到端：肯定 highlights + 其它字段不确定 / 条件表述 → 最终 JSON 不得广告无条件轻症保障（S-2 e2e）
+      ⑦ 红线：其它字段提到轻症但**无**不确定 / 条件 / 除外语义 → 不得误伤，正常宣称必须保留
+      ⑧ 源码级防改回断言（记录级轻症覆盖状态 + 两个 builder 都必须传导共享 limitation）
+    """
+    print("\nTest F28: 残余 S（记录级轻症覆盖状态 + 共享状态如实限制说明）")
+    if pd is None:
+        import plan_designer as PD
+        PD = PD
+    else:
+        PD = pd
+
+    with open(os.path.join(SKILL_DIR, "references", "products.json"), encoding="utf-8") as _fh:
+        _PRODUCTS = json.load(_fh)["products"]
+    _NEEDS = {"death": 1000000, "critical_illness": 500000}
+
+    def _mutate_pool(highlights, other=""):
+        """把**所有**重疾险产品改成指定 highlights / 其它字段表述 → 返回产品池
+
+        ⚠ 必须 mutate **所有** type=重疾险 产品（含 is_active=false）：
+          design_standard_plan / design_premium_plan 选品时可能选中**非在售**品
+          （实测选中「国寿福终身寿险（庆典版）」is_active=false），
+          只 mutate 在售品 → 选中品未带证据 → 计划级断言**退化**。
+        """
+        pool = []
+        for _p in _PRODUCTS:
+            _q = dict(_p)
+            if (_q.get("type") or "") == "重疾险":
+                _q["highlights"] = highlights
+                _q["key_benefits"] = [highlights]
+                _q["notes"] = other
+                _q["suitable_for"] = ""
+                _q["weakness"] = []
+                _q["competitive_edge"] = ""
+            pool.append(_q)
+        return pool
+
+    def _plan(pool, kind):
+        if kind == "standard":
+            return PD.design_standard_plan(35, "男", 300000, 60000, _NEEDS, pool)
+        return PD.design_premium_plan(35, "男", 300000, 80000, _NEEDS, pool)
+
+    def _ci_entry(plan):
+        return next((e for e in plan.get("products", []) if e.get("type") == "重疾险"), None)
+
+    def _ci_limits(plan):
+        return [l for l in (plan.get("limitations") or [])
+                if isinstance(l, dict) and l.get("product_type") == "重疾险"]
+
+    def _claim_text(plan):
+        """方案里**对外宣称面**的文案（不含 limitations —— 限制说明里提到「轻症」是如实报告）"""
+        chunks = [str(plan.get("description") or "")]
+        for _e in plan.get("products", []):
+            chunks.append(str(_e.get("key_benefits") or ""))
+        for _f in plan.get("features", []):
+            chunks.append(str(_f))
+        return "\n".join(chunks)
+
+    # ==================================================================
+    # ① F28.1 轻症单独除外 → 共享状态的 limitation 必须非空（S-1）
+    # ==================================================================
+    _S1_HIGHLIGHTS = ["120种重疾，不保轻症", "120种重疾，不含轻症", "轻症保障除外，120种重疾"]
+    for _hl in _S1_HIGHLIGHTS:
+        _prod = {"name": "T", "type": "重疾险", "highlights": _hl, "key_benefits": [_hl]}
+        _st = PD._crx_ci_claim_state(_prod)
+        check(f"F28.1 轻症单独除外 → state.limitation 必须非空「{_hl}」",
+              isinstance(_st.get("limitation"), dict), f"实际 {_st.get('limitation')!r}")
+        check(f"F28.1 轻症单独除外 → state.unverified 且 not allowed「{_hl}」",
+              bool(_st.get("unverified")) and _st.get("allowed") is False,
+              f"实际 unverified={_st.get('unverified')} allowed={_st.get('allowed')}")
+        _kb_std = PD._crx_key_benefits(_prod, 500000, "standard")
+        _kb_pre = PD._crx_key_benefits(_prod, 500000, "premium")
+        check(f"F28.1 轻症单独除外 → key_benefits 必须为空串（standard）「{_hl}」",
+              _kb_std == "", f"实际 {_kb_std!r}")
+        check(f"F28.1 轻症单独除外 → key_benefits 必须为空串（premium）「{_hl}」",
+              _kb_pre == "", f"实际 {_kb_pre!r}")
+
+    # ==================================================================
+    # ② F28.2 轻症除外与「重疾类别级除外」的限制文案必须可区分（S-1）
+    #    + 必须澄清「预算可行 ≠ 保障已核实」
+    # ==================================================================
+    _mild_lim = PD._crx_ci_claim_state(
+        {"name": "T", "type": "重疾险", "highlights": "120种重疾，不保轻症"}).get("limitation")
+    _cat_lim = PD._crx_ci_claim_state(
+        {"name": "T", "type": "重疾险", "highlights": "120种重疾，重疾疾病不保"}).get("limitation")
+    check("F28.2 轻症单独除外必须产出限制说明", isinstance(_mild_lim, dict), f"实际 {_mild_lim!r}")
+    check("F28.2 重疾类别级除外必须产出限制说明", isinstance(_cat_lim, dict), f"实际 {_cat_lim!r}")
+    check("F28.2 轻症除外与重疾类别级除外文案必须可区分（official: distinguishing）",
+          isinstance(_mild_lim, dict) and isinstance(_cat_lim, dict)
+          and _mild_lim.get("reason") != _cat_lim.get("reason")
+          and _mild_lim.get("requirement") != _cat_lim.get("requirement"),
+          f"轻症={_mild_lim!r} 类别级={_cat_lim!r}")
+    check("F28.2 轻症限制说明须点明「轻症」",
+          isinstance(_mild_lim, dict) and "轻症" in (_mild_lim.get("reason") or ""),
+          f"实际 {_mild_lim!r}")
+    for _tag, _lim in (("轻症", _mild_lim), ("重疾类别级", _cat_lim)):
+        check(f"F28.2 {_tag}限制说明须澄清「预算可行 ≠ 保障已核实」",
+              isinstance(_lim, dict)
+              and "预算" in (_lim.get("reason") or "")
+              and "不代表保障范围已核实" in (_lim.get("reason") or ""),
+              f"实际 {_lim!r}")
+
+    # ==================================================================
+    # ③ ④ F28.3 端到端：轻症单独除外 → 标准版 / 全面版方案（S-1 e2e）
+    # ==================================================================
+    for _kind, _kind_cn in (("standard", "标准版"), ("premium", "全面版")):
+        _pl = _plan(_mutate_pool("120种重疾，不保轻症"), _kind)
+        _entry = _ci_entry(_pl)
+        _lims = _ci_limits(_pl)
+        check(f"F28.3 轻症单独除外 → {_kind_cn}方案的重疾条目不得宣称轻症",
+              _entry is None or "轻症" not in (_entry.get("key_benefits") or ""),
+              f"实际 kb={(_entry or {}).get('key_benefits')!r}")
+        _matched = [l for l in _lims
+                    if _entry is not None and l.get("product") == _entry.get("product_name")]
+        check(f"F28.3 轻症单独除外 → {_kind_cn}方案须对保留的重疾条目给出如实限制说明",
+              _entry is None or bool(_matched),
+              f"entry={_entry!r} limitations={_lims!r}")
+        check(f"F28.3 轻症单独除外 → {_kind_cn}方案的如实限制说明须点明「轻症」且待核实",
+              _entry is None or all("轻症" in (l.get("reason") or "")
+                                    and "待核实" in (l.get("reason") or "")
+                                    for l in _matched),
+              f"实际 {_matched!r}")
+        _txt = _claim_text(_pl)
+        check(f"F28.3 轻症单独除外 → {_kind_cn}方案不得出现肯定的重疾宣称",
+              "确诊即赔付" not in _txt, f"文案含肯定宣称")
+
+    # ==================================================================
+    # ⑤ F28.5 其它字段的不确定 / 条件表述 → 共享状态须判定为未经确认（S-2）
+    # ==================================================================
+    _S2_OTHER = ["轻症保障待核实", "轻症保障以实际条款为准",
+                 "轻症需满足特定条件方可赔付", "是否包含轻症保障待确认"]
+    for _other in _S2_OTHER:
+        _prod = {"name": "T", "type": "重疾险",
+                 "highlights": "120种重疾，含轻症保障",
+                 "key_benefits": ["120种重疾，含轻症保障"], "notes": _other}
+        _st = PD._crx_ci_claim_state(_prod)
+        check(f"F28.5 其它字段不确定/条件表述 → state 必须判定为未经确认「{_other}」",
+              _st.get("allowed") is False and bool(_st.get("unverified")),
+              f"actual state={_st!r}")
+        check(f"F28.5 其它字段不确定/条件表述 → state.limitation 必须非空「{_other}」",
+              isinstance(_st.get("limitation"), dict), f"实际 {_st.get('limitation')!r}")
+        check(f"F28.5 其它字段不确定/条件表述 → 不得宣称轻症「{_other}」",
+              "轻症" not in (PD._crx_key_benefits(_prod, 500000, "standard") or ""),
+              f"实际 {PD._crx_key_benefits(_prod, 500000, 'standard')!r}")
+        check(f"F28.5 其它字段不确定/条件表述 → 轻症宣称必须被压制（_crx_disease_claim）「{_other}」",
+              PD._crx_disease_claim(_prod) == "",
+              f"实际 {PD._crx_disease_claim(_prod)!r}")
+
+    # ==================================================================
+    # ⑥ F28.6 端到端：肯定 highlights + 其它字段不确定 / 条件表述（S-2 e2e）
+    # ==================================================================
+    for _kind, _kind_cn in (("standard", "标准版"), ("premium", "全面版")):
+        for _other in _S2_OTHER:
+            _pl = _plan(_mutate_pool("120种重疾，含轻症保障", _other), _kind)
+            _entry = _ci_entry(_pl)
+            _lims = _ci_limits(_pl)
+            _matched = [l for l in _lims
+                        if _entry is not None and l.get("product") == _entry.get("product_name")]
+            check(f"F28.6 肯定highlights + 其它字段待核实 → {_kind_cn}最终 JSON 不得广告无条件轻症保障「{_other}」",
+                  _entry is None or "轻症" not in (_entry.get("key_benefits") or ""),
+                  f"实际 kb={(_entry or {}).get('key_benefits')!r}")
+            _txt = _claim_text(_pl)
+            check(f"F28.6 肯定highlights + 其它字段待核实 → {_kind_cn}宣称面不得出现「轻症」或「确诊即赔付」「{_other}」",
+                  "轻症" not in _txt and "确诊即赔付" not in _txt,
+                  f"宣称面文案含轻症/确诊即赔付")
+            check(f"F28.6 肯定highlights + 其它字段待核实 → {_kind_cn}须给出如实限制说明「{_other}」",
+                  _entry is None or bool(_matched), f"limitations={_lims!r}")
+
+    # ==================================================================
+    # ⑦ F28.7 红线：其它字段提到轻症但**无**不确定/条件/除外语义 → 不得误伤
+    # ==================================================================
+    _BENIGN = ["40种轻症赔20%x6次", "轻症赔付比例25%", "被保险人轻症豁免"]
+    for _b in _BENIGN:
+        _prod = {"name": "T", "type": "重疾险", "highlights": "120种重疾+60种轻症",
+                 "key_benefits": ["120种重疾+60种轻症"], "notes": _b}
+        _st = PD._crx_ci_claim_state(_prod)
+        check(f"F28.7 红线：其它字段仅提到轻症不得被误判「{_b}」",
+              _st.get("allowed") is True and not _st.get("unverified"),
+              f"实际 state={_st!r}")
+        check(f"F28.7 红线：正常轻症宣称必须保留「{_b}」",
+              "轻症" in (PD._crx_key_benefits(_prod, 500000, "standard") or ""),
+              f"实际 {PD._crx_key_benefits(_prod, 500000, 'standard')!r}")
+    for _kind, _kind_cn in (("standard", "标准版"), ("premium", "全面版")):
+        _pl = _plan(_mutate_pool("120种重疾+60种轻症", "轻症赔付比例25%"), _kind)
+        _entry = _ci_entry(_pl)
+        _lims = _ci_limits(_pl)
+        # 红线口径 = **不得过度压制**：重疾条目须保留其正常卖点文案（未被置空），
+        #   且**不得**凭空产生轻症限制说明。
+        #   ⚠ standard 样式的卖点含「轻症」、premium 样式按设计**不**含「轻症」
+        #     （用「重疾多次赔付/终身保障」表述）→ 统一断言「非空 + 无轻症限制」。
+        check(f"F28.7 红线：{_kind_cn}方案的重疾条目卖点不得被过度压制（置空）",
+              _entry is None or bool(_entry.get("key_benefits")),
+              f"实际 kb={(_entry or {}).get('key_benefits')!r}")
+        check(f"F28.7 红线：{_kind_cn}方案不得凭空产生轻症限制说明",
+              not _lims, f"实际 limitations={_lims!r}")
+
+    # ==================================================================
+    # ⑧ F28.8 源码级防改回断言
+    # ==================================================================
+    src = open(os.path.join(SKILL_DIR, "scripts", "plan_designer.py"),
+               "r", encoding="utf-8").read()
+    check("F28.8 源码级：记录级轻症覆盖状态已实现", "def _crx_record_mild_state(" in src)
+    check("F28.8 源码级：轻症未确认限制文案函数已实现",
+          "def _crx_mild_unverified_limitation(" in src)
+    check("F28.8 源码级：轻症专属条件线索常量已定义", "_CRX_MILD_CONDITIONAL_RE" in src)
+    _i_state = src.find("def _crx_ci_claim_state(")
+    _i_mild = src.find("_crx_record_mild_state(product)", _i_state)
+    check("F28.8 源码级：共享状态必须消费记录级轻症覆盖状态",
+          _i_state != -1 and _i_mild != -1,
+          f"状态定义={_i_state} 记录级调用={_i_mild}")
+    check("F28.8 源码级：宣称面必须过记录级轻症状态闸",
+          '_crx_record_mild_state(product)["unverified"]' in src)
+    check("F28.8 源码级：两个 plan builder 都必须传导共享状态的 limitation",
+          src.count('_crx_ci_claim_state(crx_product).get("limitation")') == 2,
+          f"命中 {src.count('_crx_ci_claim_state(crx_product).get("limitation")')} 次")
+    check("F28.8 源码级：不得回退到只挂类别级限制",
+          "_crx_lim = _crx_ci_category_limitation(crx_product)" not in src)
+    return True
+
+
 def main():
     print("=" * 60)
     print("ClawHub 审计整改测试（任务 2 R4/R5/R6/R7 + 任务 3 SQP-3/SDI-3/SDI-4）")
@@ -4782,6 +5051,7 @@ def main():
     test_f25_residual_o_disease_count_record_gate()
     test_f26_residual_pq_subject_and_category_exclusion()
     test_f27_residual_r_shared_coverage_state()
+    test_f28_residual_s_shared_mild_state()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)

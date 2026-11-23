@@ -2828,6 +2828,10 @@ def _crx_disease_claim(product):
     # 官方 remediation：reconcile contradictory evidence throughout the product record
     if _crx_record_contradiction(product, "轻症"):
         return ""
+    # ⚠ 官方 SDI-4 残余 S-2：记录级轻症覆盖状态（**其它字段**里的除外 / 待核实 /
+    #   条件性表述）→ 不得只认 highlights 内的表述 → 轻症宣称必须压制。
+    if _crx_record_mild_state(product)["unverified"]:
+        return ""
     # 官方 SDI-4 残余 O：病种数**记录级**闸门
     #   （冲突病种数 / 病种数除外 / 病种数条件 / 病种数不确定 / 记录级矛盾）
     #   → 命中即返回空串 → 自动落回 `_crx_key_benefits` 降级路径
@@ -2900,9 +2904,158 @@ def _crx_ci_category_limitation(product):
         "product_type": "重疾险",
         "product": product.get("name"),
         "requirement": "重疾保障责任",
-        "reason": "产品记录中存在重疾类别级除外表述，重疾保障范围待核实，已不作对外宣称",
+        "reason": ("产品记录中存在重疾类别级除外表述，重疾保障范围待核实，已不作对外宣称；"
+                   "保费在预算内仅说明预算可行，不代表保障范围已核实"),
     }
 
+
+# ══════════════════════════════════════════════════════════════════════
+# 官方 SDI-4 残余 S（2026-11-23 线上复扫 · v2.4.33 · Excessive Agency · MEDIUM）
+#
+#   finding（china v2.4.33 · L2950-2959 · 原文）：
+#     "The shared critical-illness state omits the promised unverified limitation when
+#      mild-illness coverage is excluded."
+#   finding（ai v2.4.33 · L2825-2838 · 原文）：
+#     "Record-wide mild-illness conditions and uncertainty can be discarded when generating
+#      affirmative benefit claims."
+#
+#   explanation（china v2.4.33 · 原文）：
+#     "When mild-illness coverage is excluded, `_crx_ci_claim_state` sets `unverified=True`
+#      and `allowed=False`, but obtains its limitation exclusively from
+#      `_crx_ci_category_limitation`, which returns nothing unless critical-illness coverage
+#      itself has a category-level exclusion. Both plan builders likewise attach only
+#      category-level limitations, leaving an unverified product's premium and coverage in
+#      the plan without a corresponding explicit warning; this is particularly consequential
+#      in insurance advice, where users may mistake a budget-feasible plan for verified
+#      protection."
+#   explanation（ai v2.4.33 · 原文）：
+#     "Mild-illness conditions and uncertainty are checked in highlights, but the record-wide
+#      checks only reconcile explicit mild-illness exclusions or contradictions, not
+#      conditions and uncertainty elsewhere. For example, highlights stating
+#      「120种重疾，含轻症保障」 alongside another field stating 「轻症保障待核实」 can still
+#      produce 「120种重疾+轻症保障」. In an insurance-advice skill, this turns unresolved
+#      coverage evidence into an affirmative customer-facing benefit claim, potentially
+#      misleading purchase decisions."
+#
+#   remediation（china v2.4.33 · 原文）：
+#     "Return an explicit limitation whenever the shared state is unverified, distinguishing
+#      mild-illness exclusions from critical-illness category exclusions. Have both plan
+#      builders or the finalizer propagate that shared limitation into the final JSON for
+#      retained products, and clarify that budget feasibility does not establish coverage
+#      validity. Add end-to-end tests for mild-illness-only exclusions in both standard and
+#      comprehensive plans, checking that unsupported claims are suppressed and the explicit
+#      warning remains present."
+#   remediation（ai v2.4.33 · 原文）：
+#     "Compute a shared, record-wide mild-illness coverage state before generating claims,
+#      checking all relevant fields for exclusions, uncertainty, conditions, and conflicting
+#      evidence. Prefer validated, treatment-specific structured coverage decisions; preserve
+#      applicable conditions in output, or suppress the mild-illness claim and add an explicit
+#      unverified limitation when they cannot be reliably interpreted. Add end-to-end tests
+#      pairing affirmative highlights with conditional or uncertain mild-illness statements in
+#      other fields, asserting that final JSON does not advertise unconditional mild-illness
+#      coverage."
+#
+# 本轮修法（三处，缺一不可）：
+#   ① 记录级「轻症覆盖状态」`_crx_record_mild_state`（**单一事实源**）：扫描
+#      **全部文本叶子**（`_product_text_leaves`）的轻症相关子句，覆盖
+#      除外 / 不确定 / 条件 / 矛盾 四类证据（官方 S-2 明确要求）。
+#      → 修掉「其它字段的待核实/条件表述被丢弃 → 仍产出「120种重疾+轻症保障」」。
+#   ② 共享状态 `_crx_ci_claim_state` 在 `unverified` 时**必须**返回非空 limitation，
+#      且轻症除外与重疾**类别级**除外**可区分**（官方 S-1 明确要求 distinguishing）。
+#   ③ 两个 plan builder 用**共享状态**的 limitation 传导进最终 JSON
+#      （官方 S-1："propagate that shared limitation into the final JSON"）。
+# ══════════════════════════════════════════════════════════════════════
+
+# 轻症专属的「条件性」线索（记录级轻症覆盖状态专用）
+#   ⚠ 通用 `_CONDITION_MARKERS` 只含「满足条件」等**紧邻**写法，
+#     「轻症需满足特定条件方可赔付」这类**带填充词**的写法不命中 → 轻症专属线索表补齐。
+#   ⚠ 语料实测（两库各 2588 款 products.json · 含「轻症」的子句共 2490 个）：
+#     命中本正则的 **0** 个 → 对真实语料零影响，只针对扫描器的**对抗样本**生效。
+_CRX_MILD_CONDITIONAL_RE = re.compile(
+    r"(需|须|应|必须|符合|满足|达到|限于|限定|仅限|只限)[^，,。；;！!？?\n]{0,4}条件")
+
+
+def _crx_record_mild_state(product):
+    """记录级「轻症保障覆盖状态」→ dict（残余 S 的单一事实源）
+
+    官方 SDI-4 残余 S-2（ai v2.4.33 · 原文）：
+      "Compute a shared, record-wide mild-illness coverage state before generating claims,
+       checking all relevant fields for exclusions, uncertainty, conditions, and conflicting
+       evidence. Prefer validated, treatment-specific structured coverage decisions; preserve
+       applicable conditions in output, or suppress the mild-illness claim and add an explicit
+       unverified limitation when they cannot be reliably interpreted."
+
+    口径（扫描**全部文本叶子** `_product_text_leaves`，**逐子句**判定 · 与「轻症」
+    **同子句**才算数 —— 沿用残余 K「不确定/条件必须与相关对象同子句」的既有口径）：
+      ① 除外     → `_crx_record_mild_excluded`（记录级双向除外判定）
+      ② 不确定   → `_has_uncertainty`（待核实 / 是否 / 以…为准 …）
+      ③ 条件     → `_has_condition` + `_CRX_MILD_CONDITIONAL_RE`（需满足特定条件 …）
+      ④ 矛盾     → `_crx_record_contradiction(product, "轻症")`（肯定承保 + 除外并存）
+
+    返回：
+      {
+        "excluded":   bool,  # ① 记录级轻症除外
+        "uncertain":  bool,  # ②③ 记录级轻症待核实 / 条件性表述
+        "conflict":   bool,  # ④ 记录级轻症矛盾
+        "unverified": bool,  # ①②③④ 任一命中 → 轻症保障未经确认
+      }
+    """
+    excluded = bool(_crx_record_mild_excluded(product))
+    uncertain = False
+    for text in _product_text_leaves(product):
+        if not isinstance(text, str) or "轻症" not in text:
+            continue
+        for clause in _split_clauses(text):
+            if "轻症" not in clause:
+                continue
+            if _has_uncertainty(clause, 0, len(clause)):
+                uncertain = True
+            elif _has_condition(clause, 0, len(clause)):
+                uncertain = True
+            elif _CRX_MILD_CONDITIONAL_RE.search(clause):
+                uncertain = True
+    conflict = bool(_crx_record_contradiction(product, "轻症"))
+    return {
+        "excluded": excluded,
+        "uncertain": uncertain,
+        "conflict": conflict,
+        "unverified": bool(excluded or uncertain or conflict),
+    }
+
+
+def _crx_mild_unverified_limitation(product, mild_state=None):
+    """轻症保障**记录级未经确认**时的如实限制说明 → dict | None
+
+    官方 SDI-4 残余 S-1（china v2.4.33 · 原文）：
+      "Return an explicit limitation whenever the shared state is unverified, distinguishing
+       mild-illness exclusions from critical-illness category exclusions. Have both plan
+       builders or the finalizer propagate that shared limitation into the final JSON for
+       retained products, and clarify that budget feasibility does not establish coverage
+       validity."
+
+    ⚠ 与 `_crx_ci_category_limitation`（重疾**类别级**除外）的 reason **必须可区分**
+      （官方 remediation 原文要求 distinguishing）。
+    ⚠ 文案**不得**断言被除外 / 未经证实的保障（只如实报告「记录中的表述 + 待核实
+      + 不作对外宣称」）。
+    ⚠ 官方要求明确「预算可行 ≠ 保障已核实」→ reason 末尾如实点明。
+    """
+    if not product:
+        return None
+    st = mild_state if mild_state is not None else _crx_record_mild_state(product)
+    if not st.get("unverified"):
+        return None
+    if st.get("excluded"):
+        basis = "产品记录中存在轻症保障除外表述"
+    else:
+        basis = "产品记录中轻症保障存在待核实或条件性表述"
+    return {
+        "type": "coverage_limit",
+        "product_type": "重疾险",
+        "product": product.get("name"),
+        "requirement": "轻症保障责任",
+        "reason": (basis + "，轻症保障范围待核实，已不作对外宣称；"
+                   "保费在预算内仅说明预算可行，不代表保障范围已核实"),
+    }
 
 def _crx_record_mild_excluded(product):
     """产品记录内是否存在**明确指向轻症**的除外表述（记录级）→ True
@@ -2948,10 +3101,18 @@ def _crx_ci_claim_state(product):
       }
     """
     excluded = bool(_crx_record_ci_category_excluded(product))
+    # ⚠ 官方 SDI-4 残余 S-2：记录级轻症覆盖状态（除外 / 待核实 / 条件 / 矛盾）
+    #   必须在**任何轻症/重疾宣称生成之前**算出 → 单一事实源。
+    mild = _crx_record_mild_state(product)
     unverified = False
     if not excluded:
-        unverified = bool(_crx_record_mild_excluded(product))
+        unverified = bool(mild["unverified"])
     limitation = _crx_ci_category_limitation(product)
+    if limitation is None and unverified:
+        # ⚠ 官方 SDI-4 残余 S-1：共享状态 `unverified` 时**必须**返回非空 limitation
+        #   （轻症**单独**除外时不得返回 None → 方案层不得静默），且须与
+        #   「重疾类别级除外」的限制文案**可区分**。
+        limitation = _crx_mild_unverified_limitation(product, mild)
     return {
         "excluded": excluded,
         "unverified": unverified,
@@ -4036,7 +4197,9 @@ def design_standard_plan(age, gender, annual_income, annual_budget, coverage_nee
             "key_benefits": _crx_key_benefits(crx_product, crx_coverage, "standard")
         })
         # ⚠️ 官方 SDI-4 残余 Q：类别级重疾除外 → 兜底文案已置空 → 如实报告限制
-        _crx_lim = _crx_ci_category_limitation(crx_product)
+        # ⚠️ 官方 SDI-4 残余 Q + 残余 S-1：统一取**共享状态**的 limitation
+        #   （类别级除外 / 轻症单独除外 / 轻症待核实 —— 统一如实报告，不得静默）
+        _crx_lim = _crx_ci_claim_state(crx_product).get("limitation")
         if _crx_lim:
             plan.setdefault("limitations", []).append(_crx_lim)
         plan["annual_premium"] += crx_premium
@@ -4189,7 +4352,9 @@ def design_premium_plan(age, gender, annual_income, annual_budget, coverage_need
             "key_benefits": _crx_key_benefits(crx_product, crx_coverage, "premium")
         })
         # ⚠️ 官方 SDI-4 残余 Q：类别级重疾除外 → 如实报告限制
-        _crx_lim = _crx_ci_category_limitation(crx_product)
+        # ⚠️ 官方 SDI-4 残余 Q + 残余 S-1：统一取**共享状态**的 limitation
+        #   （类别级除外 / 轻症单独除外 / 轻症待核实 —— 统一如实报告，不得静默）
+        _crx_lim = _crx_ci_claim_state(crx_product).get("limitation")
         if _crx_lim:
             plan.setdefault("limitations", []).append(_crx_lim)
         plan["annual_premium"] += crx_premium
