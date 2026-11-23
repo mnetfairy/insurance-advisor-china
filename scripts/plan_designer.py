@@ -2079,6 +2079,11 @@ _CRX_WEAK_TAIL_FORMS = (
     "无限制", "无承保", "无保单", "无豁免", "无附加",
 )
 # 除外标记若指向**另一个保障对象** → 该除外与 subject 无关
+#
+# ⚠ 官方 SDI-4 残余 P（remediation 后半句）落地后，本表**只服务于非「症」主体**
+#   （= 「120种重疾」等**病种数**主体）路径，且口径**保持不变**（避免口径漂移）。
+#   「症」结尾主体（轻症路径）改用**分层口径**：Tier A 确凿对象 / Tier B 泛用词
+#   → 见 `_CRX_DISTINCT_OBJECT_CUES` / `_CRX_GENERIC_CUE_WORDS`。
 _CRX_OTHER_OBJECT_CUES = (
     "住院津贴", "津贴", "身故", "死亡", "全残", "伤残", "豁免", "等待期",
     "犹豫期", "护理", "年金", "现金价值", "满期", "返还", "增值", "保费",
@@ -2217,15 +2222,148 @@ def _crx_strip_subject_own_payment(gap):
     return out
 
 
+# ══════════════════════════════════════════════════════════════════════
+# 官方 SDI-4 残余 P · remediation **后半句**（2026-11-24 落地）
+#
+#   官方 remediation（china v2.4.30 · 逐字原文）：
+#     "Normalize coverage subjects and their extensions, such as 「轻症」and
+#      「轻症疾病」, before resolving exclusion scope. Require evidence of a
+#      genuinely distinct coverage object rather than accepting any generic
+#      cue substring; suppress claims when the exclusion target is ambiguous.
+#      Add tests for post-subject exclusions, subject extensions, and
+#      contradictory fields, checking final plan benefits rather than only
+#      helper outputs."
+#
+#   未落地部分（本次修）：`_crx_gap_targets_other_object()` 只要 gap 里出现
+#   **任意一个** `_CRX_OTHER_OBJECT_CUES` 子串就判定「指向别的保障对象」
+#   → 该除外标记与 subject 无关 → 除外被跳过 → 轻症仍被肯定宣称（泄漏）。
+#   而 `_CRX_OTHER_OBJECT_CUES` 混入了大量**泛用词 / 政策词**
+#   （疾病 / 给付 / 医疗 / 住院 / 费用 / 保费 / 等待期 …）→
+#   「轻症医疗保障不保」「轻症费用不赔」这类**明确针对轻症**的除外
+#   会被误当成「指向别的保障对象」→ 除外被跳过 → 轻症仍被宣称。
+#
+#   修法（官方口径落地）：
+#     ① gap 必须命中 **Tier A · 确凿的独立保障对象** 才算「指向别的保障对象」；
+#        只命中 **Tier B · 泛用词 / 政策词**（或完全不认识）→ **歧义**
+#        → 官方口径「suppress claims when the exclusion target is ambiguous」
+#        → 判定为**对 subject 的除外** → 压制轻症宣称。
+#     ② 主体**自身的延伸措辞**（疾病 / 给付 / 保险金 / 赔付 / 责任 / 保障 …）
+#        在 gap 判定前先剔除（官方口径「Normalize coverage subjects and
+#        their extensions」）。
+#
+#   ⚠ 与**病种数**路径的口径差异（官方对此敏感 · 必须写清）：
+#     · 病种数路径（`_crx_clause_excludes_disease_count` +
+#       `_crx_count_object_is_other`）判的是「除外标记**之后**的宾语是否指向
+#       别的对象」，其线索表 `_CRX_COUNT_OTHER_OBJECT_CUES` 建表时已**剔除**
+#       「重疾 / 疾病 / 给付」（病种数自身的给付对象不能算别的对象）；
+#     · 轻症主体路径（`_crx_subject_gap_targets_other_object`）判的是
+#       「主体与除外标记之间的**缺口**是否指向别的对象」，且**必须**命中
+#       Tier A 确凿对象才算证据（泛用词**不**算证据）；
+#     · 两条路径**口径不同且各自保持不变** —— 本轮**不动**病种数路径
+#       （避免口径漂移引发新回归）。
+# ══════════════════════════════════════════════════════════════════════
+
+# Tier A：**确凿的独立保障对象**（命中其一 ⇒ 该除外确实指向别的保障对象）
+#   收录标准：① 该词本身就是**另一个险种 / 保障责任**的名称；
+#            ② **不可能**是「轻症」这个 coverage subject 的自身措辞
+#               （自身措辞 = 疾病 / 给付 / 保险金 / 赔付 / 责任 / 保障 …）。
+#   ⚠ 多字短语必须**显式**收录 —— 剥离主体自身措辞时不得吃掉区分性成分：
+#     「住院医疗」→ 剥「医疗」后仍剩「住院」✓、「意外医疗」→ 仍剩「意外」✓。
+_CRX_DISTINCT_OBJECT_CUES = (
+    # ── 多字短语（区分性成分优先）──
+    "住院津贴", "住院医疗", "住院费用", "住院观察",
+    "意外医疗", "意外伤害", "意外身故", "意外伤残", "意外死亡",
+    "医疗费用", "百万医疗", "门急诊", "门诊医疗", "门诊费用",
+    "特药费用", "特定药品", "特殊药品", "疾病终末期",
+    # ── 独立保障对象 / 险种名词（不可能是「轻症」的自身措辞）──
+    "津贴", "身故", "死亡", "全残", "伤残", "残疾", "豁免",
+    "护理", "年金", "现金价值", "满期", "返还", "增值",
+    "分红", "万能", "账户", "储蓄", "寿险", "定寿",
+    "住院", "意外", "门诊", "手术", "药品", "特药",
+    "交通", "救护", "康复", "母婴", "生育", "体检", "牙齿",
+    "重疾", "重大疾病", "中症",
+)
+# Tier B：**泛用词 / 政策词**（**单独**出现**不构成**「别的保障对象」的证据）
+#   官方口径：generic cue substring **不得**被当成「指向别的保障对象」的证据。
+_CRX_GENERIC_CUE_WORDS = (
+    # 主体自身的措辞（部分已由 own-payment / own-extension 表先行剔除）
+    "疾病", "特定疾病", "给付", "保险金", "赔付", "责任", "保障",
+    # 泛用业务词
+    "费用", "保费", "保额", "保险", "医疗", "范围", "条件", "标准", "比例", "金额",
+    # 政策 / 流程词
+    "等待期", "犹豫期", "续保", "投保", "地区", "城市", "医院", "职业",
+    "免赔额", "免赔", "核保", "等待", "生效",
+)
+# 主体**自身**的延伸措辞（coverage subject 的 extension）
+#   官方口径：「Normalize coverage subjects and their extensions」
+#   ⚠ 这类词**不得**计入 Tier A 判定（否则「轻症保障」「轻症保险」会被当成
+#     别的保障对象 → 除外被跳过 → 泄漏）。
+_CRX_SUBJECT_OWN_EXTENSION_CUES = ("保障", "保险")
+
+
+def _crx_strip_subject_own_extension(gap):
+    """剔除 gap 段中属于**主体自身**的延伸措辞（保障 / 保险 …）
+
+    ⇒ 剔除后仍含「确凿的独立保障对象」才算指向别的对象：
+      「医疗保障」 → 「医疗」     → 只是泛用词 → **歧义** → 判为对轻症的除外 ✓
+      「住院保障」 → 「住院」     → 仍是别的保障对象 ✓（不误伤）
+      「意外医疗」 → 「意外医疗」 → 仍是别的保障对象 ✓（不误伤）
+    """
+    if not gap:
+        return ""
+    out = gap
+    for cue in _CRX_SUBJECT_OWN_EXTENSION_CUES:
+        if cue in out:
+            out = out.replace(cue, "")
+    return out
+
+
+def _crx_gap_object_evidence(gap):
+    """gap 段的「指向别的保障对象」证据分类 → "distinct" | "generic" | "unknown"
+
+    官方 remediation（逐字）：
+      "Require evidence of a genuinely distinct coverage object rather than
+       accepting any generic cue substring; suppress claims when the
+       exclusion target is ambiguous."
+
+    · "distinct" → gap 命中 Tier A（**确凿的独立保障对象**）→ 该除外指向别的对象
+    · "generic"  → gap 只含 Tier B 泛用词 / 政策词 → **不构成**证据 → 歧义
+    · "unknown"  → gap 既非确凿对象、也非已知泛用词 → 同样**不构成**证据 → 歧义
+    ⚠ 「generic」与「unknown」都**不构成**证据 → 官方口径「歧义时压制宣称」。
+    """
+    if not gap:
+        return "unknown"
+    stripped = _crx_strip_subject_own_payment(gap)
+    stripped = _crx_strip_subject_own_extension(stripped)
+    if not stripped:
+        return "unknown"
+    for cue in _CRX_DISTINCT_OBJECT_CUES:
+        if cue in stripped:
+            return "distinct"
+    for cue in _CRX_GENERIC_CUE_WORDS:
+        if cue in stripped:
+            return "generic"
+    return "unknown"
+
+
 def _crx_subject_gap_targets_other_object(gap, subject):
-    """gap 段是否指向**另一个保障对象**（**主体自身**给付措辞先剔除）
+    """gap 段是否指向**另一个保障对象**（**主体自身**措辞先剔除 + 须有**确凿**证据）
 
     ⚠ 只对「轻症」类主体（以「症」结尾）生效 ——
       「N种重疾」等病种数主体走**病种数专属**口径
       （`_crx_count_object_is_other`），不受本口径影响（避免口径漂移）。
+
+    官方口径（残余 P · remediation 后半句 · 逐字）：
+      "Require evidence of a genuinely distinct coverage object rather than
+       accepting any generic cue substring; suppress claims when the
+       exclusion target is ambiguous."
+    → 「症」结尾主体（轻症路径）：gap 必须命中 Tier A **确凿的独立保障对象**
+      才算「指向别的保障对象」；只命中泛用词 / 不认识 → **歧义** → False
+      （= 该除外视为针对本主体 → 压制轻症宣称）。
+    → 非「症」主体（病种数路径）：沿用既有 `_CRX_OTHER_OBJECT_CUES` 口径（**不动**）。
     """
     if subject and subject.endswith("症"):
-        gap = _crx_strip_subject_own_payment(gap)
+        return _crx_gap_object_evidence(gap) == "distinct"
     return _crx_gap_targets_other_object(gap)
 
 

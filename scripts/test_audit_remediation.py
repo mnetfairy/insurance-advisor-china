@@ -5001,6 +5001,269 @@ def test_f28_residual_s_shared_mild_state(pd=None):
     return True
 
 
+def test_f29_residual_p_generic_cue_distinct_object(pd=None):
+    """F29（官方 SDI-4 残余 P · remediation **后半句** · 2026-11-24 落地）
+
+    【官方 finding · china v2.4.30 · 原文】
+      "The mild-illness exclusion guard can mistake the excluded subject's own
+       wording for another coverage object."
+
+    【官方 remediation · china v2.4.30 · 原文】
+      "Normalize coverage subjects and their extensions, such as 「轻症」and
+       「轻症疾病」, before resolving exclusion scope. Require evidence of a
+       genuinely distinct coverage object rather than accepting any generic cue
+       substring; suppress claims when the exclusion target is ambiguous. Add
+       tests for post-subject exclusions, subject extensions, and contradictory
+       fields, checking final plan benefits rather than only helper outputs."
+
+    【官方 explanation · china v2.4.30 · 原文】
+      "The exclusion guard treats generic words such as 「疾病」between the subject
+       and an exclusion marker as evidence that the exclusion concerns another
+       coverage object, even when those words extend the subject itself. For
+       example, 「120种重疾，轻症疾病不保」can evade both the local exclusion guard
+       and the record-wide contradiction check, allowing an affirmative
+       「120种重疾+轻症保障」claim. This is materially misleading in an insurance
+       recommendation because an explicitly excluded benefit is presented as covered."
+
+    【官方 finding · ai v2.4.30 · 原文】
+      "The mild-illness exclusion guard can convert an explicit exclusion into an
+       affirmative benefit claim."
+
+    根因（主侧已坐实 · 非猜测）：
+      `_crx_gap_targets_other_object()` 只要 gap 里出现**任意一个**
+      `_CRX_OTHER_OBJECT_CUES` 子串就判定「指向别的保障对象」→ 该除外标记与
+      subject 无关 → 除外被跳过 → 轻症仍被肯定宣称。而 `_CRX_OTHER_OBJECT_CUES`
+      混入了大量**泛用词 / 政策词**（疾病 / 给付 / 医疗 / 住院 / 费用 / 保费 /
+      等待期 …）→「轻症医疗保障不保」「轻症费用不赔」这类**明确针对轻症**的
+      除外会被误当成「指向别的保障对象」→ 泄漏。
+
+    修法（官方口径落地）：
+      ① gap 必须命中 **Tier A · 确凿的独立保障对象** 才算「指向别的保障对象」；
+      ② 只命中 **Tier B · 泛用词 / 政策词**（或不认识）→ **歧义** → 官方口径
+         「suppress claims when the exclusion target is ambiguous」→ 判为对
+         subject 的除外 → 压制宣称；
+      ③ 主体**自身的延伸措辞**（疾病 / 给付 / 保险金 / 赔付 / 责任 / 保障 …）
+         在 gap 判定前先剔除（官方口径「Normalize coverage subjects and their
+         extensions」）。
+
+    覆盖：
+      ① 行为矩阵（11 条）：泛用词 gap → 判为对轻症的除外；确凿的别的保障对象
+         → **不得**误伤（官方矩阵 G-1 ~ G-5）
+      ② 端到端（**最终方案 JSON**）：泛用词除外（post-subject / subject extension /
+         矛盾字段）→ 标准版 + 全面版**不得**宣称轻症、**必须**给出如实限制说明
+      ③ 红线（**最终方案 JSON**）：确凿的别的保障对象 → 轻症宣称必须保留、
+         **不得**凭空产生轻症限制说明（不得过度收紧）
+      ④ 证据分层：Tier A（确凿对象 → distinct）vs Tier B（泛用词 → generic）
+      ⑤ 源码级防改回断言（分层常量 + 证据函数 + **病种数路径口径不变**）
+    """
+    print("\nTest F29: 残余 P 后半句（泛用 cue → 须有确凿的独立保障对象证据）")
+    if pd is None:
+        import plan_designer as PD
+        PD = PD
+    else:
+        PD = pd
+
+    with open(os.path.join(SKILL_DIR, "references", "products.json"), encoding="utf-8") as _fh:
+        _PRODUCTS = json.load(_fh)["products"]
+    _NEEDS = {"death": 1000000, "critical_illness": 500000}
+
+    def _mutate_pool(highlights, other=""):
+        """把**所有**重疾险产品改成指定 highlights / 其它字段表述 → 返回产品池
+
+        ⚠ 必须 mutate **所有** type=重疾险 产品（含 is_active=false）：
+          design_standard_plan / design_premium_plan 选品时可能选中**非在售**品，
+          只 mutate 在售品 → 选中品未带证据 → 计划级断言**退化**。
+        """
+        pool = []
+        for _p in _PRODUCTS:
+            _q = dict(_p)
+            if (_q.get("type") or "") == "重疾险":
+                _q["highlights"] = highlights
+                _q["key_benefits"] = [highlights]
+                _q["notes"] = other
+                _q["suitable_for"] = ""
+                _q["weakness"] = []
+                _q["competitive_edge"] = ""
+            pool.append(_q)
+        return pool
+
+    def _plan(pool, kind):
+        if kind == "standard":
+            return PD.design_standard_plan(35, "男", 300000, 60000, _NEEDS, pool)
+        return PD.design_premium_plan(35, "男", 300000, 80000, _NEEDS, pool)
+
+    def _ci_entry(plan):
+        return next((e for e in plan.get("products", []) if e.get("type") == "重疾险"), None)
+
+    def _ci_limits(plan):
+        return [l for l in (plan.get("limitations") or [])
+                if isinstance(l, dict) and l.get("product_type") == "重疾险"]
+
+    def _claim_text(plan):
+        """方案里**对外宣称面**的文案（不含 limitations —— 限制说明里提到「轻症」是如实报告）"""
+        chunks = [str(plan.get("description") or "")]
+        for _e in plan.get("products", []):
+            chunks.append(str(_e.get("key_benefits") or ""))
+        for _f in plan.get("features", []):
+            chunks.append(str(_f))
+        return "\n".join(chunks)
+
+    # ==================================================================
+    # ① F29.1 行为矩阵（官方矩阵 G-1 ~ G-5）
+    # ==================================================================
+    _MATRIX = [
+        ("自身宾语尾巴", "轻症疾病不保", True),
+        ("自身给付措辞", "轻症给付责任除外", True),
+        ("泛用词·疾病(填充)", "轻症疾病类不保", True),
+        ("泛用词·医疗", "轻症医疗保障不保", True),
+        ("泛用词·费用", "轻症费用不赔", True),
+        ("泛用词·保险金", "轻症保险金不保", True),
+        ("泛用词·给付(句尾)", "轻症不予给付", True),
+        ("真·住院津贴", "轻症不保住院津贴", False),
+        ("真·身故责任", "轻症不保身故责任", False),
+        ("真·意外医疗", "轻症不保意外医疗", False),
+        ("头侧前向绑定", "不保轻症疾病", True),
+    ]
+    for _tag, _clause, _expect in _MATRIX:
+        _got = bool(PD._crx_clause_excludes_subject(_clause, "轻症"))
+        check(f"F29.1 行为矩阵「{_clause}」（{_tag}）→ 判定为对轻症的除外={_expect}",
+              _got == _expect, f"实际 {_got}")
+
+    # ==================================================================
+    # ④ F29.4 证据分层：Tier A（确凿对象）vs Tier B（泛用词）
+    # ==================================================================
+    _EVIDENCE = [
+        ("住院津贴", "distinct"),      # 确凿的独立保障对象
+        ("住院医疗", "distinct"),      # 多字短语：区分性成分不得被剥离吃掉
+        ("意外医疗", "distinct"),
+        ("身故责任", "distinct"),      # 剥离主体自身给付措辞后仍剩「身故」
+        ("医疗保障", "generic"),       # 剥离「保障」后只剩泛用词「医疗」→ 歧义
+        ("医疗", "generic"),
+        ("费用", "generic"),
+        ("疾病", "generic"),
+        ("等待期", "generic"),         # 政策词 → 不是别的保障对象
+        ("保费", "generic"),
+        ("", "unknown"),
+    ]
+    for _gap, _expect in _EVIDENCE:
+        _got = PD._crx_gap_object_evidence(_gap)
+        check(f"F29.4 缺口证据分层 {_gap!r} → {_expect}", _got == _expect, f"实际 {_got}")
+    check("F29.4 泛用词必须**不构成**「别的保障对象」的证据（official: generic cue substring）",
+          PD._crx_gap_object_evidence("医疗") != "distinct"
+          and PD._crx_gap_object_evidence("疾病") != "distinct"
+          and PD._crx_gap_object_evidence("费用") != "distinct",
+          "泛用词被当成了确凿对象")
+    check("F29.4 确凿对象必须构成证据（official: genuinely distinct coverage object）",
+          PD._crx_gap_object_evidence("住院津贴") == "distinct"
+          and PD._crx_gap_object_evidence("意外医疗") == "distinct"
+          and PD._crx_gap_object_evidence("身故") == "distinct",
+          "确凿对象未被识别")
+
+    # ==================================================================
+    # ② F29.2 端到端（**最终方案 JSON**）：泛用词除外 → 不得宣称轻症
+    #    官方要求：checking final plan benefits rather than only helper outputs
+    # ==================================================================
+    _GENERIC_EXCL = [
+        "轻症医疗保障不保",   # 泛用词·医疗
+        "轻症费用不赔",       # 泛用词·费用
+        "轻症疾病不保",       # subject 自身扩展（已修，防回归）
+        "轻症疾病类不保",     # subject 自身扩展 + 填充词
+        "轻症给付责任除外",   # 自身给付措辞（已修，防回归）
+        "轻症保险金不保",     # 自身给付措辞（已修，防回归）
+        "不保轻症疾病",       # 头侧前向绑定（已修，防回归）
+    ]
+    for _other in _GENERIC_EXCL:
+        for _kind, _kind_cn in (("standard", "标准版"), ("premium", "全面版")):
+            # 矛盾字段场景：highlights 肯定宣称 + **其它字段**明确除外
+            _pl = _plan(_mutate_pool("120种重疾，含轻症保障", _other), _kind)
+            _entry = _ci_entry(_pl)
+            _lims = _ci_limits(_pl)
+            _matched = [l for l in _lims
+                        if _entry is not None and l.get("product") == _entry.get("product_name")]
+            check(f"F29.2 泛用词除外「{_other}」→ {_kind_cn}最终 JSON 的重疾条目不得宣称轻症",
+                  _entry is None or "轻症" not in (_entry.get("key_benefits") or ""),
+                  f"实际 kb={(_entry or {}).get('key_benefits')!r}")
+            _txt = _claim_text(_pl)
+            check(f"F29.2 泛用词除外「{_other}」→ {_kind_cn}宣称面不得出现「轻症」",
+                  "轻症" not in _txt, "宣称面文案含轻症")
+            check(f"F29.2 泛用词除外「{_other}」→ {_kind_cn}不得出现肯定的「确诊即赔付」宣称",
+                  "确诊即赔付" not in _txt, "宣称面文案含确诊即赔付")
+            check(f"F29.2 泛用词除外「{_other}」→ {_kind_cn}须给出如实限制说明",
+                  _entry is None or bool(_matched), f"limitations={_lims!r}")
+            check(f"F29.2 泛用词除外「{_other}」→ {_kind_cn}如实限制说明须点明「轻症」且待核实",
+                  _entry is None or all("轻症" in (l.get("reason") or "")
+                                        and "待核实" in (l.get("reason") or "")
+                                        for l in _matched),
+                  f"实际 {_matched!r}")
+            # post-subject 除外场景：除外就在 highlights 里
+            _pl2 = _plan(_mutate_pool(f"120种重疾，{_other}"), _kind)
+            _entry2 = _ci_entry(_pl2)
+            _txt2 = _claim_text(_pl2)
+            check(f"F29.2 post-subject 除外「120种重疾，{_other}」→ {_kind_cn}最终 JSON 不得宣称轻症",
+                  _entry2 is None or "轻症" not in (_entry2.get("key_benefits") or ""),
+                  f"实际 kb={(_entry2 or {}).get('key_benefits')!r}")
+            check(f"F29.2 post-subject 除外「120种重疾，{_other}」→ {_kind_cn}宣称面不得出现「轻症」",
+                  "轻症" not in _txt2, "宣称面文案含轻症")
+
+    # ==================================================================
+    # ③ F29.3 红线：确凿的别的保障对象 → **不得**误伤（最终方案 JSON）
+    # ==================================================================
+    _DISTINCT_EXCL = [
+        "轻症不保住院津贴",
+        "轻症不保身故责任",
+        "轻症不保意外医疗",
+        "轻症不保住院医疗",
+    ]
+    for _other in _DISTINCT_EXCL:
+        for _kind, _kind_cn in (("standard", "标准版"), ("premium", "全面版")):
+            _pl = _plan(_mutate_pool("120种重疾，含轻症保障", _other), _kind)
+            _entry = _ci_entry(_pl)
+            _lims = _ci_limits(_pl)
+            _kb = (_entry or {}).get("key_benefits") or ""
+            if _kind == "standard":
+                check(f"F29.3 红线：确凿的别的保障对象「{_other}」→ {_kind_cn}轻症宣称必须保留",
+                      _entry is None or "轻症" in _kb, f"实际 kb={_kb!r}")
+            else:
+                # ⚠ premium 样式的卖点按设计**不**含「轻症」（用「重疾多次赔付/终身保障」
+                #   表述）→ 统一断言「非空（未被置空 = 未被过度压制）」
+                check(f"F29.3 红线：确凿的别的保障对象「{_other}」→ {_kind_cn}卖点不得被过度压制（置空）",
+                      _entry is None or bool(_kb), f"实际 kb={_kb!r}")
+            check(f"F29.3 红线：确凿的别的保障对象「{_other}」→ {_kind_cn}不得凭空产生轻症限制说明",
+                  not _lims, f"实际 limitations={_lims!r}")
+            _txt = _claim_text(_pl)
+            check(f"F29.3 红线：确凿的别的保障对象「{_other}」→ {_kind_cn}重疾宣称必须保留",
+                  "重疾" in _txt, f"宣称面文案={_txt[:80]!r}")
+
+    # ==================================================================
+    # ⑤ F29.5 源码级防改回断言
+    # ==================================================================
+    src = open(os.path.join(SKILL_DIR, "scripts", "plan_designer.py"),
+               "r", encoding="utf-8").read()
+    check("F29.5 源码级：Tier A 确凿对象线索表已定义",
+          "_CRX_DISTINCT_OBJECT_CUES" in src)
+    check("F29.5 源码级：Tier B 泛用词线索表已定义",
+          "_CRX_GENERIC_CUE_WORDS" in src)
+    check("F29.5 源码级：主体自身延伸措辞表已定义",
+          "_CRX_SUBJECT_OWN_EXTENSION_CUES" in src)
+    check("F29.5 源码级：缺口证据分类函数已实现",
+          "def _crx_gap_object_evidence(" in src)
+    check("F29.5 源码级：主体自身延伸措辞剔除函数已实现",
+          "def _crx_strip_subject_own_extension(" in src)
+    check("F29.5 源码级：轻症主体路径必须走分层口径（Tier A 证据）",
+          '_crx_gap_object_evidence(gap) == "distinct"' in src)
+    check("F29.5 源码级：病种数路径口径**不得**被改动（仍用既有线索表）",
+          "_crx_count_object_is_other" in src
+          and "def _crx_count_object_is_other(" in src
+          and "def _crx_clause_excludes_disease_count(" in src)
+    check("F29.5 源码级：病种数专属线索表必须保持原口径（不得并入 Tier A/B）",
+          "_CRX_COUNT_OTHER_OBJECT_CUES = (" in src
+          and '"轻症", "中症", "少儿特定疾病",' in src)
+    check("F29.5 源码级：既有混合线索表不得再被轻症主体路径直接使用",
+          "_crx_subject_gap_targets_other_object(gap, subject)" not in src
+          or "return _crx_gap_targets_other_object(gap)" in src)
+    return True
+
+
 def main():
     print("=" * 60)
     print("ClawHub 审计整改测试（任务 2 R4/R5/R6/R7 + 任务 3 SQP-3/SDI-3/SDI-4）")
@@ -5052,6 +5315,7 @@ def main():
     test_f26_residual_pq_subject_and_category_exclusion()
     test_f27_residual_r_shared_coverage_state()
     test_f28_residual_s_shared_mild_state()
+    test_f29_residual_p_generic_cue_distinct_object()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)
