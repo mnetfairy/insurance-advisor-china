@@ -5264,6 +5264,282 @@ def test_f29_residual_p_generic_cue_distinct_object(pd=None):
     return True
 
 
+def test_f30_residual_t_local_binding(pd=None):
+    """F30（官方 SDI-4 残余 T · 2026-11-24 落地 · v2.4.35 公开复扫）
+
+    【官方 finding · china v2.4.35 · L3060-3081 · 原文】
+      "The documented record-wide mild-illness exclusion guard can still turn an
+       explicit exclusion into an affirmative benefit claim."
+
+    【官方 explanation · china v2.4.35 · 原文】
+      "The record-wide mild-illness guard relies on an incomplete exclusion
+       vocabulary: for example, highlights containing 「120种重疾，轻症责任免除」 are
+       not recognized as excluding mild-illness coverage because 「责任免除」 is absent
+       from _CRX_EXCLUSION_MARKERS. The shared state consequently permits
+       _crx_disease_claim to produce 「120种重疾+轻症保障」 without an unverified
+       limitation. In an insurance-advice skill, this reversal of an exclusion into an
+       affirmative benefit can mislead purchasing decisions and leave users with
+       unexpected coverage gaps; filesystem and network restrictions do not mitigate
+       this output-integrity risk."
+
+    【官方 remediation · china v2.4.35 · 原文】
+      "Require validated, structured mild-illness coverage decisions before generating
+       affirmative claims, preserving applicable conditions and treating missing,
+       ambiguous, or conflicting evidence as unverified. If free-text parsing remains,
+       recognize responsibility-exemption wording such as 「轻症责任免除」 in both word
+       orders and reconcile exclusions across the entire product record. Apply the
+       resulting state to every benefits, features, and description output, propagate an
+       explicit limitation, and add end-to-end regression tests asserting that excluded
+       mild-illness coverage is never advertised."
+
+    【官方 finding · ai v2.4.35 · L2309-2313 · 原文】
+      "The mild-illness exclusion guard can discard an explicit exclusion when a
+       different benefit is mentioned afterward, contradicting the documented
+       record-wide suppression guarantee."
+
+    【官方 explanation · ai v2.4.35 · 原文】
+      "The tail-side exclusion check discards an exclusion whenever its remaining
+       suffix mentions another benefit, even when the exclusion clearly applies to mild
+       illness. For example, highlights reading 「120种重疾，轻症除外但含身故保障」 cause
+       the guard to overlook 「轻症除外」 because 「身故」 appears afterward, allowing
+       downstream generation of 「120种重疾+轻症保障」 without an unverified-coverage
+       warning."
+
+    【官方 remediation · ai v2.4.35 · 原文】
+      "Bind each exclusion to its coverage subject using local grammatical scope; do not
+       discard an already-bound exclusion merely because a subsequent clause introduces
+       another benefit. Prefer validated structured coverage decisions, suppress
+       unresolved interpretations, and propagate the resulting state to benefits,
+       features, descriptions, and explicit limitations. Add end-to-end regression tests
+       for 「120种重疾，轻症除外但含身故保障」 and equivalent conflicting-field variants in
+       both standard and comprehensive plans."
+
+    根因（主侧已坐实 · 非猜测）：
+      ① T-1：`_CRX_EXCLUSION_MARKERS` 缺 **「责任免除」** → 「轻症责任免除」
+         （含记录级）不被识别为对轻症的除外 → `_crx_disease_claim` 仍输出
+         「120种重疾+轻症保障」且**无**任何未确认限制说明（泄漏）。
+      ② T-2：tail 侧判定把「除外标记**之后**的全部剩余文本」当作「别的保障对象」
+         的证据 → 「轻症除外但含身故保障」里的「除外」明明已绑定「轻症」，
+         却因后缀出现「身故」而被**丢弃** → 轻症仍被宣称（泄漏）。
+
+    修法（官方口径落地）：
+      ① T-1：`_CRX_EXCLUSION_MARKERS` 补入 **「责任免除」** → 后向「轻症责任免除」
+         + 前向「责任免除轻症」**双向**生效。
+      ② T-2：**局部语法作用域**绑定 ——
+         · **后置型**标记（「除外」/「责任免除」/「不在保障范围」/「无保障」）
+           绑定**前面的** subject；其后的文本属**后续子句**（「但含身故保障」）
+           → **不得**推翻已绑定的除外；
+         · **前置型**标记（「不保」/「不含」…）绑定**紧邻的后置宾语**；
+         · head 侧：标记若**紧邻**跟在别的保障对象之后（「住院津贴不保轻症」）
+           → 它绑定的是**那个对象** → 与 subject 无关。
+
+    覆盖：
+      ① T-1 词表**双向**生效（后向 / 前向 / 带前文）
+      ② T-2 局部语法绑定：后续子句的别的保障对象**不得**推翻已绑定的除外
+      ③ 红线：确实指向别的保障对象的除外**不得**误伤（三个方向）
+      ④ 端到端（**最终方案 JSON**）：标准版 + 全面版不得宣称轻症 + 须有如实限制说明
+      ⑤ 记录级：`_crx_record_mild_excluded` / `_crx_ci_claim_state` 判定
+      ⑥ 源码级防改回断言
+    """
+    print("\nTest F30: 残余 T（责任免除词表双向 + 局部语法作用域绑定）")
+    if pd is None:
+        import plan_designer as PD
+        PD = PD
+    else:
+        PD = pd
+
+    with open(os.path.join(SKILL_DIR, "references", "products.json"), encoding="utf-8") as _fh:
+        _PRODUCTS = json.load(_fh)["products"]
+    _NEEDS = {"death": 1000000, "critical_illness": 500000}
+
+    def _mutate_pool(highlights, other=""):
+        """把**所有**重疾险产品改成指定 highlights / 其它字段表述 → 返回产品池
+
+        ⚠ 必须 mutate **所有** type=重疾险 产品（含 is_active=false）：
+          design_standard_plan / design_premium_plan 选品时可能选中**非在售**品，
+          只 mutate 在售品 → 选中品未带证据 → 计划级断言**退化**。
+        """
+        pool = []
+        for _p in _PRODUCTS:
+            _q = dict(_p)
+            if (_q.get("type") or "") == "重疾险":
+                _q["highlights"] = highlights
+                _q["key_benefits"] = [highlights]
+                _q["notes"] = other
+                _q["suitable_for"] = ""
+                _q["weakness"] = []
+                _q["competitive_edge"] = ""
+            pool.append(_q)
+        return pool
+
+    def _plan(pool, kind):
+        if kind == "standard":
+            return PD.design_standard_plan(35, "男", 300000, 60000, _NEEDS, pool)
+        return PD.design_premium_plan(35, "男", 300000, 80000, _NEEDS, pool)
+
+    def _ci_entry(plan):
+        return next((e for e in plan.get("products", []) if e.get("type") == "重疾险"), None)
+
+    def _ci_limits(plan):
+        return [l for l in (plan.get("limitations") or [])
+                if isinstance(l, dict) and l.get("product_type") == "重疾险"]
+
+    def _claim_text(plan):
+        """方案里**对外宣称面**的文案（不含 limitations —— 限制说明里提到「轻症」是如实报告）"""
+        chunks = [str(plan.get("description") or "")]
+        for _e in plan.get("products", []):
+            chunks.append(str(_e.get("key_benefits") or ""))
+        for _f in plan.get("features", []):
+            chunks.append(str(_f))
+        return "\n".join(chunks)
+
+    # ==================================================================
+    # ① F30.1 T-1 词表双向生效
+    # ==================================================================
+    _T1_MUST_EXCLUDE = [
+        ("后向·责任免除", "轻症责任免除"),
+        ("后向·责任免除(带前文)", "120种重疾，轻症责任免除"),
+        ("前向·责任免除", "责任免除轻症"),
+        ("后向·责任不保", "轻症责任不保"),
+        ("后向·责任不予给付", "轻症责任不予给付"),
+    ]
+    for _tag, _clause in _T1_MUST_EXCLUDE:
+        _got = bool(PD._crx_clause_excludes_subject(_clause, "轻症"))
+        check(f"F30.1 T-1「{_clause}」（{_tag}）→ 必须判定为对轻症的除外",
+              _got, f"实际 {_got}")
+
+    # ==================================================================
+    # ② F30.2 T-2 局部语法作用域绑定
+    # ==================================================================
+    _T2_MUST_EXCLUDE = [
+        ("后续子句·身故", "轻症除外但含身故保障"),
+        ("后续子句·住院津贴", "轻症除外但含住院津贴"),
+        ("后续子句·身故(带前文)", "120种重疾，轻症除外但含身故保障"),
+        ("后续子句·责任免除", "轻症责任免除但含身故保障"),
+    ]
+    for _tag, _clause in _T2_MUST_EXCLUDE:
+        _got = bool(PD._crx_clause_excludes_subject(_clause, "轻症"))
+        check(f"F30.2 T-2「{_clause}」（{_tag}）→ 已绑定的除外不得被后续子句推翻",
+              _got, f"实际 {_got}")
+
+    # ==================================================================
+    # ③ F30.3 红线：确实指向别的保障对象 → 不得误伤
+    # ==================================================================
+    _RED_LINE = [
+        ("轻症不保住院津贴", "轻症不保住院津贴"),
+        ("轻症不保身故责任", "轻症不保身故责任"),
+        ("住院津贴不保轻症", "住院津贴不保轻症"),
+        ("住院津贴不保的轻症", "住院津贴不保的轻症"),
+    ]
+    for _tag, _clause in _RED_LINE:
+        _got = bool(PD._crx_clause_excludes_subject(_clause, "轻症"))
+        check(f"F30.3 红线「{_clause}」（{_tag}）→ 与轻症无关，不得判定为对轻症的除外",
+              not _got, f"实际 {_got}")
+
+    # ==================================================================
+    # ⑤ F30.5 记录级：除外 / 共享状态 / 限制说明
+    # ==================================================================
+    _RECORD_CASES = [
+        "120种重疾，轻症责任免除",
+        "120种重疾，轻症除外但含身故保障",
+        "120种重疾，轻症责任免除，含身故保障",
+    ]
+    for _hl in _RECORD_CASES:
+        _prod = {"name": "T", "type": "重疾险", "highlights": _hl,
+                 "key_benefits": [_hl], "notes": ""}
+        _excl = bool(PD._crx_record_mild_excluded(_prod))
+        _st = PD._crx_ci_claim_state(_prod)
+        check(f"F30.5 记录级除外必须成立「{_hl}」", _excl, f"实际 {_excl}")
+        check(f"F30.5 共享状态必须为「未经确认 + 不得宣称」「{_hl}」",
+              _st.get("unverified") is True and _st.get("allowed") is False,
+              f"实际 state={_st!r}")
+        check(f"F30.5 共享状态必须带**如实限制说明**「{_hl}」",
+              isinstance(_st.get("limitation"), dict), f"实际 {_st.get('limitation')!r}")
+        _kb_std = PD._crx_key_benefits(_prod, 500000, "standard")
+        _kb_pre = PD._crx_key_benefits(_prod, 500000, "premium")
+        check(f"F30.5 key_benefits 不得宣称轻症「{_hl}」",
+              "轻症" not in (_kb_std or "") and "轻症" not in (_kb_pre or ""),
+              f"实际 std={_kb_std!r} pre={_kb_pre!r}")
+        check(f"F30.5 轻症宣称必须被压制「{_hl}」",
+              PD._crx_disease_claim(_prod) == "",
+              f"实际 {PD._crx_disease_claim(_prod)!r}")
+
+    # ==================================================================
+    # ④ F30.4 端到端（**最终方案 JSON**）
+    # ==================================================================
+    for _hl in _RECORD_CASES:
+        for _kind, _kind_cn in (("standard", "标准版"), ("premium", "全面版")):
+            _pl = _plan(_mutate_pool(_hl), _kind)
+            _entry = _ci_entry(_pl)
+            _lims = _ci_limits(_pl)
+            _matched = [l for l in _lims
+                        if _entry is not None and l.get("product") == _entry.get("product_name")]
+            check(f"F30.4 「{_hl}」→ {_kind_cn}最终 JSON 的重疾条目不得宣称轻症",
+                  _entry is None or "轻症" not in (_entry.get("key_benefits") or ""),
+                  f"实际 kb={(_entry or {}).get('key_benefits')!r}")
+            _txt = _claim_text(_pl)
+            check(f"F30.4 「{_hl}」→ {_kind_cn}宣称面不得出现「轻症」",
+                  "轻症" not in _txt, "宣称面文案含轻症")
+            check(f"F30.4 「{_hl}」→ {_kind_cn}须给出如实限制说明",
+                  _entry is None or bool(_matched), f"limitations={_lims!r}")
+            check(f"F30.4 「{_hl}」→ {_kind_cn}如实限制说明须点明「轻症」且待核实",
+                  _entry is None or all("轻症" in (l.get("reason") or "")
+                                        and "待核实" in (l.get("reason") or "")
+                                        for l in _matched),
+                  f"实际 {_matched!r}")
+    # 跨字段（矛盾字段）场景：highlights 肯定 + 其它字段除外
+    for _other in ("轻症责任免除", "轻症除外但含身故保障"):
+        for _kind, _kind_cn in (("standard", "标准版"), ("premium", "全面版")):
+            _pl = _plan(_mutate_pool("120种重疾，含轻症保障", _other), _kind)
+            _entry = _ci_entry(_pl)
+            _txt = _claim_text(_pl)
+            check(f"F30.4 跨字段除外「{_other}」→ {_kind_cn}最终 JSON 不得宣称轻症",
+                  _entry is None or "轻症" not in (_entry.get("key_benefits") or ""),
+                  f"实际 kb={(_entry or {}).get('key_benefits')!r}")
+            check(f"F30.4 跨字段除外「{_other}」→ {_kind_cn}宣称面不得出现「轻症」",
+                  "轻症" not in _txt, "宣称面文案含轻症")
+
+    # 红线端到端：除外确实指向别的保障对象 → 轻症宣称必须保留
+    for _other in ("轻症不保住院津贴", "轻症不保身故责任", "住院津贴不保轻症"):
+        for _kind, _kind_cn in (("standard", "标准版"), ("premium", "全面版")):
+            _pl = _plan(_mutate_pool("120种重疾，含轻症保障", _other), _kind)
+            _entry = _ci_entry(_pl)
+            _lims = _ci_limits(_pl)
+            _kb = (_entry or {}).get("key_benefits") or ""
+            if _kind == "standard":
+                check(f"F30.4 红线「{_other}」→ {_kind_cn}轻症宣称必须保留",
+                      _entry is None or "轻症" in _kb, f"实际 kb={_kb!r}")
+            else:
+                # ⚠ premium 样式的卖点按设计**不**含「轻症」→ 断言「非空（未被置空）」
+                check(f"F30.4 红线「{_other}」→ {_kind_cn}卖点不得被过度压制（置空）",
+                      _entry is None or bool(_kb), f"实际 kb={_kb!r}")
+            check(f"F30.4 红线「{_other}」→ {_kind_cn}不得凭空产生轻症限制说明",
+                  not _lims, f"实际 limitations={_lims!r}")
+
+    # ==================================================================
+    # ⑥ F30.6 源码级防改回断言
+    # ==================================================================
+    src = open(os.path.join(SKILL_DIR, "scripts", "plan_designer.py"),
+               "r", encoding="utf-8").read()
+    check("F30.6 源码级：除外标记表必须含「责任免除」（T-1）",
+          '"责任免除", "除外"' in src or '"除外", "责任免除"' in src)
+    check("F30.6 源码级：后置型除外标记表已定义（T-2）",
+          "_CRX_POSTPOSED_EXCLUSION_MARKERS" in src)
+    check("F30.6 源码级：局部语法作用域常量已定义（T-2）",
+          "_CRX_SCOPE_BREAK_CHARS" in src and "_CRX_SCOPE_CONNECTORS" in src
+          and "_CRX_ADJACENT_OBJECT_WINDOW" in src)
+    check("F30.6 源码级：紧邻宾语片段函数已实现（T-2）",
+          "def _crx_adjacent_object(" in src and "def _crx_preceding_object(" in src)
+    check("F30.6 源码级：前置标记绑定紧邻宾语、后置标记绑定前面的 subject",
+          'if mk in _CRX_POSTPOSED_EXCLUSION_MARKERS:' in src
+          and "_crx_adjacent_object(after)" in src)
+    check("F30.6 源码级：head 侧必须检查标记前紧邻的别的保障对象（T-2）",
+          "_crx_preceding_binds_other_object(" in src)
+    check("F30.6 源码级：轻症路径与病种数路径的口径边界必须写在注释里",
+          "非「症」主体（病种数路径）沿用既有口径" in src)
+    return True
+
+
 def main():
     print("=" * 60)
     print("ClawHub 审计整改测试（任务 2 R4/R5/R6/R7 + 任务 3 SQP-3/SDI-3/SDI-4）")
@@ -5316,6 +5592,7 @@ def main():
     test_f27_residual_r_shared_coverage_state()
     test_f28_residual_s_shared_mild_state()
     test_f29_residual_p_generic_cue_distinct_object()
+    test_f30_residual_t_local_binding()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)

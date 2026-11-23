@@ -2067,7 +2067,7 @@ _CRX_EXCLUSION_MARKERS = (
     "不含", "不包含", "不包括", "不纳入", "不涵盖", "不覆盖",
     "不保", "不赔", "不承保", "不支持", "不负责", "不承担",
     # 范围 / 责任排除（后向否定：subject → 标记）
-    "不在保障范围", "无保障", "除外", "不予给付", "不予赔付", "不予支付",
+    "不在保障范围", "无保障", "责任免除", "除外", "不予给付", "不予赔付", "不予支付",
 )
 # 弱标记：必须**紧邻** subject 才算除外
 # （全语料 62 款产品的非 highlights 字段含「无」字样，如「无明显缺点」
@@ -2398,6 +2398,149 @@ def _crx_gap_targets_other_object(gap):
     return False
 
 
+# ══════════════════════════════════════════════════════════════════════
+# 官方 SDI-4 残余 T（2026-11-24 落地 · v2.4.35 公开复扫 · Excessive Agency · MEDIUM）
+#
+#   T-1（china v2.4.35 · L3060-3081 · 原文）：
+#     "The documented record-wide mild-illness exclusion guard can still turn an
+#      explicit exclusion into an affirmative benefit claim."
+#     explanation（原文）：
+#     "The record-wide mild-illness guard relies on an incomplete exclusion
+#      vocabulary: for example, highlights containing 「120种重疾，轻症责任免除」 are
+#      not recognized as excluding mild-illness coverage because 「责任免除」 is absent
+#      from _CRX_EXCLUSION_MARKERS. The shared state consequently permits
+#      _crx_disease_claim to produce 「120种重疾+轻症保障」 without an unverified
+#      limitation. In an insurance-advice skill, this reversal of an exclusion into an
+#      affirmative benefit can mislead purchasing decisions and leave users with
+#      unexpected coverage gaps; filesystem and network restrictions do not mitigate
+#      this output-integrity risk."
+#     remediation（原文）：
+#     "Require validated, structured mild-illness coverage decisions before generating
+#      affirmative claims, preserving applicable conditions and treating missing,
+#      ambiguous, or conflicting evidence as unverified. If free-text parsing remains,
+#      recognize responsibility-exemption wording such as 「轻症责任免除」 in both word
+#      orders and reconcile exclusions across the entire product record. Apply the
+#      resulting state to every benefits, features, and description output, propagate an
+#      explicit limitation, and add end-to-end regression tests asserting that excluded
+#      mild-illness coverage is never advertised."
+#
+#   T-2（ai v2.4.35 · L2309-2313 · 原文）：
+#     "The mild-illness exclusion guard can discard an explicit exclusion when a
+#      different benefit is mentioned afterward, contradicting the documented
+#      record-wide suppression guarantee."
+#     explanation（原文）：
+#     "The tail-side exclusion check discards an exclusion whenever its remaining
+#      suffix mentions another benefit, even when the exclusion clearly applies to mild
+#      illness. For example, highlights reading 「120种重疾，轻症除外但含身故保障」 cause
+#      the guard to overlook 「轻症除外」 because 「身故」 appears afterward, allowing
+#      downstream generation of 「120种重疾+轻症保障」 without an unverified-coverage
+#      warning."
+#     remediation（原文）：
+#     "Bind each exclusion to its coverage subject using local grammatical scope; do not
+#      discard an already-bound exclusion merely because a subsequent clause introduces
+#      another benefit. Prefer validated structured coverage decisions, suppress
+#      unresolved interpretations, and propagate the resulting state to benefits,
+#      features, descriptions, and explicit limitations. Add end-to-end regression tests
+#      for 「120种重疾，轻症除外但含身故保障」 and equivalent conflicting-field variants in
+#      both standard and comprehensive plans."
+#
+#   修法：
+#     ① T-1（词表）：`_CRX_EXCLUSION_MARKERS` 补入 **「责任免除」**
+#        → 「轻症责任免除」（后向）/「责任免除轻症」（前向）**双向**生效。
+#     ② T-2（绑定）：除外标记按**局部语法作用域**绑定到 coverage subject ——
+#        · **后置型**标记（「除外」/「责任免除」/「不在保障范围」/「无保障」）
+#          出现在 subject **之后** → 绑定**前面的** subject；
+#          其后的文本属**后续子句**（「但含身故保障」）→ **不得**推翻已绑定的除外；
+#        · **前置型**标记（「不保」/「不含」…）→ 绑定**紧邻的后置宾语**；
+#          只有紧邻宾语是**确凿的独立保障对象**时，才与 subject 无关；
+#        · head 侧：标记若**紧邻**地跟在**别的保障对象**之后
+#          （「住院津贴不保轻症」）→ 它绑定的是**那个对象** → 与 subject 无关。
+#
+#   ⚠ 口径边界（官方对此敏感）：
+#     · 本轮 T-2 的**局部语法作用域**绑定**只对「症」结尾主体**（轻症路径）生效；
+#       非「症」主体（病种数路径）沿用既有口径（**一字未动**，避免口径漂移）。
+#     · 「责任免除」补入的是**共享**标记表 → 病种数路径同步受益
+#       （「120种重疾责任免除」此前不被识别为病种数除外）。
+# ══════════════════════════════════════════════════════════════════════
+
+# **后置型**除外标记：标记出现在 subject **之后** → 绑定**前面的** subject
+#   （「轻症除外」/「轻症责任免除」= 轻症被除外）
+#   → 其后的文本属**后续子句**（「但含身故保障」）→ **不得**推翻已绑定的除外
+#   （官方 T-2 原文：do not discard an already-bound exclusion merely because a
+#     subsequent clause introduces another benefit.）
+_CRX_POSTPOSED_EXCLUSION_MARKERS = (
+    "责任免除", "除外", "不在保障范围", "无保障",
+)
+# 局部语法作用域的边界 ①：子句分隔符
+_CRX_SCOPE_BREAK_CHARS = "，。；！？、,;!?"
+# 局部语法作用域的边界 ②：引入**后续子句**的连接词 / 保障动词
+_CRX_SCOPE_CONNECTORS = (
+    "但", "而", "且", "并", "同时", "另", "以及", "不过", "然而", "其中",
+    "则", "还", "也", "含", "包含", "覆盖", "涵盖", "包括", "保障", "承保",
+    "赠送", "可选", "提供",
+)
+# 紧邻宾语片段的窗口长度上限（与既有肯定线索窗口同口径：12 字）
+_CRX_ADJACENT_OBJECT_WINDOW = 12
+
+
+def _crx_scope_starts_with_connector(text):
+    """片段是否以「连接词 / 保障动词」开头（→ 其前面是**另一个**子句）"""
+    if not text:
+        return False
+    for conn in _CRX_SCOPE_CONNECTORS:
+        if text.startswith(conn):
+            return True
+    return False
+
+
+def _crx_adjacent_object(text):
+    """标记**之后**紧邻的宾语片段（局部语法作用域内 · 官方 T-2）
+
+    → 「不保住院津贴」    → 「住院津贴」（前置标记的宾语 → 别的保障对象 ✓）
+    → 「不保，但含身故保障」→ 「」（子句分隔符截断 → 后面不是宾语）
+    """
+    if not text:
+        return ""
+    out = []
+    for ch in text[:_CRX_ADJACENT_OBJECT_WINDOW]:
+        if ch in _CRX_SCOPE_BREAK_CHARS:
+            break
+        out.append(ch)
+    return "".join(out)
+
+
+def _crx_preceding_object(text):
+    """标记**之前**紧邻的宾语片段（局部语法作用域内 · 官方 T-2）
+
+    → 「住院津贴不保轻症」→ 「住院津贴」（标记绑定的是**前面的**对象 → 与轻症无关）
+    → 「含重疾不保轻症」  → ""（以保障动词「含」开头 → 前面是另一个子句）
+    """
+    if not text:
+        return ""
+    frag = ""
+    for ch in reversed(text[-_CRX_ADJACENT_OBJECT_WINDOW:]):
+        if ch in _CRX_SCOPE_BREAK_CHARS:
+            break
+        frag = ch + frag
+    if _crx_scope_starts_with_connector(frag):
+        return ""
+    return frag
+
+
+def _crx_preceding_binds_other_object(text, pos, subject):
+    """标记（位于 text[pos:]）之前紧邻的片段是否指向**别的保障对象**
+
+    官方 T-2（局部语法作用域）：「住院津贴不保轻症」里的「不保」绑定的是
+    **前面的**「住院津贴」→ 与轻症无关 → 不得把轻症判成被除外。
+    """
+    frag = _crx_preceding_object(text[:pos])
+    if not frag:
+        return False
+    if subject and subject in frag:
+        return False        # 片段里含 subject **自身** → 不是「别的对象」
+    return _crx_subject_gap_targets_other_object(frag, subject)
+
+
 def _crx_clause_excludes_subject(clause, subject):
     """clause 内是否存在**指向 subject** 的明确除外表述（双向 + 允许填充词）
 
@@ -2408,9 +2551,16 @@ def _crx_clause_excludes_subject(clause, subject):
       · 标记若指向**另一个保障对象** → 与 subject 无关（不压制）
       · ⚠ 官方 SDI-4 残余 P：subject 的**自身措辞**（「轻症疾病」=「轻症」的
         同一 coverage subject）不计入 gap → 「轻症疾病不保」判定为除外 ✓
+      · ⚠ 官方 SDI-4 残余 T-2：**局部语法作用域**绑定 ——
+        后置型标记绑定**前面的** subject（后续子句里的别的保障对象不得推翻它）；
+        前置型标记绑定**紧邻的后置宾语**；head 侧标记若紧邻跟在别的保障对象之后
+        → 它绑定的是**那个对象**（「住院津贴不保轻症」→ 与轻症无关）。
     """
     if not clause or not subject:
         return False
+    # 「症」结尾主体（轻症路径）走**局部语法作用域**绑定（官方 T-2）；
+    # 非「症」主体（病种数路径）沿用既有口径（**不动**，避免口径漂移）。
+    _is_mild = bool(subject.endswith("症"))
     for occ in _crx_occurrences(clause, subject):
         head = clause[:occ]
         # ⚠ 官方 SDI-4 残余 P：tail 起点必须落在**subject 自身措辞**之后
@@ -2422,6 +2572,11 @@ def _crx_clause_excludes_subject(clause, subject):
             pos = head.rfind(mk)
             while pos != -1:
                 gap = head[pos + len(mk):]
+                # ⚠ 官方 SDI-4 残余 T-2：标记若**紧邻**跟在别的保障对象之后
+                #   → 它绑定的是**那个对象**（与 subject 无关）→ 跳过
+                if _is_mild and _crx_preceding_binds_other_object(head, pos, subject):
+                    pos = head.rfind(mk, 0, pos)
+                    continue
                 if not _crx_subject_gap_targets_other_object(gap, subject):
                     return True
                 pos = head.rfind(mk, 0, pos)
@@ -2437,14 +2592,36 @@ def _crx_clause_excludes_subject(clause, subject):
                 pos = tail.find(mk, start)
                 if pos == -1:
                     break
-                hits.append((pos, pos + len(mk)))
+                hits.append((pos, pos + len(mk), mk))
                 start = pos + len(mk)
-        hits.sort()
-        for i, (s, e) in enumerate(hits):
+        # 同位置取**最长**匹配（避免「不含」/「不包含」等重叠标记重复计入）
+        hits.sort(key=lambda h: (h[0], -h[1]))
+        _uniq = []
+        _last_end = -1
+        for _h in hits:
+            if _h[0] < _last_end:
+                continue
+            _uniq.append(_h)
+            _last_end = _h[1]
+        hits = _uniq
+        for i, (s, e, mk) in enumerate(hits):
             before = tail[hits[i - 1][1] if i else 0:s]
             after = tail[e:]
             if _crx_subject_gap_targets_other_object(before, subject):
                 continue
+            if _is_mild:
+                # ⚠ 官方 SDI-4 残余 T-2：**局部语法作用域**绑定
+                if mk in _CRX_POSTPOSED_EXCLUSION_MARKERS:
+                    # 后置型标记 → 绑定**前面的** subject；其后的「但含身故保障」
+                    #   属**后续子句** → 不得推翻已绑定的除外
+                    return True
+                # 前置型标记 → 绑定**紧邻的后置宾语**
+                adj = _crx_adjacent_object(after)
+                if adj and not _crx_scope_starts_with_connector(adj):
+                    if _crx_subject_gap_targets_other_object(adj, subject):
+                        continue
+                return True
+            # 病种数路径：沿用既有口径（**不动**）
             if _crx_subject_gap_targets_other_object(after, subject):
                 continue
             return True
