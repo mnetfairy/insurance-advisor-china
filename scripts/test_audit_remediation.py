@@ -5540,6 +5540,199 @@ def test_f30_residual_t_local_binding(pd=None):
     return True
 
 
+def test_f31_residual_t_same_family_binding(pd=None):
+    """F31（官方 SDI-4 残余 T **回归修正** · 2026-11-24 · v2.4.36 回归）
+
+    【回归根因（v2.4.36 · 残余 T 的 head 侧新逻辑引入）】
+      head 侧新逻辑 `_crx_preceding_binds_other_object` 把**前序片段**里命中的
+      Tier A「别的保障对象」线索当作「标记绑定的是**那个**对象」→ 跳过该标记。
+      但「重疾 / 重大疾病 / 中症」与「轻症」属于**同一保障家族（重疾家族）**，
+      **不是**「另一个保障对象」：
+        「120种重疾不含轻症」=「120 种重疾，**不含**轻症」
+        → 「不含」应**后向绑定**「轻症」→ 轻症被除外 → 整句宣称必须被压制；
+        → v2.4.36 误判为「标记绑定的是**重疾**」→ 除外被跳过
+           → `_crx_disease_claim` 仍产出「120种重疾+轻症保障」→ **明确泄漏**
+           → 被 `sdi4_residual_o_accept_check.py` ⑦ 拦下（69/72 REJECT）。
+
+    【修法（最小改动 · 不推翻已完成的 T-2 口径）】
+      把「**同家族**」证据从「**别的**保障对象」证据里剔除：
+        · 新增 `_CRX_SAME_FAMILY_CUES = ("重疾", "重大疾病", "中症", "轻症")`
+        · 新增 `_crx_strip_same_family_cues()`（前序片段 → 剔除同家族 cue）
+        · `_crx_preceding_binds_other_object` 在**「症」结尾主体**（轻症路径）下
+          先剔除同家族 cue → 片段若**只**靠同家族 cue 命中 → 不算「别的对象」
+          → 标记**后向绑定** subject → 除外成立。
+      ⚠ 病种数路径（`_crx_clause_excludes_disease_count` /
+        `_crx_count_object_is_other` / `_CRX_COUNT_OTHER_OBJECT_CUES`）、
+        残余 P 的 Tier A·B 分层口径（`_CRX_DISTINCT_OBJECT_CUES` /
+        `_CRX_GENERIC_CUE_WORDS` / `_crx_gap_object_evidence`）、
+        官方 T-1 / T-2 口径**一字不动**（避免口径漂移引发新回归）。
+
+    覆盖：
+      ① 同家族前序片段 → 除外**成立**（回归修复本体）
+      ② 红线：确凿的别的保障对象 → **不得**误伤
+      ③ 官方 T-1 / T-2 口径**保持**
+      ④ 端到端（**最终方案 JSON**）：notes 字段的同家族除外 → 不得宣称轻症
+      ⑤ 源码级防改回断言
+    """
+    print("\nTest F31: 残余 T 回归修正（同家族 ≠ 别的保障对象）")
+    if pd is None:
+        import plan_designer as PD
+        PD = PD
+    else:
+        PD = pd
+
+    with open(os.path.join(SKILL_DIR, "references", "products.json"), encoding="utf-8") as _fh:
+        _PRODUCTS = json.load(_fh)["products"]
+    _NEEDS = {"death": 1000000, "critical_illness": 500000}
+
+    def _mutate_pool(highlights, other=""):
+        """把**所有**重疾险产品改成指定 highlights / 其它字段表述 → 返回产品池"""
+        pool = []
+        for _p in _PRODUCTS:
+            _q = dict(_p)
+            if (_q.get("type") or "") == "重疾险":
+                _q["highlights"] = highlights
+                _q["key_benefits"] = [highlights]
+                _q["notes"] = other
+                _q["suitable_for"] = ""
+                _q["weakness"] = []
+                _q["competitive_edge"] = ""
+            pool.append(_q)
+        return pool
+
+    def _plan(pool, kind):
+        if kind == "standard":
+            return PD.design_standard_plan(35, "男", 300000, 60000, _NEEDS, pool)
+        return PD.design_premium_plan(35, "男", 300000, 80000, _NEEDS, pool)
+
+    def _ci_entry(plan):
+        return next((e for e in plan.get("products", []) if e.get("type") == "重疾险"), None)
+
+    def _ci_limits(plan):
+        return [l for l in (plan.get("limitations") or [])
+                if isinstance(l, dict) and l.get("product_type") == "重疾险"]
+
+    def _claim_text(plan):
+        """方案里**对外宣称面**的文案（不含 limitations —— 限制说明里提到「轻症」是如实报告）"""
+        chunks = [str(plan.get("description") or "")]
+        for _e in plan.get("products", []):
+            chunks.append(str(_e.get("key_benefits") or ""))
+        for _f in plan.get("features", []):
+            chunks.append(str(_f))
+        return "\n".join(chunks)
+
+    # ==================================================================
+    # ① F31.1 同家族前序片段 → 除外**成立**（回归修复本体）
+    # ==================================================================
+    _SAME_FAMILY_MUST_EXCLUDE = [
+        ("病种数主体·不含", "120种重疾不含轻症"),
+        ("病种数主体·不含(自身尾巴)", "120种重疾不含轻症疾病"),
+        ("病种数主体·不保", "120种重疾不保轻症"),
+        ("重疾主体·不含", "重疾不含轻症"),
+        ("重大疾病主体·不含", "重大疾病不含轻症"),
+        ("中症主体·不含", "中症不含轻症"),
+        ("带前文", "120种重疾+60种轻症，120种重疾不含轻症"),
+    ]
+    for _tag, _clause in _SAME_FAMILY_MUST_EXCLUDE:
+        _got = bool(PD._crx_clause_excludes_subject(_clause, "轻症"))
+        check(f"F31.1 同家族前序片段「{_clause}」（{_tag}）→ 必须判定为对轻症的除外",
+              _got, f"实际 {_got}")
+
+    # ==================================================================
+    # ② F31.2 红线：确凿的别的保障对象 → **不得**误伤
+    # ==================================================================
+    _SAME_FAMILY_RED_LINE = [
+        ("住院津贴·前向", "住院津贴不保轻症"),
+        ("住院津贴·前向(填充)", "住院津贴不保的轻症"),
+        ("住院津贴·前向·不含", "住院津贴不含轻症"),
+        ("意外医疗·前向", "意外医疗不保轻症"),
+        ("住院津贴·后向", "轻症不保住院津贴"),
+        ("身故责任·后向", "轻症不保身故责任"),
+        ("意外医疗·后向", "轻症不保意外医疗"),
+        ("住院医疗·后向", "轻症不保住院医疗"),
+    ]
+    for _tag, _clause in _SAME_FAMILY_RED_LINE:
+        _got = bool(PD._crx_clause_excludes_subject(_clause, "轻症"))
+        check(f"F31.2 红线「{_clause}」（{_tag}）→ 与轻症无关，不得判定为对轻症的除外",
+              not _got, f"实际 {_got}")
+
+    # ==================================================================
+    # ③ F31.3 官方 T-1 / T-2 口径**保持**
+    # ==================================================================
+    _T12_KEEP = [
+        ("T-1·后向", "轻症责任免除"),
+        ("T-1·前向", "责任免除轻症"),
+        ("T-2·后续子句", "轻症除外但含身故保障"),
+        ("T-2·后续子句(住院津贴)", "轻症除外但含住院津贴"),
+    ]
+    for _tag, _clause in _T12_KEEP:
+        _got = bool(PD._crx_clause_excludes_subject(_clause, "轻症"))
+        check(f"F31.3 官方口径保持「{_clause}」（{_tag}）→ 必须判定为对轻症的除外",
+              _got, f"实际 {_got}")
+
+    # ==================================================================
+    # ④ F31.4 端到端（**最终方案 JSON**）：同家族除外 → 不得宣称轻症
+    # ==================================================================
+    for _other in ("120种重疾不含轻症", "120种重疾不含轻症疾病"):
+        for _kind, _kind_cn in (("standard", "标准版"), ("premium", "全面版")):
+            _pl = _plan(_mutate_pool("120种重疾+60种轻症", _other), _kind)
+            _entry = _ci_entry(_pl)
+            _lims = _ci_limits(_pl)
+            _matched = [l for l in _lims
+                        if _entry is not None and l.get("product") == _entry.get("product_name")]
+            check(f"F31.4 同家族除外「{_other}」→ {_kind_cn}最终 JSON 的重疾条目不得宣称轻症",
+                  _entry is None or "轻症" not in (_entry.get("key_benefits") or ""),
+                  f"实际 kb={(_entry or {}).get('key_benefits')!r}")
+            _txt = _claim_text(_pl)
+            check(f"F31.4 同家族除外「{_other}」→ {_kind_cn}宣称面不得出现「轻症」",
+                  "轻症" not in _txt, "宣称面文案含轻症")
+            check(f"F31.4 同家族除外「{_other}」→ {_kind_cn}须给出如实限制说明",
+                  _entry is None or bool(_matched), f"limitations={_lims!r}")
+            check(f"F31.4 同家族除外「{_other}」→ {_kind_cn}如实限制说明须点明「轻症」且待核实",
+                  _entry is None or all("轻症" in (l.get("reason") or "")
+                                        and "待核实" in (l.get("reason") or "")
+                                        for l in _matched),
+                  f"实际 {_matched!r}")
+    # 红线端到端：除外确实指向别的保障对象 → 轻症宣称必须保留
+    for _other in ("120种重疾不含住院津贴", "住院津贴不保轻症"):
+        for _kind, _kind_cn in (("standard", "标准版"), ("premium", "全面版")):
+            _pl = _plan(_mutate_pool("120种重疾+60种轻症", _other), _kind)
+            _entry = _ci_entry(_pl)
+            _lims = _ci_limits(_pl)
+            _kb = (_entry or {}).get("key_benefits") or ""
+            if _kind == "standard":
+                check(f"F31.4 红线「{_other}」→ {_kind_cn}轻症宣称必须保留",
+                      _entry is None or "轻症" in _kb, f"实际 kb={_kb!r}")
+            else:
+                check(f"F31.4 红线「{_other}」→ {_kind_cn}卖点不得被过度压制（置空）",
+                      _entry is None or bool(_kb), f"实际 kb={_kb!r}")
+            check(f"F31.4 红线「{_other}」→ {_kind_cn}不得凭空产生轻症限制说明",
+                  not _lims, f"实际 limitations={_lims!r}")
+
+    # ==================================================================
+    # ⑤ F31.5 源码级防改回断言
+    # ==================================================================
+    src = open(os.path.join(SKILL_DIR, "scripts", "plan_designer.py"),
+               "r", encoding="utf-8").read()
+    check("F31.5 源码级：同家族 cue 表已定义",
+          "_CRX_SAME_FAMILY_CUES" in src)
+    check("F31.5 源码级：同家族 cue 表必须含「重疾」「重大疾病」「中症」",
+          all(_c in src for _c in ('"重疾"', '"重大疾病"', '"中症"')))
+    check("F31.5 源码级：同家族 cue 剔除函数已实现",
+          "def _crx_strip_same_family_cues(" in src)
+    check("F31.5 源码级：head 侧前序片段判定必须调用同家族剔除",
+          "_crx_strip_same_family_cues(frag)" in src)
+    check("F31.5 源码级：病种数路径口径**不得**被改动（仍用既有线索表）",
+          "_CRX_COUNT_OTHER_OBJECT_CUES" in src
+          and "def _crx_count_object_is_other(" in src
+          and "def _crx_clause_excludes_disease_count(" in src)
+    check("F31.5 源码级：残余 P 的 Tier A / Tier B 分层口径**不得**被改动",
+          "_CRX_DISTINCT_OBJECT_CUES" in src
+          and "_CRX_GENERIC_CUE_WORDS" in src
+          and "def _crx_gap_object_evidence(" in src)
+    return True
+
+
 def main():
     print("=" * 60)
     print("ClawHub 审计整改测试（任务 2 R4/R5/R6/R7 + 任务 3 SQP-3/SDI-3/SDI-4）")
@@ -5593,6 +5786,7 @@ def main():
     test_f28_residual_s_shared_mild_state()
     test_f29_residual_p_generic_cue_distinct_object()
     test_f30_residual_t_local_binding()
+    test_f31_residual_t_same_family_binding()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)

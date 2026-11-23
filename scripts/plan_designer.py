@@ -2301,6 +2301,38 @@ _CRX_GENERIC_CUE_WORDS = (
 _CRX_SUBJECT_OWN_EXTENSION_CUES = ("保障", "保险")
 
 
+# 同家族（**重疾家族**）保障名词 —— **不得**作为「别的保障对象」的证据
+#   语义：「重疾 / 重大疾病 / 中症」与「轻症」属于**同一保障家族**
+#     （同一 coverage family），**不是**「另一个保障对象」。
+#   ⇒ 「120种重疾不含轻症」=「120 种重疾，**不含**轻症」→ 「不含」**后向绑定**
+#     「轻症」→ 轻症被除外 → 整句「N种重疾+轻症保障」必须被压制。
+#   ⚠ 作用域**仅限** head 侧「前序片段是否指向别的保障对象」这条判定；
+#     病种数路径（`_crx_clause_excludes_disease_count` /
+#     `_crx_count_object_is_other` / `_CRX_COUNT_OTHER_OBJECT_CUES`）与
+#     残余 P 的 Tier A·B 分层口径（`_CRX_DISTINCT_OBJECT_CUES` /
+#     `_CRX_GENERIC_CUE_WORDS` / `_crx_gap_object_evidence`）**一字不动**
+#     （避免口径漂移引发新回归）。
+_CRX_SAME_FAMILY_CUES = ("重疾", "重大疾病", "中症", "轻症")
+
+
+def _crx_strip_same_family_cues(text):
+    """剔除**同家族**（重疾家族）保障名词 —— 用于「是否指向**别的**保障对象」判定
+
+    ⇒ 前序片段若**只**靠同家族 cue 命中 Tier A → 不算「别的对象」：
+      「120种重疾」   → 「120种」   → 不再命中 Tier A → **不是别的对象** ✓
+      「重疾」         → 「」        → 不是别的对象 ✓
+      「住院津贴」     → 「住院津贴」 → 仍是别的对象 ✓（不误伤）
+      「重疾住院津贴」 → 「住院津贴」 → 仍是别的对象 ✓（不误伤）
+    """
+    if not text:
+        return ""
+    out = text
+    for cue in _CRX_SAME_FAMILY_CUES:
+        if cue in out:
+            out = out.replace(cue, "")
+    return out
+
+
 def _crx_strip_subject_own_extension(gap):
     """剔除 gap 段中属于**主体自身**的延伸措辞（保障 / 保险 …）
 
@@ -2538,6 +2570,13 @@ def _crx_preceding_binds_other_object(text, pos, subject):
         return False
     if subject and subject in frag:
         return False        # 片段里含 subject **自身** → 不是「别的对象」
+    if subject and subject.endswith("症"):
+        # ⚠ 同家族（重疾家族）证据**不得**当作「别的保障对象」
+        #   「120种重疾不含轻症」→ 前序片段「120种重疾」只是**同家族**主体
+        #   → 「不含」**后向绑定**「轻症」→ 除外成立 → 轻症宣称必须压制。
+        frag = _crx_strip_same_family_cues(frag)
+        if not frag:
+            return False
     return _crx_subject_gap_targets_other_object(frag, subject)
 
 
