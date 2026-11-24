@@ -344,9 +344,45 @@ _NEG_MARKERS_BACKWARD = ("除外", "不在保障范围", "不赔", "不予支付
 # → 「不予给付」「不予赔付」与「不予报销」**同口径**：**双向**绑定
 #   （否定跨度吃掉内部的「给付 / 赔付」→ 其不得充当肯定授权证据；
 #    记录级除外证据 `_record_exclusion_keywords` 复用同一套表 → 同步收录）。
-_NEG_MARKERS_BOTH = ("不予报销", "不可报销", "不报销", "无法报销", "不能报销",
-                     "不可支付", "不可赔付", "不承保",
-                     "不予给付", "不予赔付")
+#
+# ⚠ 官方 SDI-4 残余 W（2026-11-24 公开复扫 · china v2.4.37 · Excessive Agency ·
+#   MEDIUM · confidence 0.99）remediation 原文：
+#     「Use a shared, consistently normalized nonpayment vocabulary across
+#       structured-entry validation and free-text checks, including 「不予给付」
+#       and 「不予赔付」. Validate treatment entries against an explicit schema and
+#       associate every payment or exclusion value with its treatment before
+#       deciding coverage; contradictory or uninterpretable entries must suppress
+#       affirmative claims.」
+# ⚠ 官方 SDI-4 残余 Y（2026-11-24 公开复扫 · ai v2.4.41 · Excessive Agency ·
+#   MEDIUM · confidence 0.99）remediation 原文：
+#     「…use a shared exclusion interpretation for authorization and record-wide
+#       checks, recognize expressions such as 「不予承保」 in both word orders,
+#       and prevent affirmative words inside exclusion phrases from authorizing
+#       coverage.」
+# → **共享「不予给付」词表**（官方原文要求的 "shared … nonpayment vocabulary"）：
+#   结构化校验（`_structured_text_is_negative` → `_STRUCTURED_NEGATION_TOKENS`）
+#   与自由文本检查（`_NEG_MARKERS_BOTH`）**同源** —— 两者都从下面这一份
+#   共享词表取「不予给付 / 不予赔付 / 不予承保」等**不予给付**表达。
+#   ⇒ 残余 W：「不予给付」「不予赔付」进结构化词表 → 同条目内的
+#     `payment_status="不予给付"` 与 `covered=True` **自相矛盾** → contradictory
+#     → **主动压制**（不再授权、也不再让自由文本肯定证据兜底）；
+#   ⇒ 残余 Y：「不予承保」进共享词表 → 医疗授权路径与记录级除外路径
+#     **同口径**、**双向**词序都认，且否定短语内部的「承保」不得充当肯定授权。
+# ⚠ 共享词表**只增不改**既有自由文本口径（残余 V 已验收）——「不承保」等
+#   既有自由文本否定词仍留在 `_NEG_MARKERS_BOTH` 里单独维护。
+_SHARED_NONPAYMENT_NEGATIONS = (
+    # ── 官方原文点名的三种「不予给付」表达（残余 W / 残余 Y）──
+    "不予给付", "不予赔付", "不予承保",
+    # ── 既有「不予报销 / 不予支付」口径（残余 V · 同源保留）──
+    "不予报销", "不可报销", "不报销", "无法报销", "不能报销",
+    "不予支付", "不可支付", "不可赔付",
+)
+_NEG_MARKERS_BOTH = (
+    # 共享「不予给付」词表（结构化校验**同源** · 官方残余 W / Y）
+    *_SHARED_NONPAYMENT_NEGATIONS,
+    # 「不承保」= **承保**层面的否定（既有口径 · 残余 V 之前就有）
+    "不承保",
+)
 _NEG_MARKERS = tuple(sorted(
     set(_NEG_MARKERS_FORWARD + _NEG_MARKERS_BACKWARD + _NEG_MARKERS_BOTH),
     key=len, reverse=True))
@@ -817,13 +853,19 @@ _STRUCTURED_RESOLUTION_KEYS = ("exclusion_resolved", "exclusions_resolved",
 # 结构化字段值里的**否定语义**词表（已规范化：小写 + 去空白）
 # ⚠️ 命中否定语义 → 该治疗手段**不得**被授权，且必须**主动压制**。
 _STRUCTURED_NEGATION_TOKENS = (
+    # ── 英文否定 token（既有口径 · 不变）──
     "excluded", "exclude", "exclusion", "notcovered", "notcover", "notinclude",
     "noteligible", "notpayable", "notreimbursed", "nocoverage", "uncovered",
     "false",
+    # ── 中文「不予给付」否定词：**与自由文本检查同源**（官方残余 W）──
+    #   「不予给付」「不予赔付」「不予承保」此前**只**在自由文本侧被认
+    #   → 结构化条目 `{"covered": True, "payment_status": "不予给付"}`
+    #     不被判自相矛盾 → 反而**授权**该治疗手段（官方 finding 原文）。
+    #   → 共享词表 `_SHARED_NONPAYMENT_NEGATIONS` 直接并入（同一份来源）。
+    *_SHARED_NONPAYMENT_NEGATIONS,
+    # ── 中文否定词：其余既有口径（**保持不变**）──
     "除外", "不承保", "不保", "不含", "不覆盖", "未覆盖", "不在保障范围",
-    "不予报销", "不可报销", "不报销", "无法报销", "不能报销", "不予支付",
-    "不可支付", "不可赔付", "不赔",
-    "拒绝承保", "非承保", "不纳入", "不支持",
+    "不赔", "拒绝承保", "非承保", "不纳入", "不支持",
 )
 
 
@@ -1996,6 +2038,47 @@ def _medical_treatment_suffix(product):
     return "，含" + "、".join(claims) + "治疗"
 
 
+def _medical_treatment_unverified_limitation(product):
+    """医疗险治疗手段被**结构化权威条目**压制时的**如实限制说明** → dict | None
+
+    官方 SDI-4 残余 W（2026-11-24 公开复扫 · china v2.4.37 / ai v2.4.41 ·
+    Excessive Agency · MEDIUM · confidence 0.99）remediation 原文：
+      「…contradictory or uninterpretable entries must suppress affirmative claims.」
+      「…asserting that no treatment claim is emitted and an unverified limitation
+        is reported.」
+
+    ⇒ 结构化条目（`treatment_coverage` / `coverage_items` / …）对某个治疗手段
+      给出**自相矛盾**（`covered=True` + `payment_status="不予给付"`）或
+      **畸形 / 不可解释**的决定 → 该治疗手段**不得**被宣称
+      → 方案层必须**如实报告**该限制，**不得**静默留空。
+
+    ⚠ 口径**只覆盖结构化权威字段**（`_structured_authority_denies`）：
+      自由文本的除外证据由 `_record_exclusion_keywords` 通道处理（残余 V/Y
+      已验收），**不**在本限制通道里重复报告（避免与既有口径冲突）。
+    ⚠ 真实语料实测：`coverage_items` / `covered_treatments` /
+      `treatment_coverage` / `treatment_responsibilities` 四个结构化权威字段
+      在两库产品库中**均为 0 款** → 本通道对真实语料**零影响**。
+    """
+    if not product:
+        return None
+    text = _medical_fact_text(product)
+    if not text:
+        return None
+    denied = [kw for kw in _TREATMENT_CLAIMS
+              if kw in text and _structured_authority_denies(product, kw)]
+    if not denied:
+        return None
+    return {
+        "type": "coverage_limit",
+        "product_type": "医疗险",
+        "product": product.get("name"),
+        "requirement": "治疗手段保障责任",
+        "reason": ("产品结构化保障条目对「%s」的承保决定自相矛盾或无法解释，"
+                   "相关治疗手段保障范围待核实，已不作对外宣称"
+                   % "、".join(denied)),
+    }
+
+
 def _medical_form_claim(product):
     """医疗险形态宣称：只认 subtype（如「百万医疗」）。无 subtype 返回空串。"""
     if not product:
@@ -3047,6 +3130,41 @@ def _crx_ci_segment_has_other_object(segment):
     return False
 
 
+def _crx_ci_local_object(text):
+    """标记**之后**的宾语片段（**只取标记所在子句内的部分**）
+
+    ⚠ 官方 SDI-4 残余 X（2026-11-24 公开复扫 · china v2.4.37 · Excessive Agency ·
+      MEDIUM · confidence 0.99）remediation 原文：
+        「Bind exclusions to their coverage subjects using local grammatical scope,
+          splitting subsequent clauses at connectors such as 「但」 before evaluating
+          other objects. Once 「重疾不保」 is bound, do not let a later benefit reverse
+          that exclusion.」
+      explanation（原文）：
+        「The category-level exclusion check can discard an exclusion when its
+          following text mentions another benefit: for example, 「重疾不保但含身故保障」
+          is skipped because the object window contains 「身故」.」
+
+    ⇒ **判定「别的保障对象」之前，先在连接词处切掉后续子句**：
+      · 「重疾不保但含身故保障」→ 标记所在子句 = 「不保」→ 后续子句
+        「但含身故保障」在连接词「但」处被切掉 → 子句内**无**别的保障对象
+        → 除外**绑定**到「重疾」→ 成立（官方口径：已绑定的除外不得被后续
+          保障撤销）；
+      · 「重疾不保轻症」→ 子句 = 「不保轻症」（无连接词）→ 命中「轻症」
+        → 与重疾类别无关 → 不成立（既有口径**保持**）。
+    """
+    if not text:
+        return ""
+    out = []
+    for i, ch in enumerate(text[:_CRX_CI_OBJECT_WINDOW]):
+        if ch in _CRX_SCOPE_BREAK_CHARS:
+            break
+        # ⚠ 连接词 / 保障动词处 → 后续子句开始 → **切掉**（官方残余 X）
+        if _crx_scope_starts_with_connector(text[i:]):
+            break
+        out.append(ch)
+    return "".join(out)
+
+
 def _crx_clause_excludes_ci_category(clause):
     """clause 内是否存在**类别级**（不含数字）重疾除外 → True
 
@@ -3058,6 +3176,9 @@ def _crx_clause_excludes_ci_category(clause):
       · 除外标记必须**紧贴**类别名词（填充词 ≤ 4 字）；
       · 类别名词与标记之间 / 标记之后若出现**其它保障对象**线索
         （身故 / 续保 / 保费 / 等待期 / 津贴 / 轻症 …）→ 与重疾类别无关；
+      · ⚠ 官方 SDI-4 残余 X：判定「别的保障对象」**之前**先在**连接词**处
+        切掉后续子句（`_crx_ci_local_object`）→ 「重疾不保但含身故保障」
+        的除外**绑定**到「重疾」（后续保障不得撤销已绑定的除外）；
       · 子句带**条件性语境**（等待期 / 犹豫期 / 未满 / 若 …）→ 不是无条件类别除外；
       · 「轻重疾病」= 轻症 + 重疾的**并称** → 其中的「重疾」不是类别名词。
     """
@@ -3096,7 +3217,7 @@ def _crx_clause_excludes_ci_category(clause):
                     #   → 绑定**前面**的类别名词；其后的「但含身故保障」属
                     #     **后续子句** → **不得**撤销 → 不查标记之后的宾语窗口
                     return True
-                obj = tail[e:e + _CRX_CI_OBJECT_WINDOW]
+                obj = _crx_ci_local_object(tail[e:])
                 if _crx_ci_segment_has_other_object(obj):
                     continue
                 return True
@@ -3114,7 +3235,7 @@ def _crx_clause_excludes_ci_category(clause):
                     if _crx_ci_segment_has_other_object(head[:s]):
                         continue
                     return True
-                obj = clause[e:e + _CRX_CI_OBJECT_WINDOW]
+                obj = _crx_ci_local_object(clause[e:])
                 if _crx_ci_segment_has_other_object(obj):
                     continue
                 return True
@@ -4560,6 +4681,11 @@ def design_basic_plan(age, gender, annual_income, annual_budget, coverage_needs,
                     "reason": mi_limitation["reason"],
                     "actual_coverage_period": mi_coverage_period,
                 })
+            # ⚠ 官方 SDI-4 残余 W：结构化条目自相矛盾 / 不可解释 → 治疗手段不得宣称
+            #   → 方案层必须**如实报告**该限制（不得静默留空）。
+            _mi_treat_lim = _medical_treatment_unverified_limitation(mi_product)
+            if _mi_treat_lim:
+                plan.setdefault("limitations", []).append(_mi_treat_lim)
         else:
             plan.setdefault("budget_adjustments", []).append({
                 "type": "product_skipped",
@@ -4674,6 +4800,11 @@ def design_standard_plan(age, gender, annual_income, annual_budget, coverage_nee
                 "reason": mi_limitation["reason"],
                 "actual_coverage_period": mi_coverage_period,
             })
+        # ⚠ 官方 SDI-4 残余 W：结构化条目自相矛盾 / 不可解释 → 治疗手段不得宣称
+        #   → 方案层必须**如实报告**该限制（不得静默留空）。
+        _mi_treat_lim = _medical_treatment_unverified_limitation(mi_product)
+        if _mi_treat_lim:
+            plan.setdefault("limitations", []).append(_mi_treat_lim)
 
     # 意外险
     ac_products = [p for p in products if p["type"] == "意外险"]
@@ -4844,6 +4975,11 @@ def design_premium_plan(age, gender, annual_income, annual_budget, coverage_need
                 "reason": mi_limitation["reason"],
                 "actual_coverage_period": mi_coverage_period,
             })
+        # ⚠ 官方 SDI-4 残余 W：结构化条目自相矛盾 / 不可解释 → 治疗手段不得宣称
+        #   → 方案层必须**如实报告**该限制（不得静默留空）。
+        _mi_treat_lim = _medical_treatment_unverified_limitation(mi_product)
+        if _mi_treat_lim:
+            plan.setdefault("limitations", []).append(_mi_treat_lim)
 
     # 意外险 - 100万
     ac_products = [p for p in products if p["type"] == "意外险"]

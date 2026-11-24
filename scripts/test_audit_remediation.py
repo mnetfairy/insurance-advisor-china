@@ -2761,6 +2761,14 @@ def test_f19_residual_h_exclusion_and_reimbursement(pd=None):
     # 否定词表：必须含「不可报销」「不可支付」「不可赔付」（post-treatment negation）
     i = src.find("_NEG_MARKERS_BOTH = (")
     nbody = src[i:src.find(")", i)] if i != -1 else ""
+    # ⚠ 官方 SDI-4 残余 W（2026-11-24）：否定词表改为**共享词表**
+    #   `_SHARED_NONPAYMENT_NEGATIONS`（结构化校验与自由文本检查**同源**）
+    #   → 源码级断言必须**解析共享引用**（断言口径不变：这些词仍必须在
+    #     生效的双向否定词表里）。
+    if "_SHARED_NONPAYMENT_NEGATIONS" in nbody:
+        j = src.find("_SHARED_NONPAYMENT_NEGATIONS = (")
+        if j != -1:
+            nbody = nbody + "\n" + src[j:src.find(")", j)]
     check("F19.6 源码级：否定词表含「不可报销」", "不可报销" in nbody,
           "" if "不可报销" in nbody else "未找到")
     check("F19.6 源码级：否定词表含「不可支付」", "不可支付" in nbody,
@@ -6041,6 +6049,362 @@ def test_f32_residual_uv_backward_binding(pd=None):
     return True
 
 
+# ══════════════════════════════════════════════════════════════════════
+# F33 · 官方 SDI-4 残余 W + 残余 X + 残余 Y（2026-11-24 公开复扫）
+#   china v2.4.37（残余 W + 残余 X）· ai v2.4.41（残余 Y）· 两库同构
+# ══════════════════════════════════════════════════════════════════════
+def test_f33_residual_wxy_shared_vocabulary_and_scope(pd=None):
+    """F33（官方 SDI-4 残余 W + 残余 X + 残余 Y · 2026-11-24）
+
+    【官方 finding 原文（勿改写）】
+      残余 W（china v2.4.37 · SDI-4 · Excessive Agency · MEDIUM · confidence 0.99）：
+        finding:
+          "Structured nonpayment evidence can bypass the promised
+           contradictory-entry suppression."
+        explanation:
+          "Structured negation detection omits 「不予给付」 and 「不予赔付」,
+           although the free-text exclusion rules recognize them. An entry such as
+           `treatment_coverage["CAR-T"] = {"covered": true, "payment_status": "不予给付"}`,
+           paired with affirmative benefit text, can therefore remain affirmative rather
+           than contradictory; record-wide text scanning does not associate the separate
+           nonpayment value with CAR-T. This can produce a covered-treatment claim for an
+           explicitly nonpayable treatment, creating consequential misinformation in
+           insurance recommendations."
+        remediation:
+          "Use a shared, consistently normalized nonpayment vocabulary across
+           structured-entry validation and free-text checks, including 「不予给付」 and
+           「不予赔付」. Validate treatment entries against an explicit schema and
+           associate every payment or exclusion value with its treatment before deciding
+           coverage; contradictory or uninterpretable entries must suppress affirmative
+           claims. Add end-to-end regression tests pairing covered=true and affirmative
+           benefit text with nonpayment evidence in payment_status or equivalent fields,
+           asserting that no treatment claim is emitted and an unverified limitation is
+           reported."
+
+      残余 X（china v2.4.37 · SDI-4 · Excessive Agency · MEDIUM · confidence 0.99）：
+        finding:
+          "A subsequent benefit can cause an explicit critical-illness exclusion to
+           be ignored."
+        explanation:
+          "The category-level exclusion check can discard an exclusion when its
+           following text mentions another benefit: for example, 「重疾不保但含身故保障」
+           is skipped because the object window contains 「身故」. Consequently, the shared
+           coverage state can permit affirmative critical-illness claims despite explicit
+           noncoverage elsewhere in the record. …"
+        remediation:
+          "Bind exclusions to their coverage subjects using local grammatical scope,
+           splitting subsequent clauses at connectors such as 「但」 before evaluating
+           other objects. Once 「重疾不保」 is bound, do not let a later benefit reverse
+           that exclusion. Prefer validated structured coverage decisions, suppress
+           unresolved claims with an explicit limitation, and add end-to-end tests
+           combining affirmative highlights with 「重疾不保但含身故保障」 in another field
+           across standard and comprehensive plans."
+
+      残余 Y（ai v2.4.41 · SDI-4 · Excessive Agency · MEDIUM · confidence 0.99）：
+        finding:
+          "The medical-benefit authorization check can reverse an explicit exclusion
+           into a covered-treatment claim."
+        explanation:
+          "The authorization logic accepts affirmative keywords while relying on an
+           incomplete exclusion vocabulary: for example, a key_benefits entry reading
+           “CAR-T治疗不予承保” contains the affirmative marker “承保”, but “不予承保” is not
+           recognized by the medical negation rules. Without other blocking evidence,
+           this passes both the occurrence-level authorization and record-wide exclusion
+           checks and becomes “含CAR-T治疗”, reversing explicit noncoverage into a
+           covered-benefit claim. …"
+        remediation:
+          "Require validated, treatment-specific structured coverage decisions before
+           generating affirmative benefits, preserving applicable conditions and
+           suppressing missing, ambiguous, or conflicting evidence. If free-text parsing
+           remains, use a shared exclusion interpretation for authorization and
+           record-wide checks, recognize expressions such as “不予承保” in both word
+           orders, and prevent affirmative words inside exclusion phrases from
+           authorizing coverage. Add end-to-end regression tests asserting that
+           explicitly excluded treatments never appear as covered benefits in final
+           plan JSON."
+
+    【根因（3 处 · 两库同构）】
+      ① 残余 W：`_STRUCTURED_NEGATION_TOKENS` 漏「不予给付 / 不予赔付 / 不予承保」
+         → 结构化条目 `{"covered": True, "payment_status": "不予给付"}` 不被判
+         contradictory → 反而**授权**该治疗手段；
+      ② 残余 X：`_crx_clause_excludes_ci_category` tail/head 侧用「标记**之后**
+         12 字窗口」判别的保障对象 → 「重疾不保但含身故保障」因窗口命中「身故」
+         → **除外被丢弃**；
+      ③ 残余 Y：`_NEG_MARKERS_BOTH` 漏「不予承保」→ 「CAR-T治疗不予承保」因含
+         肯定标记「承保」被放行。
+
+    【修法】
+      · 共享词表 `_SHARED_NONPAYMENT_NEGATIONS`（「不予给付 / 不予赔付 / 不予承保」
+        + 既有「不予报销 / 不予支付」口径）→ 结构化词表与自由文本词表**同源**；
+      · 类别级除外：判定「别的保障对象」**之前**先在连接词处切掉后续子句
+        （`_crx_ci_local_object`）→ 已绑定的除外不得被后续保障撤销；
+      · 医疗：「不予承保」进共享词表 → 双向词序都认，否定短语内部的「承保」
+        不得充当肯定授权；
+      · 结构化条目被压制时 → 方案层**如实报告** unverified limitation
+        （`_medical_treatment_unverified_limitation`）。
+
+    覆盖：
+      ① 残余 W · 结构化条目自相矛盾 → contradictory + 主动压制 + 不得授权
+      ② 残余 W · 端到端：不得宣称该治疗手段 + 必须报 unverified limitation
+      ③ 残余 W · 防过度收紧：纯肯定结构化条目仍可授权
+      ④ 残余 X · 类别级除外不得被后续保障从句撤销（含记录级 / 端到端）
+      ⑤ 残余 X · 既有口径保持（重疾不保轻症=False / 重疾不保=True …）
+      ⑥ 残余 Y · 医疗「不予承保」（双向词序）→ 不得宣称 + 除外证据收录
+      ⑦ 残余 Y · 防过度收紧：肯定表述仍可宣称
+      ⑧ 源码级防改回断言
+    """
+    print("\nTest F33: 残余 W + 残余 X + 残余 Y"
+          "（共享否定词表 + 类别级除外局部作用域 + 医疗不予承保）")
+    if pd is None:
+        import plan_designer as PD
+        PD = PD
+    else:
+        PD = pd
+
+    with open(os.path.join(SKILL_DIR, "references", "products.json"), encoding="utf-8") as _fh:
+        _PRODUCTS = json.load(_fh)["products"]
+    _NEEDS = {"death": 1000000, "critical_illness": 500000}
+
+    def _mutate_pool(highlights, other=""):
+        """把**所有**重疾险产品改成指定 highlights / 其它字段表述 → 返回产品池"""
+        pool = []
+        for _p in _PRODUCTS:
+            _q = dict(_p)
+            if (_q.get("type") or "") == "重疾险":
+                _q["highlights"] = highlights
+                _q["key_benefits"] = [highlights]
+                _q["notes"] = other
+                _q["suitable_for"] = ""
+                _q["weakness"] = []
+                _q["competitive_edge"] = ""
+            pool.append(_q)
+        return pool
+
+    def _plan(pool, kind):
+        if kind == "standard":
+            return PD.design_standard_plan(35, "男", 300000, 60000, _NEEDS, pool)
+        return PD.design_premium_plan(35, "男", 300000, 80000, _NEEDS, pool)
+
+    def _ci_entry(plan):
+        return next((e for e in plan.get("products", []) if e.get("type") == "重疾险"), None)
+
+    def _claim_text(plan):
+        """方案里**对外宣称面**的文案（不含 limitations —— 限制说明是如实报告）"""
+        chunks = [str(plan.get("description") or "")]
+        for _e in plan.get("products", []):
+            chunks.append(str(_e.get("key_benefits") or ""))
+        for _f in plan.get("features", []):
+            chunks.append(str(_f))
+        return "\n".join(chunks)
+
+    # ==================================================================
+    # ① F33.1 残余 W · 结构化条目自相矛盾 → contradictory（**主动压制**）
+    # ==================================================================
+    _W_CONTRADICTORY = [
+        {"covered": True, "payment_status": "不予给付"},
+        {"covered": True, "payment_status": "不予赔付"},
+        {"covered": True, "payment_status": "不予承保"},
+        {"covered": True, "exclusion": "不予给付"},
+        {"covered": True, "payment_status": "不予给付", "note": "含CAR-T治疗"},
+    ]
+    for _entry in _W_CONTRADICTORY:
+        _state = PD._structured_value_state(_entry)
+        check(f"F33.1 结构化条目自相矛盾必须判 contradictory（{_entry}）",
+              _state == "contradictory", f"实际 {_state!r}")
+        _prod = {"name": "测试医疗险", "type": "医疗险",
+                 "treatment_coverage": {"CAR-T": _entry},
+                 "key_benefits": ["含CAR-T治疗费用报销"],
+                 "highlights": "含CAR-T治疗"}
+        check(f"F33.1 结构化压制闸必须命中（{_entry}）",
+              bool(PD._structured_authority_denies(_prod, "CAR-T")))
+        check(f"F33.1 自相矛盾条目**不得**授权（{_entry}）",
+              not PD._structured_authority_resolves(_prod, "CAR-T"))
+        _claims = PD._medical_treatment_claims(_prod)
+        check(f"F33.1 不得宣称 CAR-T 治疗（{_entry}）",
+              not any("CAR-T" in c for c in _claims), f"实际 {_claims!r}")
+        try:
+            _kb = PD.derive_medical_key_benefits(_prod, "百万医疗保障")
+            _blob = _kb if isinstance(_kb, str) else json.dumps(_kb, ensure_ascii=False)
+        except Exception as _e:  # noqa: BLE001
+            _blob = "__ERR__:%r" % (_e,)
+        check(f"F33.1 端到端：不得出现「含CAR-T治疗」（{_entry}）",
+              "含CAR-T治疗" not in _blob, _blob[:300])
+
+    # ==================================================================
+    # ② F33.2 残余 W · 端到端：必须报 unverified limitation（不得静默）
+    # ==================================================================
+    _prod_w = {"name": "测试医疗险", "type": "医疗险", "subtype": "百万医疗",
+               "treatment_coverage": {"CAR-T": {"covered": True,
+                                                "payment_status": "不予给付"}},
+               "key_benefits": ["含CAR-T治疗费用报销"],
+               "highlights": "含CAR-T治疗"}
+    _lim = PD._medical_treatment_unverified_limitation(_prod_w)
+    check("F33.2 结构化自相矛盾 → 必须报 unverified limitation",
+          isinstance(_lim, dict) and bool(_lim.get("reason")), f"实际 {_lim!r}")
+    check("F33.2 limitation 必须点名被压制的治疗手段",
+          isinstance(_lim, dict) and "CAR-T" in (_lim.get("reason") or ""),
+          f"实际 {_lim!r}")
+
+    # ==================================================================
+    # ③ F33.3 残余 W · 防过度收紧：纯肯定结构化条目仍可授权
+    # ==================================================================
+    for _entry in ({"covered": True},
+                   {"covered": True, "payment_status": "给付"},
+                   {"covered": True, "payment_status": "正常给付"}):
+        _state = PD._structured_value_state(_entry)
+        check(f"F33.3 纯肯定结构化条目仍为 affirmative（{_entry}）",
+              _state == "affirmative", f"实际 {_state!r}")
+        _prod = {"name": "测试医疗险", "type": "医疗险",
+                 "treatment_coverage": {"CAR-T": _entry},
+                 "key_benefits": ["含CAR-T治疗费用报销"],
+                 "highlights": "含CAR-T治疗"}
+        check(f"F33.3 纯肯定结构化条目仍可授权（{_entry}）",
+              bool(PD._structured_authority_resolves(_prod, "CAR-T")))
+        check(f"F33.3 纯肯定结构化条目不得被压制（{_entry}）",
+              not PD._structured_authority_denies(_prod, "CAR-T"))
+
+    # ==================================================================
+    # ④ F33.4 残余 X · 类别级除外不得被后续保障从句撤销
+    # ==================================================================
+    _X_CLAUSES = [
+        "重疾不保但含身故保障",
+        "重疾不承保但含身故保障",
+        "重疾不予承保但含身故保障",
+        "重疾不保而含身故保障",
+        "重疾不保且含身故保障",
+        "重疾不保但含住院津贴",
+        "重疾疾病不保但含身故保障",
+    ]
+    for _clause in _X_CLAUSES:
+        check(f"F33.4 类别级除外必须成立（{_clause}）",
+              bool(PD._crx_clause_excludes_ci_category(_clause)),
+              f"实际 {PD._crx_clause_excludes_ci_category(_clause)!r}")
+        _prod = {"highlights": "重疾+轻症保障", "notes": _clause}
+        check(f"F33.4 记录级类别除外必须成立（{_clause}）",
+              bool(PD._crx_record_ci_category_excluded(_prod)))
+        _code = PD._crx_record_disease_count_issue(_prod, "120种重疾")
+        check(f"F33.4 类别级除外须绑定到病种数（{_clause}）",
+              _code in ("excluded", "category-excluded"), f"实际 {_code!r}")
+        _got = PD._crx_disease_claim(_prod)
+        check(f"F33.4 重疾宣称必须压制（{_clause}）", _got == "", f"实际 {_got!r}")
+        _st = PD._crx_ci_claim_state(_prod)
+        check(f"F33.4 必须报 unverified limitation（{_clause}）",
+              bool(_st.get("excluded"))
+              and isinstance(_st.get("limitation"), dict)
+              and bool((_st.get("limitation") or {}).get("reason")),
+              f"实际 {_st!r}")
+
+    # 端到端（标准版 + 全面版）：肯定利益文案 + 另一个字段里的除外表述
+    for _other in ("重疾不保但含身故保障",):
+        for _kind, _kind_cn in (("standard", "标准版"), ("premium", "全面版")):
+            _pl = _plan(_mutate_pool("重疾+轻症保障", _other), _kind)
+            _txt = _claim_text(_pl)
+            # ⚠ 不得出现**肯定的**重疾宣称；如实报告「待核实」是**要求**
+            #   （官方 remediation：suppress unresolved claims **with an explicit
+            #    limitation**）→ 「重疾保障范围待核实」属**如实报告**，放行。
+            _aff_ci = [w for w in ("重疾保障，保额", "重疾险确诊即赔付",
+                                   "重疾险提供终身保障", "含重疾", "重疾+轻症",
+                                   "重疾+60种轻症")
+                       if w in _txt]
+            check(f"F33.4 端到端：{_other} → {_kind_cn}宣称面不得出现肯定的重疾宣称",
+                  not _aff_ci, f"实际出现 {_aff_ci}；文案={_txt[:200]!r}")
+            # 如实报告可在**宣称面**（feature）或**限制说明**里
+            #   （全面版把重疾条目保额置空 → 报告落在 limitations）
+            _lims_txt = "\n".join(str((x or {}).get("reason") or "")
+                                   for x in (_pl.get("limitations") or []))
+            check(f"F33.4 端到端：{_other} → {_kind_cn}必须如实报告「待核实」",
+                  "待核实" in (_txt + _lims_txt),
+                  f"宣称面={_txt[:200]!r} · limitations={_lims_txt[:200]!r}")
+            _lims = _pl.get("limitations") or []
+            check(f"F33.4 端到端：{_other} → {_kind_cn}必须报 limitation",
+                  any("重疾" in str((x or {}).get("reason") or "") for x in _lims),
+                  f"实际 limitations={_lims!r}")
+
+    # ==================================================================
+    # ⑤ F33.5 残余 X · 既有口径**保持**（防过度收紧）
+    # ==================================================================
+    _X_KEEP_FALSE = [
+        "重疾不保轻症",
+        "重疾不含轻症",
+        "重疾不保住院津贴",
+        "轻症除外但含身故保障",
+    ]
+    for _clause in _X_KEEP_FALSE:
+        check(f"F33.5 既有口径保持：类别级除外须为 False（{_clause}）",
+              PD._crx_clause_excludes_ci_category(_clause) is False,
+              f"实际 {PD._crx_clause_excludes_ci_category(_clause)!r}")
+    for _clause in ("重疾不保", "重疾疾病不保", "重大疾病责任免除",
+                    "重疾不在保障范围", "重疾无保障"):
+        check(f"F33.5 既有口径保持：类别级除外须为 True（{_clause}）",
+              PD._crx_clause_excludes_ci_category(_clause) is True,
+              f"实际 {PD._crx_clause_excludes_ci_category(_clause)!r}")
+
+    # ==================================================================
+    # ⑥ F33.6 残余 Y · 医疗「不予承保」（**双向词序**）
+    # ==================================================================
+    for _neg in ("CAR-T治疗不予承保", "不予承保CAR-T", "CAR-T治疗不予给付",
+                 "不予给付CAR-T"):
+        _prod = {"key_benefits": [_neg], "highlights": _neg}
+        _claims = PD._medical_treatment_claims(_prod)
+        check(f"F33.6 「{_neg}」不得宣称 CAR-T 治疗",
+              not any("CAR-T" in c for c in _claims), f"实际 {_claims!r}")
+        _excl = PD._record_exclusion_keywords(_prod)
+        check(f"F33.6 「{_neg}」记录级除外证据必须收录 CAR-T 治疗",
+              any("CAR-T" in k for k in _excl), f"实际 {sorted(_excl)!r}")
+        try:
+            _kb = PD.derive_medical_key_benefits(_prod, [])
+            _blob = _kb if isinstance(_kb, str) else json.dumps(_kb, ensure_ascii=False)
+        except Exception as _e:  # noqa: BLE001
+            _blob = "__ERR__:%r" % (_e,)
+        check(f"F33.6 端到端：「{_neg}」不得出现「含CAR-T治疗」",
+              "含CAR-T治疗" not in _blob, _blob[:300])
+
+    # ==================================================================
+    # ⑦ F33.7 残余 Y · 防过度收紧：肯定表述仍可宣称
+    # ==================================================================
+    for _ok in ("含CAR-T治疗费用报销", "CAR-T治疗可报销", "含质子重离子治疗"):
+        _prod = {"key_benefits": [_ok], "highlights": _ok}
+        _claims = PD._medical_treatment_claims(_prod)
+        check(f"F33.7 肯定表述「{_ok}」仍可宣称",
+              any(("CAR-T" in c) or ("质子重离子" in c) for c in _claims),
+              f"实际 {_claims!r}")
+
+    # ==================================================================
+    # ⑧ F33.8 源码级防改回断言
+    # ==================================================================
+    src = open(os.path.join(SKILL_DIR, "scripts", "plan_designer.py"),
+               "r", encoding="utf-8").read()
+    check("F33.8 源码级：共享「不予给付」词表必须存在",
+          "_SHARED_NONPAYMENT_NEGATIONS = (" in src)
+    _shared_block = src.split("_SHARED_NONPAYMENT_NEGATIONS = (")[1].split(")")[0]
+    check("F33.8 源码级：共享词表必须含「不予给付」「不予赔付」「不予承保」",
+          all(_c in _shared_block for _c in ('"不予给付"', '"不予赔付"', '"不予承保"')))
+    check("F33.8 源码级：结构化否定词表必须**引用**共享词表（残余 W 同源）",
+          "*_SHARED_NONPAYMENT_NEGATIONS," in src)
+    _struct_block = src.split("_STRUCTURED_NEGATION_TOKENS = (")[1].split("\n)")[0]
+    check("F33.8 源码级：结构化否定词表必须**引用**共享「不予给付」词表",
+          "*_SHARED_NONPAYMENT_NEGATIONS," in _struct_block)
+    check("F33.8 源码级：结构化否定词表必须含「不予给付」「不予赔付」「不予承保」"
+          "（经共享词表）",
+          all(_c in _shared_block for _c in ('"不予给付"', '"不予赔付"', '"不予承保"')))
+    check("F33.8 源码级：医疗双向词表必须**引用**共享词表（残余 Y 同源）",
+          "*_SHARED_NONPAYMENT_NEGATIONS," in src.split("_NEG_MARKERS_BOTH = (")[1])
+    check("F33.8 源码级：类别级除外必须用连接词切分后的局部片段（残余 X）",
+          "def _crx_ci_local_object(" in src
+          and src.count("_crx_ci_local_object(") >= 3)
+    check("F33.8 源码级：类别级 tail 侧必须用局部作用域片段",
+          "obj = _crx_ci_local_object(tail[e:])" in src)
+    check("F33.8 源码级：类别级 head 侧必须用局部作用域片段",
+          "obj = _crx_ci_local_object(clause[e:])" in src)
+    check("F33.8 源码级：结构化压制必须报 unverified limitation（残余 W）",
+          "def _medical_treatment_unverified_limitation(" in src)
+    check("F33.8 源码级：残余 P 的 Tier A / Tier B 分层口径**不得**被改动",
+          "_CRX_DISTINCT_OBJECT_CUES" in src
+          and "_CRX_GENERIC_CUE_WORDS" in src
+          and "def _crx_gap_object_evidence(" in src)
+    return True
+
+
 def main():
     print("=" * 60)
     print("ClawHub 审计整改测试（任务 2 R4/R5/R6/R7 + 任务 3 SQP-3/SDI-3/SDI-4）")
@@ -6096,6 +6460,7 @@ def main():
     test_f30_residual_t_local_binding()
     test_f31_residual_t_same_family_binding()
     test_f32_residual_uv_backward_binding()
+    test_f33_residual_wxy_shared_vocabulary_and_scope()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)
