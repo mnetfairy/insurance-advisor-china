@@ -370,6 +370,51 @@ _NEG_MARKERS_BACKWARD = ("除外", "不在保障范围", "不赔", "不予支付
 #     **同口径**、**双向**词序都认，且否定短语内部的「承保」不得充当肯定授权。
 # ⚠ 共享词表**只增不改**既有自由文本口径（残余 V 已验收）——「不承保」等
 #   既有自由文本否定词仍留在 `_NEG_MARKERS_BOTH` 里单独维护。
+#
+# ══════════════════════════════════════════════════════════════════════
+# ⚠ 官方 SDI-4 残余 Z / AA / AB（2026-11-25 公开复扫 · china v2.4.38 /
+#   ai v2.4.42）三份 remediation 的**共同主线**（官方原文 · 逐字）：
+#     「Use a shared, normalized exclusion vocabulary across mild-illness,
+#       critical-illness-category, and medical coverage checks」
+#     「…explicitly recognizing 「不予承保」 before and after the subject」
+#     「recognize 「不含」「不包含」「不包括」 and equivalent category
+#       exclusions with appropriate local scope across the entire record」
+#     「…including 「不在承保范围」, and prevent words inside exclusion
+#       phrases from authorizing coverage」
+# → 本文件建**一份共享归一化除外词表** `_SHARED_EXCLUSION_VOCAB`（单一事实源），
+#   三条路径各自从**同一份来源**取用（**同源**）：
+#     ① 医疗否定路径    → `_SHARED_EXCLUSION_SCOPE`    → `_NEG_MARKERS_BOTH`
+#     ② 轻症 / 主体路径 → `_SHARED_EXCLUSION_SUBJECT`  → `_CRX_EXCLUSION_MARKERS`
+#     ③ 类别级重疾路径  → `_SHARED_EXCLUSION_CATEGORY` → `_CRX_CI_EXCLUSION_MARKERS`
+#   三处**词序双向**（主体前 / 主体后都命中）：
+#     「CAR-T治疗不在承保范围」与「不在承保范围CAR-T治疗」同样成立；
+#     「轻症不予承保」与「不予承保轻症」同样成立；
+#     「不含重大疾病保障」与「重大疾病保障不含」同样成立。
+# ⚠ 派生只做**并集**（既有成员一律保留 · 官方「既有口径只增不改」）；
+#   各路径仍保留自己的**收紧口径**（紧贴类别名词 / 填充词上限 / 其它保障对象
+#   线索 / 条件性语境 …）—— 共享的是**词**，不是判定逻辑。
+# ⚠ 除外短语内部的肯定词（「不在承保范围」里的「承保」）**不得**充当授权证据：
+#   否定词**字符跨度**（`_negation_marker_spans`）已覆盖该短语 → `_has_affirmative`
+#   的①「不落在否定词字符跨度内」判定自然把它排除（既有机制，本轮只补词表）。
+#
+# ── 残余 Z · 医疗除外（承保范围级）──
+_SHARED_EXCLUSION_SCOPE = (
+    "不在承保范围", "不属于承保范围",
+)
+# ── 残余 AA · 主体级除外（轻症等）──
+_SHARED_EXCLUSION_SUBJECT = (
+    "不予承保",
+)
+# ── 残余 AB · 类别级除外（含 / 包含 / 包括）──
+_SHARED_EXCLUSION_CATEGORY = (
+    "不含", "不包含", "不包括",
+)
+# 共享归一化除外词表（**单一事实源** · 三条路径由它派生）
+_SHARED_EXCLUSION_VOCAB = (
+    *_SHARED_EXCLUSION_SCOPE,
+    *_SHARED_EXCLUSION_SUBJECT,
+    *_SHARED_EXCLUSION_CATEGORY,
+)
 _SHARED_NONPAYMENT_NEGATIONS = (
     # ── 官方原文点名的三种「不予给付」表达（残余 W / 残余 Y）──
     "不予给付", "不予赔付", "不予承保",
@@ -382,6 +427,12 @@ _NEG_MARKERS_BOTH = (
     *_SHARED_NONPAYMENT_NEGATIONS,
     # 「不承保」= **承保**层面的否定（既有口径 · 残余 V 之前就有）
     "不承保",
+    # ⚠ 共享归一化除外词表 · 医疗侧（官方残余 Z · 2026-11-25 公开复扫）
+    #   「不在承保范围」「不属于承保范围」**双向**绑定（治疗手段在标记**前** /
+    #   **后**都命中）→ 授权路径（`_medical_treatment_claims`）与记录级除外
+    #   路径（`_record_exclusion_keywords`）**同口径**（同一份 `_NEG_MARKERS`）。
+    #   其内部的「承保」落在否定词**字符跨度**内 → 不得充当肯定授权证据。
+    *_SHARED_EXCLUSION_SCOPE,
 )
 _NEG_MARKERS = tuple(sorted(
     set(_NEG_MARKERS_FORWARD + _NEG_MARKERS_BACKWARD + _NEG_MARKERS_BOTH),
@@ -2170,6 +2221,12 @@ _CRX_EXCLUSION_MARKERS = (
     "不保", "不赔", "不承保", "不支持", "不负责", "不承担",
     # 范围 / 责任排除（后向否定：subject → 标记）
     "不在保障范围", "无保障", "责任免除", "除外", "不予给付", "不予赔付", "不予支付",
+    # ⚠ 共享归一化除外词表 · 主体侧（官方残余 AA · 2026-11-25 公开复扫）
+    #   「不予承保」**before and after the subject** 双向命中：
+    #   「轻症不予承保」（后向 · subject → 标记）与「不予承保轻症」（前向 ·
+    #   标记 → subject）**都**判除外 ✓（官方原文：
+    #   「explicitly recognizing 「不予承保」 before and after the subject」）。
+    *_SHARED_EXCLUSION_SUBJECT,
 )
 # 弱标记：必须**紧邻** subject 才算除外
 # （全语料 62 款产品的非 highlights 字段含「无」字样，如「无明显缺点」
@@ -3083,6 +3140,13 @@ _CRX_CI_EXCLUSION_MARKERS = (
     "不予赔付", "不予给付", "不予支付", "不予承保",
     "不承保", "不承担", "不负责", "不保", "不赔",
     "责任免除", "除外", "无保障",
+    # ⚠ 共享归一化除外词表 · 类别级（官方残余 AB · 2026-11-25 公开复扫）
+    #   「不含」「不包含」「不包括」→ 「不含重大疾病保障」/「重大疾病保障不含」
+    #   /「重疾不含保障」**都**判类别级除外 ✓（官方原文：
+    #   「recognize 「不含」「不包含」「不包括」 … with appropriate local scope」）。
+    #   ⚠ 既有「不保证 ≠ 不保」特判（`_crx_ci_marker_positions` 里 `不保` + `证`
+    #     的 continue）**保留不变**；既有成员**一律保留**（只增不改）。
+    *_SHARED_EXCLUSION_CATEGORY,
 )
 # 类别级除外判定必须排除的「其它保障对象 / 条件性」线索
 _CRX_CI_OTHER_OBJECT_CUES = (

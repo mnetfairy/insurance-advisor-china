@@ -6405,6 +6405,247 @@ def test_f33_residual_wxy_shared_vocabulary_and_scope(pd=None):
     return True
 
 
+def test_f34_residual_zab_shared_exclusion_vocab(pd=None):
+    """F34（官方 SDI-4 残余 Z + 残余 AA + 残余 AB · 2026-11-25）
+
+    【官方 finding / remediation 原文（勿改写）】
+      残余 Z（china v2.4.38 / ai v2.4.42 · SDI-4 · Excessive Agency · MEDIUM）：
+        finding:
+          "Medical benefit generation can advertise a treatment explicitly marked as
+           not covered."
+        explanation:
+          "Medical benefit generation still treats affirmative keywords as
+           authorization when an exclusion uses wording absent from its negation
+           vocabulary. For example, key_benefits containing 「CAR-T治疗不在承保范围」
+           can pass because 「不在承保范围」 is not recognized as an exclusion, while
+           its embedded 「承保」 authorizes the output 「含CAR-T治疗」. …"
+        remediation:
+          "Require validated, treatment-specific coverage decisions before emitting
+           affirmative benefits, and suppress claims when evidence is missing,
+           ambiguous, or contradictory. Unify exclusion interpretation across
+           authorization and record-wide checks, including 「不在承保范围」, and prevent
+           words inside exclusion phrases from authorizing coverage. Add end-to-end
+           regression tests asserting that explicit noncoverage never becomes an
+           affirmative benefit and that unresolved coverage produces a clear
+           limitation."
+      残余 AA（china v2.4.38 · SDI-4 · Excessive Agency · MEDIUM）：
+        finding:
+          "The documented record-wide mild-illness guard misses explicit 「不予承保」
+           exclusions."
+        explanation:
+          "The mild-illness guard uses _CRX_EXCLUSION_MARKERS, which omits 「不予承保」
+           even though other exclusion paths recognize it. Consequently, highlights
+           stating 「120种重疾，含轻症保障」 paired with another field stating
+           「轻症不予承保」 can leave the shared state allowed and produce
+           「120种重疾+轻症保障」 without an unverified limitation. …"
+        remediation:
+          "Use a shared, normalized exclusion vocabulary across mild-illness,
+           critical-illness-category, and medical coverage checks, explicitly
+           recognizing 「不予承保」 before and after the subject. …"
+      残余 AB（ai v2.4.42 · SDI-4 · Excessive Agency · MEDIUM）：
+        finding:
+          "The shared critical-illness coverage state misses explicit category
+           exclusions using 「不含」, allowing benefits that documentation promises to
+           suppress."
+        explanation:
+          "The category-level critical-illness exclusion vocabulary omits 「不含」 and
+           related expressions, so a record stating 「不含重大疾病保障」 can leave the
+           shared coverage state allowed. …"
+        remediation:
+          "…If free-text parsing remains, recognize 「不含」「不包含」「不包括」 and
+           equivalent category exclusions with appropriate local scope across the
+           entire record. …"
+
+    【根因（3 处 · 两库同构）】
+      ① 残余 Z：`_NEG_MARKERS_BOTH` 漏「不在承保范围」「不属于承保范围」
+         → 该短语**不**落在否定作用域 → 其内嵌的「承保」成**肯定授权证据**
+         → 输出「含CAR-T治疗」（把「明确不保」反转成「保」）；
+      ② 残余 AA：`_CRX_EXCLUSION_MARKERS` 漏「不予承保」→ 轻症记录级闸门漏判
+         → 共享状态 allowed → 输出「120种重疾+轻症保障」且**无**限制说明；
+      ③ 残余 AB：`_CRX_CI_EXCLUSION_MARKERS` 漏「不含」「不包含」「不包括」
+         → 类别级重疾除外漏判 → 兜底文案断言被除外的重疾保障。
+
+    【修法】
+      · 建**一份共享归一化除外词表** `_SHARED_EXCLUSION_VOCAB`（单一事实源），
+        分三组派生到三条路径（**同源**）：
+          ① `_SHARED_EXCLUSION_SCOPE`    → `_NEG_MARKERS_BOTH`（残余 Z）
+          ② `_SHARED_EXCLUSION_SUBJECT`  → `_CRX_EXCLUSION_MARKERS`（残余 AA）
+          ③ `_SHARED_EXCLUSION_CATEGORY` → `_CRX_CI_EXCLUSION_MARKERS`（残余 AB）
+        三处**词序双向**（主体前 / 主体后都命中）；
+      · 除外短语内部的肯定词（「不在承保范围」里的「承保」）**不得**充当授权证据
+        （否定词字符跨度已覆盖该短语 → `_has_affirmative` ①自然排除）；
+      · 既有词表成员**一律保留**（只增不改）；既有「不保证 ≠ 不保」特判保留。
+
+    覆盖：
+      ① F34.1 源码级：共享词表存在 + 三条路径**引用**它（防改回）
+      ② F34.2 残余 Z · 「不在承保范围」「不属于承保范围」双向 → 不得宣称
+         + 记录级除外收录 + 端到端不得出现「含CAR-T治疗」
+      ③ F34.3 残余 Z · 防过度收紧：肯定表述仍可宣称
+      ④ F34.4 残余 AA · 「轻症不予承保」/「不予承保轻症」双向 → 记录级除外
+         + 共享状态 unverified + 端到端须有如实限制说明
+      ⑤ F34.5 残余 AA · 回归基线（轻症不承保 / 不予给付 / 疾病不保）仍为 True
+      ⑥ F34.6 残余 AB · 三种写法 → 类别级除外 + 记录级除外 + 共享状态 excluded
+      ⑦ F34.7 残余 AB · 回归基线（重大疾病不保 / 重疾不保但含身故保障）仍为 True
+      ⑧ F34.8 反向回归（不保证续保 / 等待期内不赔 / 住院津贴不保轻症 / 不含轻症）
+         **不得**被新词表误伤
+    """
+    print("\nTest F34: 残余 Z + 残余 AA + 残余 AB"
+          "（共享归一化除外词表 · 三条路径同源 · 词序双向）")
+    if pd is None:
+        import plan_designer as PD
+        PD = PD
+    else:
+        PD = pd
+
+    # ==================================================================
+    # ① F34.1 源码级：共享归一化除外词表必须存在，三条路径必须**引用**它
+    # ==================================================================
+    src = open(os.path.join(SKILL_DIR, "scripts", "plan_designer.py"),
+               "r", encoding="utf-8").read()
+    check("F34.1 源码级：共享归一化除外词表必须存在",
+          "_SHARED_EXCLUSION_VOCAB = (" in src)
+    check("F34.1 源码级：共享词表必须分三组派生",
+          all(_k in src for _k in ("_SHARED_EXCLUSION_SCOPE = (",
+                                   "_SHARED_EXCLUSION_SUBJECT = (",
+                                   "_SHARED_EXCLUSION_CATEGORY = (")))
+    _scope_block = src.split("_SHARED_EXCLUSION_SCOPE = (")[1].split("\n)")[0]
+    _subject_block = src.split("_SHARED_EXCLUSION_SUBJECT = (")[1].split("\n)")[0]
+    _category_block = src.split("_SHARED_EXCLUSION_CATEGORY = (")[1].split("\n)")[0]
+    check("F34.1 源码级：共享词表必须含六个新词（三条路径同源）",
+          all(_c in _scope_block for _c in ('"不在承保范围"', '"不属于承保范围"'))
+          and '"不予承保"' in _subject_block
+          and all(_c in _category_block for _c in ('"不含"', '"不包含"', '"不包括"')))
+    _both_block = src.split("_NEG_MARKERS_BOTH = (")[1].split("\n)")[0]
+    check("F34.1 源码级：医疗否定路径必须**引用**共享词表（残余 Z 同源）",
+          "*_SHARED_EXCLUSION_SCOPE," in _both_block)
+    _crx_block = src.split("_CRX_EXCLUSION_MARKERS = (")[1].split("\n)")[0]
+    check("F34.1 源码级：主体路径必须**引用**共享词表（残余 AA 同源）",
+          "*_SHARED_EXCLUSION_SUBJECT," in _crx_block)
+    _ci_block = src.split("_CRX_CI_EXCLUSION_MARKERS = (")[1].split("\n)")[0]
+    check("F34.1 源码级：类别级路径必须**引用**共享词表（残余 AB 同源）",
+          "*_SHARED_EXCLUSION_CATEGORY," in _ci_block)
+
+    # ==================================================================
+    # ② F34.2 残余 Z · 医疗除外（承保范围级）**双向**词序
+    # ==================================================================
+    check("F34.2 医疗双向否定词表必须含「不在承保范围」「不属于承保范围」",
+          "不在承保范围" in PD._NEG_MARKERS_BOTH
+          and "不属于承保范围" in PD._NEG_MARKERS_BOTH)
+    for _neg in ("CAR-T治疗不在承保范围", "CAR-T治疗不属于承保范围",
+                 "不在承保范围CAR-T治疗", "不属于承保范围CAR-T治疗"):
+        _prod = {"key_benefits": [_neg], "highlights": _neg}
+        _claims = PD._medical_treatment_claims(_prod)
+        check(f"F34.2 「{_neg}」不得宣称 CAR-T 治疗",
+              not any("CAR-T" in c for c in _claims), f"实际 {_claims!r}")
+        _excl = PD._record_exclusion_keywords(_prod)
+        check(f"F34.2 「{_neg}」记录级除外证据必须收录 CAR-T 治疗",
+              any("CAR-T" in k for k in _excl), f"实际 {sorted(_excl)!r}")
+    # 除外短语内部的「承保」**不得**充当授权证据
+    _prod = {"key_benefits": ["CAR-T治疗不在承保范围"], "highlights": ""}
+    check("F34.2 除外短语内部的「承保」不得充当肯定授权证据",
+          not PD._medical_treatment_claims(_prod),
+          f"实际 {PD._medical_treatment_claims(_prod)!r}")
+    # 端到端：明确不保 → 不得出现「含CAR-T治疗」
+    _prod = {"key_benefits": ["CAR-T治疗不在承保范围"], "highlights": "含CAR-T治疗"}
+    try:
+        _kb = PD.derive_medical_key_benefits(_prod, [])
+        _blob = _kb if isinstance(_kb, str) else json.dumps(_kb, ensure_ascii=False)
+    except Exception as _e:  # noqa: BLE001
+        _blob = "__ERR__:%r" % (_e,)
+    check("F34.2 端到端：不得出现「含CAR-T治疗」",
+          "含CAR-T治疗" not in _blob, _blob[:300])
+
+    # ==================================================================
+    # ③ F34.3 残余 Z · 防过度收紧：肯定表述仍可宣称
+    # ==================================================================
+    for _ok in ("含CAR-T治疗费用报销", "CAR-T治疗可报销", "CAR-T治疗在承保范围"):
+        _prod = {"key_benefits": [_ok], "highlights": _ok}
+        _claims = PD._medical_treatment_claims(_prod)
+        check(f"F34.3 肯定表述「{_ok}」仍可宣称",
+              any("CAR-T" in c for c in _claims), f"实际 {_claims!r}")
+
+    # ==================================================================
+    # ④ F34.4 残余 AA · 主体级除外「不予承保」**双向**词序
+    # ==================================================================
+    check("F34.4 主体除外词表必须含「不予承保」",
+          "不予承保" in PD._CRX_EXCLUSION_MARKERS)
+    for _clause in ("轻症不予承保", "不予承保轻症"):
+        check(f"F34.4 「{_clause}」必须判主体除外",
+              PD._crx_clause_excludes_subject(_clause, "轻症") is True,
+              f"实际 {PD._crx_clause_excludes_subject(_clause, '轻症')!r}")
+    _prod = {"highlights": "120种重疾，含轻症保障",
+             "key_benefits": ["轻症不予承保"]}
+    check("F34.4 记录级轻症除外必须命中",
+          PD._crx_record_mild_excluded(_prod) is True)
+    check("F34.4 共享轻症状态必须为 unverified",
+          PD._crx_record_mild_state(_prod).get("unverified") is True,
+          f"实际 {PD._crx_record_mild_state(_prod)!r}")
+    _state = PD._crx_ci_claim_state(_prod)
+    check("F34.4 共享重疾状态必须为 allowed=False",
+          _state.get("allowed") is False, f"实际 {_state!r}")
+    check("F34.4 共享重疾状态必须给出如实限制说明",
+          isinstance(_state.get("limitation"), dict)
+          and "轻症" in (_state.get("limitation") or {}).get("reason", ""),
+          f"实际 {_state.get('limitation')!r}")
+
+    # ==================================================================
+    # ⑤ F34.5 残余 AA · 回归基线（既有口径只增不改）
+    # ==================================================================
+    for _clause in ("轻症不承保", "轻症不予给付", "轻症疾病不保", "轻症不予赔付"):
+        check(f"F34.5 既有口径保持：主体除外须为 True（{_clause}）",
+              PD._crx_clause_excludes_subject(_clause, "轻症") is True,
+              f"实际 {PD._crx_clause_excludes_subject(_clause, '轻症')!r}")
+
+    # ==================================================================
+    # ⑥ F34.6 残余 AB · 类别级除外「不含 / 不包含 / 不包括」
+    # ==================================================================
+    check("F34.6 类别级除外词表必须含「不含」「不包含」「不包括」",
+          all(_m in PD._CRX_CI_EXCLUSION_MARKERS
+              for _m in ("不含", "不包含", "不包括")))
+    for _clause in ("不含重大疾病保障", "重大疾病保障不含", "重疾不含保障",
+                    "不包含重大疾病保障", "不包括重大疾病保障"):
+        check(f"F34.6 「{_clause}」必须判类别级除外",
+              PD._crx_clause_excludes_ci_category(_clause) is True,
+              f"实际 {PD._crx_clause_excludes_ci_category(_clause)!r}")
+    _prod = {"key_benefits": ["不含重大疾病保障"], "highlights": "含重大疾病保障"}
+    check("F34.6 记录级类别级除外必须命中",
+          PD._crx_record_ci_category_excluded(_prod) is True)
+    _state = PD._crx_ci_claim_state(_prod)
+    check("F34.6 共享重疾状态必须为 excluded=True / allowed=False",
+          _state.get("excluded") is True and _state.get("allowed") is False,
+          f"实际 {_state!r}")
+    check("F34.6 共享重疾状态必须给出如实限制说明",
+          isinstance(_state.get("limitation"), dict),
+          f"实际 {_state.get('limitation')!r}")
+
+    # ==================================================================
+    # ⑦ F34.7 残余 AB · 回归基线（既有口径只增不改）
+    # ==================================================================
+    for _clause in ("重大疾病不保", "重疾不保但含身故保障", "重疾疾病不保",
+                    "重大疾病责任免除", "重疾不在保障范围", "重疾无保障"):
+        check(f"F34.7 既有口径保持：类别级除外须为 True（{_clause}）",
+              PD._crx_clause_excludes_ci_category(_clause) is True,
+              f"实际 {PD._crx_clause_excludes_ci_category(_clause)!r}")
+
+    # ==================================================================
+    # ⑧ F34.8 反向回归：新词表**不得**误伤既有红线
+    # ==================================================================
+    for _clause in ("住院津贴不保轻症", "轻症不保住院津贴", "轻症不保身故责任"):
+        check(f"F34.8 反向回归：别的保障对象不得误伤（{_clause}）",
+              PD._crx_clause_excludes_subject(_clause, "轻症") is False,
+              f"实际 {PD._crx_clause_excludes_subject(_clause, '轻症')!r}")
+    for _clause in ("重疾不保轻症", "不含轻症", "不包含轻症", "不包括轻症",
+                    "不保证续保", "等待期内不赔"):
+        check(f"F34.8 反向回归：类别级除外不得误伤（{_clause}）",
+              PD._crx_clause_excludes_ci_category(_clause) is False,
+              f"实际 {PD._crx_clause_excludes_ci_category(_clause)!r}")
+    check("F34.8 反向回归：「不保证续保」不得被医疗否定词表收录",
+          "不保证" not in PD._NEG_MARKERS_BOTH
+          and "不保证" not in PD._NEG_MARKERS)
+    return True
+
+
+
 def main():
     print("=" * 60)
     print("ClawHub 审计整改测试（任务 2 R4/R5/R6/R7 + 任务 3 SQP-3/SDI-3/SDI-4）")
@@ -6461,6 +6702,7 @@ def main():
     test_f31_residual_t_same_family_binding()
     test_f32_residual_uv_backward_binding()
     test_f33_residual_wxy_shared_vocabulary_and_scope()
+    test_f34_residual_zab_shared_exclusion_vocab()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)
