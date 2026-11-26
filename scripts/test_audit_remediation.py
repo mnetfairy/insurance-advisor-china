@@ -2780,15 +2780,26 @@ def test_f19_residual_h_exclusion_and_reimbursement(pd=None):
           all(t in nbody for t in ("不可报销", "不可支付", "不可赔付")))
 
     # _structured_value_state：affirmative + 同条目否定语义 → 必须 contradictory
+    # ⚠ 2026-11-26 残余 AC：扫描窗口必须**精确到否定分支本身** ——
+    #   同一条目里另有**一个**分支（不可解释 / 待核实 → ambiguous，官方
+    #   residual W「uninterpretable entries must suppress affirmative claims」）
+    #   → 原先「扫到下一个 return "affirmative"」的粗窗口会把那个分支一并
+    #     吞进来 → 误报。此处改为扫到**下一个同级 if**为止（口径更严，
+    #     不放松任何原有断言）。
     i = src.find("if _structured_contains_negation(value):")
     seg = ""
     if i != -1:
-        j = src.find('return "affirmative"', i)
+        j = src.find("\n            if ", i + 1)
         seg = src[i:j] if j != -1 else src[i:i + 300]
     _ok_vs = ('return "contradictory"' in seg) and ('return "ambiguous"' not in seg)
     check("F19.6 源码级：affirmative + 同条目否定语义 → 必须判 contradictory"
           "（不得再是 ambiguous）", _ok_vs,
           "" if _ok_vs else "该分支仍返回 ambiguous 或未找到该分支")
+    # ⚠ 不可解释 / 待核实语义 → 必须 ambiguous（压制，且**不可**被裁决信号翻案）
+    _sbody = src.split("def _structured_value_state(")[1].split("\ndef ")[0]
+    check("F19.6 源码级：不可解释 / 待核实语义必须判 ambiguous（压制）",
+          "_structured_contains_uncertainty" in _sbody
+          and 'return "ambiguous"' in _sbody)
 
     # 压制集合：必须覆盖 contradictory / ambiguous
     i = src.find("def _structured_authority_denies(")
@@ -6645,6 +6656,143 @@ def test_f34_residual_zab_shared_exclusion_vocab(pd=None):
     return True
 
 
+def test_f35_residual_ac_structured_scope_exclusion(pd=None):
+    """F35 · 残余 AC（2026-11-26 公开复扫 · china v2.4.41 · Excessive Agency
+    · MEDIUM · confidence 0.99）—— 结构化除外校验漏认范围级表达。
+
+    官方 finding 原文：
+      「Structured exclusion validation omits expressions recognized elsewhere,
+        including 「不在承保范围」 and 「不属于承保范围」: an entry such as
+        {"CAR-T":{"covered":true,"payment_status":"不在承保范围"}} is therefore
+        treated as affirmative rather than contradictory. If highlights also
+        state 「含CAR-T治疗」, the separate payment-status text contains no
+        treatment identifier, so record-wide checks do not associate its
+        exclusion with CAR-T and the generator can emit an affirmative
+        coverage claim.」
+
+    【根因（结构性 · 不是「又漏抄了两个词」）】
+      否定/除外词表历史上维护了**多份互相独立**的副本（自由文本侧 / 结构化侧 /
+      主体级 / 类别级），且**无任何一致性约束** → 官方每轮复扫只点出**其中
+      一份**漏掉的短语 → 上一轮补进自由文本侧、结构化侧照样漏 → **必然复发**。
+
+    【修法（结构性 · 一次性）】
+      A. 单一事实源：`_EXCL_*` 语义族是唯一词表来源，全部路径由它派生；
+      B. 超集不变量：`_STRUCTURED_NEGATION_TOKENS` ⊇ `_NEG_MARKERS`
+         （模块级 assert + 本套测试双重守卫）；
+      C. 通用模式：`_EXCL_PATTERNS` 按**构式**覆盖同族任意新表述（两路共用）；
+      D. 既有成员一律保留（只增不改）。
+    """
+    print("\nTest F35: 残余 AC"
+          "（结构化除外校验 · 单一事实源 · 超集不变量 · 通用模式）")
+    PD = plan_designer if pd is None else pd
+
+    src = open(os.path.join(SKILL_DIR, "scripts", "plan_designer.py"),
+               "r", encoding="utf-8").read()
+
+    # ==================================================================
+    # ① F35.1 源码级：单一事实源存在 + 结构化侧**引用**它（防改回）
+    # ==================================================================
+    check("F35.1 源码级：单一事实源语义族必须存在",
+          all(_k in src for _k in ("_EXCL_SCOPE_EXTRA_LITERALS = (",
+                                   "_EXCL_NONPAYMENT_LITERALS =",
+                                   "_EXCL_CATEGORY_EXTRA_LITERALS =",
+                                   "_EXCL_SUBJECT_EXTRA_LITERALS =",
+                                   "_EXCL_GENERAL_LITERALS = (",
+                                   "_EXCL_PATTERNS = (")))
+    _struct_block = src.split("_STRUCTURED_NEGATION_TOKENS = (")[1].split("\n)")[0]
+    check("F35.1 源码级：结构化侧必须**引用**范围级语义族（残余 AC 同源）",
+          "*_SHARED_EXCLUSION_VOCAB," in _struct_block
+          and "*_EXCL_SCOPE_EXTRA_LITERALS," in _struct_block)
+    check("F35.1 源码级：模块级超集不变量自检必须存在",
+          "set(_NEG_MARKERS) <= set(_STRUCTURED_NEGATION_TOKENS)" in src)
+
+    # ==================================================================
+    # ② F35.2 **超集不变量**（本轮 finding 的反面 · 防复发核心）
+    # ==================================================================
+    check("F35.2 超集不变量：结构化侧词表 ⊇ 自由文本侧词表",
+          set(PD._NEG_MARKERS) <= set(PD._STRUCTURED_NEGATION_TOKENS),
+          f"自由文本侧漏于结构化侧的词："
+          f"{sorted(set(PD._NEG_MARKERS) - set(PD._STRUCTURED_NEGATION_TOKENS))!r}")
+    check("F35.2 超集不变量：结构化侧必须认得「不在承保范围」",
+          "不在承保范围" in PD._STRUCTURED_NEGATION_TOKENS)
+    check("F35.2 超集不变量：结构化侧必须认得「不属于承保范围」",
+          "不属于承保范围" in PD._STRUCTURED_NEGATION_TOKENS)
+
+    # ==================================================================
+    # ③ F35.3 官方 finding 原文场景：**必须压制**（端到端）
+    # ==================================================================
+    for _ps in ("不在承保范围", "不属于承保范围"):
+        _prod = {"name": "测试医疗险",
+                 "treatment_coverage": {"CAR-T": {"covered": True,
+                                                  "payment_status": _ps}},
+                 "highlights": "含CAR-T治疗"}
+        check(f"F35.3 结构化 payment_status={_ps!r} 必须被压制",
+              PD._structured_authority_denies(_prod, "CAR-T") is True)
+        _claims = PD._medical_treatment_claims(_prod)
+        check(f"F35.3 结构化 payment_status={_ps!r} 不得宣称 CAR-T 治疗",
+              not any("CAR-T" in c for c in _claims), f"实际 {_claims!r}")
+        # 记录级口径同样必须收录（不得因「无治疗手段标识」而漏掉）
+        _excl = PD._record_exclusion_keywords(_prod)
+        check(f"F35.3 结构化 payment_status={_ps!r} 记录级除外证据须收录",
+              any("CAR-T" in k for k in _excl), f"实际 {sorted(_excl)!r}")
+    # list 形态与同条目其它字段形态同样必须压制
+    _prod = {"name": "t",
+             "treatment_coverage": [{"treatment": "CAR-T", "covered": True,
+                                      "payment_status": "不在承保范围"}],
+             "highlights": "含CAR-T治疗"}
+    check("F35.3 list 形态结构化条目同样必须压制",
+          not PD._medical_treatment_claims(_prod))
+    _prod = {"name": "t",
+             "treatment_coverage": {"CAR-T": {"covered": True,
+                                              "note": "该治疗不属于承保范围"}},
+             "highlights": "含CAR-T治疗"}
+    check("F35.3 同条目其它字段的除外证据同样必须压制",
+          not PD._medical_treatment_claims(_prod))
+
+    # ==================================================================
+    # ④ F35.4 通用模式：**未枚举**的新表述也必须命中（终结逐条打补丁）
+    # ==================================================================
+    # 「不在保险范围」等**未**出现在逐条枚举里的范围级表达
+    for _novel in ("不在保险范围", "不属于保障范围", "不在赔付范围"):
+        check(f"F35.4 结构化侧必须命中未枚举表述 {_novel!r}",
+              PD._structured_text_is_negative(_novel) is True)
+        _prod = {"name": "t",
+                 "treatment_coverage": {"CAR-T": {"covered": True,
+                                                  "payment_status": _novel}},
+                 "highlights": "含CAR-T治疗"}
+        check(f"F35.4 结构化侧未枚举表述 {_novel!r} 必须压制",
+              not PD._medical_treatment_claims(_prod))
+        # 自由文本侧同口径
+        _prod = {"key_benefits": [f"CAR-T治疗{_novel}"], "highlights": ""}
+        check(f"F35.4 自由文本侧必须命中未枚举表述 {_novel!r}",
+              not PD._medical_treatment_claims(_prod))
+    # 两路必须**共用同一份**模式（单一事实源）
+    check("F35.4 两路必须共用同一份通用模式（单一事实源）",
+          bool(PD._EXCL_PATTERNS) and all(
+              isinstance(p, str) for p in PD._EXCL_PATTERNS))
+
+    # ==================================================================
+    # ⑤ F35.5 反向回归：肯定表述**不得**被过度收紧
+    # ==================================================================
+    for _ok in ("含CAR-T治疗费用报销", "CAR-T治疗可报销", "CAR-T治疗在承保范围"):
+        _prod = {"key_benefits": [_ok], "highlights": _ok}
+        _claims = PD._medical_treatment_claims(_prod)
+        check(f"F35.5 反向回归：肯定表述「{_ok}」仍可宣称",
+              any("CAR-T" in c for c in _claims), f"实际 {_claims!r}")
+    _prod = {"name": "t",
+             "treatment_coverage": {"CAR-T": {"covered": True,
+                                              "payment_status": "给付"}},
+             "highlights": "含CAR-T治疗"}
+    check("F35.5 反向回归：一致 affirmative 的结构化条目仍可授权",
+          any("CAR-T" in c for c in PD._medical_treatment_claims(_prod)))
+    # 存疑表述不得被通用模式误伤成除外
+    for _hedge in ("不能确定是否给付", "不确定是否属于承保范围"):
+        check(f"F35.5 反向回归：存疑表述「{_hedge}」不得被当成除外",
+              PD._structured_text_is_negative(_hedge) is False,
+              f"实际 {PD._structured_text_is_negative(_hedge)!r}")
+    return True
+
+
 
 def main():
     print("=" * 60)
@@ -6703,6 +6851,7 @@ def main():
     test_f32_residual_uv_backward_binding()
     test_f33_residual_wxy_shared_vocabulary_and_scope()
     test_f34_residual_zab_shared_exclusion_vocab()
+    test_f35_residual_ac_structured_scope_exclusion()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)

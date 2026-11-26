@@ -438,6 +438,85 @@ _NEG_MARKERS = tuple(sorted(
     set(_NEG_MARKERS_FORWARD + _NEG_MARKERS_BACKWARD + _NEG_MARKERS_BOTH),
     key=len, reverse=True))
 
+# ══════════════════════════════════════════════════════════════════════
+# ⚠ 官方 SDI-4 残余 AC（2026-11-26 公开复扫 · china v2.4.41 · Excessive
+#   Agency · MEDIUM · confidence 0.99）remediation 原文：
+#     「Structured exclusion validation omits expressions recognized
+#       elsewhere, including 「不在承保范围」 and 「不属于承保范围」 …
+#       an entry such as {"CAR-T":{"covered":true,"payment_status":
+#       "不在承保范围"}} is therefore treated as affirmative rather than
+#       contradictory.」
+#
+# ⚠ **根因是结构性的，不是「又漏抄了两个词」**：
+#   本文件历史上维护**多份互相独立**的否定/除外词表 ——
+#     ① 自由文本侧：_NEG_MARKERS_FORWARD / _NEG_MARKERS_BACKWARD / _NEG_MARKERS_BOTH
+#     ② 结构化侧：  _STRUCTURED_NEGATION_TOKENS
+#     ③ 主体级侧：  _CRX_EXCLUSION_MARKERS
+#     ④ 类别级侧：  _CRX_CI_EXCLUSION_MARKERS
+#   官方每轮复扫只点出**其中一份**漏掉的短语 → 上一轮补进自由文本侧，
+#   结构化侧照样漏 → 「同类问题反复出现」的**结构性根因**：
+#   **词表之间没有任何一致性约束** = 结构性漂移 = 必然复发。
+#
+# ⚠ **一次性修法（结构性 · 终结逐条打补丁）**：
+#   A. **单一事实源**：下面 `_EXCL_*` 语义族是**唯一**词表来源；
+#      全部路径（自由文本 / 结构化 / 主体级 / 类别级）都从它派生
+#      → 一处增词，四处同步生效。
+#   B. **超集不变量**：结构化侧词表 **⊇** 自由文本侧词表
+#      （守卫断言见 `scripts/test_exclusion_vocab.py`）→ 结构化侧**不可能**
+#      再漏掉自由文本侧已认得的除外表达（官方本轮 finding 正是此类）。
+#   C. **通用模式**（终结「下一轮换个词再来」）：语义族除逐条枚举外，另给
+#      **正则模式**（如「不在/不属于 …… 范围」）→ 同族**任意**新表述无需
+#      改代码即命中（自由文本侧 + 结构化侧**共用同一份模式**）。
+#   D. 既有成员**一律保留**（只增不改）→ 既有口径零漂移。
+# ══════════════════════════════════════════════════════════════════════
+
+# ── 范围级补充（「不在/不属于 …… 范围」的其余表述）──
+#    ⚠ 共享族 `_SHARED_EXCLUSION_SCOPE` 已定义 → 本处**不得**重复抄写
+#      （重复 = 二次漂移的温床）。
+_EXCL_SCOPE_EXTRA_LITERALS = (
+    "不在保障范围", "不在保险范围",
+    "不属于保障范围", "不属于保险范围",
+    "不在责任范围", "不在赔付范围", "不在报销范围",
+)
+# ── 语义族 ② · 不予给付级（「不予/不可/不能 …… 给付|赔付|支付|报销」）──
+#   ⚠ **直接引用**共享「不予给付」词表（残余 W 的单一事实源）——
+#     不得在此**另抄一份**（那正是本轮根因：同一语义两份定义 → 必然漂移）。
+_EXCL_NONPAYMENT_LITERALS = _SHARED_NONPAYMENT_NEGATIONS
+# ── 类别级补充 ──
+_EXCL_CATEGORY_EXTRA_LITERALS = ("不纳入", "不涵盖", "不覆盖")
+# ── 主体级补充 ──
+_EXCL_SUBJECT_EXTRA_LITERALS = ("不承保",)
+# ── 语义族 ⑤ · 通用除外（责任免除 / 不支持 / 不赔）──
+_EXCL_GENERAL_LITERALS = (
+    "除外", "不支持", "不赔",
+)
+
+# ⚠ **全部语义族的并集** —— 结构化侧词表由它派生。
+#   不变量：`_STRUCTURED_NEGATION_TOKENS` ⊇ `_NEG_MARKERS`（自由文本侧全部）
+#   （守卫断言在 `scripts/test_exclusion_vocab.py`）。
+_EXCL_ALL_LITERALS = (
+    *_SHARED_EXCLUSION_VOCAB,
+    *_SHARED_NONPAYMENT_NEGATIONS,
+    *_EXCL_SCOPE_EXTRA_LITERALS,
+    *_EXCL_CATEGORY_EXTRA_LITERALS,
+    *_EXCL_SUBJECT_EXTRA_LITERALS,
+    *_EXCL_GENERAL_LITERALS,
+)
+
+# ── 通用模式（**同一份** · 自由文本侧 + 结构化侧共用）──
+#   逐条枚举只能覆盖「已经想到的表述」；官方复扫每轮换一个词 → 逐条打补丁
+#   必然复发。模式把「同族语义」**按构式**覆盖 → 新表述无需改代码即命中。
+# ⚠ 模式**不跨语义子句边界**（。；，、！？ 与空白）→ 不跨字段、不跨句子误伤。
+_EXCL_PATTERNS = (
+    # ① 范围级：「不在/不属于 …… 范围」（中间 ≤ 8 个非边界字符）
+    r"不(?:在|属于)[^。；，、！？!?;:,\s]{0,8}范围",
+    # ② 不予给付级：「不予/不可/不能/不得/无法 …… 给付|赔付|支付|报销|承保|承担」
+    #    （中间 ≤ 1 个非边界字符 → 不会误伤「不能确定是否给付」这类存疑表述）
+    r"(?:不(?:予|可|能|得)|无法)[^。；，、！？!?;:,\s]{0,1}(?:给付|赔付|支付|报销|承保|承担)",
+    # ③ 类别级：「不 + 含|包含|包括|纳入|涵盖|覆盖」
+    r"不(?:含|包含|包括|纳入|涵盖|覆盖)",
+)
+
 # ⚠ 官方 SDI-4 残余 J（2026-11-18 线上复扫 · insurance-advisor-china v2.4.19
 #   · MEDIUM · Excessive Agency · issueCount=1 · score=12）remediation 原文：
 #     「Handle post-treatment exclusions such as 「CAR-T治疗不支持报销」 and
@@ -585,6 +664,21 @@ def _negation_marker_spans(blob):
         while i != -1:
             spans.append((i, i + len(m), m))
             i = blob.find(m, i + 1)
+    # ⚠ 通用模式命中（**单一事实源** · 官方残余 AC 一次性修法 C）——
+    #   同族**任意**新表述（「不在保险范围」「无法给付」…）无需再改词表即命中。
+    #   与结构化侧**共用同一份** `_EXCL_PATTERNS` → 两路口径永远一致。
+    #   ⚠ 与既有字面词表**同口径**：已被字面词覆盖的跨度不重复登记；
+    #     模式标记文本若命中既有词表 → `_marker_directions` 沿用既有方向
+    #     （如「不在保障范围」仍为回溯型）；全新表述 → 双向绑定。
+    if _EXCL_PATTERNS:
+        _seen = {(s, e) for s, e, _m in spans}
+        for _pat in _EXCL_PATTERNS:
+            for _mm in re.finditer(_pat, blob):
+                _s, _e = _mm.start(), _mm.end()
+                if (_s, _e) in _seen:
+                    continue              # 已被字面词表覆盖 → 不重复登记
+                _seen.add((_s, _e))
+                spans.append((_s, _e, _mm.group(0)))
     for ms, me, marker in list(spans):
         comp = _compound_exclusion_span(blob, ms, me, marker)
         if comp:
@@ -908,15 +1002,49 @@ _STRUCTURED_NEGATION_TOKENS = (
     "excluded", "exclude", "exclusion", "notcovered", "notcover", "notinclude",
     "noteligible", "notpayable", "notreimbursed", "nocoverage", "uncovered",
     "false",
-    # ── 中文「不予给付」否定词：**与自由文本检查同源**（官方残余 W）──
-    #   「不予给付」「不予赔付」「不予承保」此前**只**在自由文本侧被认
-    #   → 结构化条目 `{"covered": True, "payment_status": "不予给付"}`
-    #     不被判自相矛盾 → 反而**授权**该治疗手段（官方 finding 原文）。
-    #   → 共享词表 `_SHARED_NONPAYMENT_NEGATIONS` 直接并入（同一份来源）。
+    # ── 中文否定词：**全部语义族**（**单一事实源**派生 · 官方残余 AC）──
+    #   官方残余 AC（2026-11-26 公开复扫）finding 原文：
+    #     「Structured exclusion validation omits expressions recognized
+    #       elsewhere, including 「不在承保范围」 and 「不属于承保范围」 …
+    #       an entry such as {"CAR-T":{"covered":true,"payment_status":
+    #       "不在承保范围"}} is therefore treated as affirmative rather than
+    #       contradictory.」
+    #   → 结构化侧词表 **⊇ 自由文本侧词表**（`_NEG_MARKERS`）：
+    #     本轮把「不在承保范围」「不属于承保范围」等**全部**范围级表达并入
+    #     → 结构化条目 `{"covered": True, "payment_status": "不在承保范围"}`
+    #       同条目既有肯定决定又有除外证据 → **contradictory** → **主动压制**
+    #       （不再授权 CAR-T 治疗）。
+    #   ⚠ **超集不变量**由 `scripts/test_exclusion_vocab.py` 守卫断言
+    #     （`_STRUCTURED_NEGATION_TOKENS` ⊇ `_NEG_MARKERS`）
+    #     → 「结构化侧漏掉自由文本侧已认得的除外表达」这一类**不可能**再复发。
+    # ⚠ 各语义族**直接引用**（不在此处另抄一份 → 杜绝词表二次漂移）：
+    *_SHARED_EXCLUSION_VOCAB,
     *_SHARED_NONPAYMENT_NEGATIONS,
-    # ── 中文否定词：其余既有口径（**保持不变**）──
-    "除外", "不承保", "不保", "不含", "不覆盖", "未覆盖", "不在保障范围",
-    "不赔", "拒绝承保", "非承保", "不纳入", "不支持",
+    *_EXCL_SCOPE_EXTRA_LITERALS,
+    *_EXCL_CATEGORY_EXTRA_LITERALS,
+    *_EXCL_SUBJECT_EXTRA_LITERALS,
+    *_EXCL_GENERAL_LITERALS,
+    # ── 中文否定词：结构化侧既有额外口径（**保持不变**）──
+    "不保", "未覆盖", "拒绝承保", "非承保",
+)
+
+# ⚠⚠ **超集不变量**（模块级自检 · 官方残余 AC 一次性修法 B）——
+#   结构化侧词表必须 **⊇** 自由文本侧词表。
+#
+#   为什么必须在**发布产物内部**自检，而不是只靠本地测试：
+#     官方每轮复扫点出的都是「这一侧漏了那一侧已认得的表达」。
+#     若只在本地测试里断言，某次改动可能绕过测试直接把漂移**发出去**；
+#     放在模块级 → 漂移**根本无法上线**（导入即失败），而不是等下一轮
+#     官方复扫再暴露一次。
+#
+#   ⚠ 这条不变量正是本轮官方 finding 的**反面**：
+#     官方 finding = 结构化侧 ⊉ 自由文本侧（「不在承保范围」被自由文本侧
+#     认得、结构化侧不认）→ 本断言**从结构上封死**该方向。
+assert set(_NEG_MARKERS) <= set(_STRUCTURED_NEGATION_TOKENS), (
+    "除外词表漂移：结构化侧词表必须 ⊇ 自由文本侧词表（官方残余 AC 一次性修法 B）"
+)
+assert set(_NEG_MARKERS) <= set(_EXCL_ALL_LITERALS), (
+    "除外词表漂移：单一事实源必须 ⊇ 自由文本侧词表"
 )
 
 
@@ -946,7 +1074,15 @@ def _structured_text_is_negative(text):
     s = "".join(ch for ch in s if not ch.isspace())
     if not s:
         return False
-    return any(tok in s for tok in _STRUCTURED_NEGATION_TOKENS)
+    if any(tok in s for tok in _STRUCTURED_NEGATION_TOKENS):
+        return True
+    # ⚠ 通用模式（**与自由文本侧同一份** `_EXCL_PATTERNS` · 官方残余 AC
+    #   一次性修法 C）→ 结构化侧与自由文本侧**永远**同口径：
+    #   同族任意新表述（「不在保险范围」「无法给付」…）无需再改词表即命中。
+    for _pat in _EXCL_PATTERNS:
+        if re.search(_pat, s):
+            return True
+    return False
 
 
 def _structured_contains_negation(mapping):
@@ -988,6 +1124,53 @@ def _structured_decision_state(value):
     if isinstance(value, str):
         return "negative" if _structured_text_is_negative(value) else "ambiguous"
     return "ambiguous"
+
+
+def _structured_text_is_uncertain(text):
+    """结构化字段的**字符串值**是否带**疑问 / 不确定 / 待核实**语义。
+
+    ⚠ 官方 SDI-4 残余 W（2026-11-24 公开复扫）remediation 原文：
+      「…contradictory or **uninterpretable** entries must suppress affirmative
+        claims.」
+      「Treat questions, uncertainty, conditional eligibility, pending
+        verification, and conflicting evidence as unverified, suppressing
+        affirmative claims rather than relying on keyword presence.」
+
+    ⚠ 本函数与自由文本侧**共用同一份** `_UNCERTAINTY_MARKERS` / `_RE_SUBJECT_TO`
+       → 两路口径一致。
+    """
+    if not isinstance(text, str):
+        return False
+    s = unicodedata.normalize("NFKC", text).casefold()
+    s = "".join(ch for ch in s if not ch.isspace())
+    if not s:
+        return False
+    if any(m in s for m in _UNCERTAINTY_MARKERS):
+        return True
+    return bool(_RE_SUBJECT_TO.search(s))
+
+
+def _structured_contains_uncertainty(mapping):
+    """结构化条目（dict）里是否**另有**不可解释 / 待核实语义。
+
+    ⚠ 为什么必须有这一闸（与 `_structured_contains_negation` 对称）：
+       `payment_status` **不是**承保决定键（`_STRUCTURED_DECISION_KEYS` 只有
+       `covered` / `is_covered`）→ 条目的决定状态只看 `covered=True`
+       → 若 `payment_status` 写的是**不可解释**的值
+       （「不能确定是否给付」「待核实」「以核保结果为准」…），
+       该条目会被当成**干净肯定授权** → 产出**不实承保宣称**。
+       → 不可解释 → 判 **ambiguous**（压制，且**不可**被裁决信号翻案）。
+    """
+    if not isinstance(mapping, dict):
+        return False
+    for val in mapping.values():
+        if isinstance(val, str) and _structured_text_is_uncertain(val):
+            return True
+        if isinstance(val, (list, tuple)):
+            for item in val:
+                if isinstance(item, str) and _structured_text_is_uncertain(item):
+                    return True
+    return False
 
 
 def _structured_value_state(value):
@@ -1050,6 +1233,12 @@ def _structured_value_state(value):
                 # → affirmative 决定 + 同条目排除证据 → **contradictory**
                 #   （**压制**，不得只是「不授权」）
                 return "contradictory"
+            # ⚠ 不可解释 / 待核实（官方残余 W「uninterpretable entries must
+            #   suppress affirmative claims」）→ **ambiguous**（压制）。
+            #   ⚠ 用 ambiguous 而非 contradictory：ambiguous **不可**被
+            #     「显式声明已裁决」信号翻案 → 保守方向。
+            if _structured_contains_uncertainty(value):
+                return "ambiguous"
             return "affirmative"
         if state == "negative":
             return "negative"
@@ -1535,6 +1724,72 @@ def _product_text_leaves(product):
     return out
 
 
+def _structured_entry_has_exclusion(value):
+    """结构化条目是否**携带除外证据**（显式否定 / 自相矛盾 / 裸否定串）。
+
+    ⚠ 与授权判定**共用同一份 schema**（`_structured_text_is_negative` /
+      `_STRUCTURED_DECISION_KEYS`）→ 授权与记录级视图**永远**同口径。
+    """
+    if isinstance(value, dict):
+        if _structured_contains_negation(value):
+            return True
+        # 显式否定决定（covered=False / is_covered=False）→ 除外证据
+        for key in _STRUCTURED_DECISION_KEYS:
+            if key in value and value[key] is False:
+                return True
+        return False
+    if isinstance(value, str):
+        return _structured_text_is_negative(value)
+    return False
+
+
+def _structured_excluded_identifiers(product):
+    """产品记录里**结构化**除外证据所指向的治疗手段集合。
+
+    ⚠ 官方 SDI-4 残余 AC（2026-11-26 公开复扫）finding 原文：
+      「…the separate payment-status text contains no treatment identifier,
+        so record-wide checks do not associate its exclusion with CAR-T…」
+
+    根因：结构化条目的**键**（或 list 元素的标识字段）**就是**治疗手段标识，
+    而除外证据写在**条目的其它字段**里（如 `payment_status`）→ 该文本叶子
+    本身**不含**治疗手段标识 → 纯文本口径的记录级除外集合**看不到**它。
+
+    → 本函数按**标识**关联：键 / 标识字段匹配某个治疗手段关键词，且该条目
+      携带除外证据 → 该治疗手段在**记录级**视图中同样属「存在除外证据」。
+      （结构化路径本身已能压制 → 本函数是**同一事实**在记录级视图里的
+      补齐，属纵深防御：任一路径失效，另一条仍能拦住。）
+    """
+    out = set()
+    if not isinstance(product, dict):
+        return out
+
+    def _match(identifier):
+        if not isinstance(identifier, str):
+            return None
+        norm = _normalize_treatment_identifier(identifier)
+        if not norm:
+            return None
+        for kw in _TREATMENT_CLAIMS:
+            if _normalize_treatment_identifier(kw) == norm:
+                return kw
+        return None
+
+    for _value in product.values():
+        if isinstance(_value, dict):
+            for _key, _val in _value.items():
+                _kw = _match(_key)
+                if _kw and _structured_entry_has_exclusion(_val):
+                    out.add(_kw)
+        elif isinstance(_value, (list, tuple)):
+            for _item in _value:
+                if not isinstance(_item, dict):
+                    continue
+                _kw = _match(_structured_item_identifier(_item))
+                if _kw and _structured_entry_has_exclusion(_item):
+                    out.add(_kw)
+    return out
+
+
 def _record_exclusion_keywords(product):
     """**整条产品记录**内存在除外证据的治疗手段集合（官方 2.4.15 SDI-4 #2）。
 
@@ -1546,6 +1801,11 @@ def _record_exclusion_keywords(product):
     口径：逐个**文本叶子**（key_benefits 元素 / highlights / notes / tags …）
     独立判定 —— 同一治疗手段只要在**任意一个**文本叶子里落在否定 / 除外作用域内，
     即视为「该产品记录内存在除外证据」。
+
+    ⚠ 官方残余 AC：结构化条目的除外证据（`payment_status="不在承保范围"`）
+      所在文本叶子**不含**治疗手段标识 → 纯文本口径看不到它
+      → 由 `_structured_excluded_identifiers` 按**标识**补齐
+      （两路合并 → 记录级视图**完整**）。
     """
     out = set()
     if not product:
@@ -1559,6 +1819,7 @@ def _record_exclusion_keywords(product):
         for kw, s, e in occurrences:
             if (s, e) in bound:
                 out.add(kw)
+    out |= _structured_excluded_identifiers(product)
     return out
 
 
