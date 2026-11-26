@@ -6794,6 +6794,346 @@ def test_f35_residual_ac_structured_scope_exclusion(pd=None):
 
 
 
+def test_f36_residual_ad_shared_scope_vocab(pd=None):
+    """F36 · 残余 AD（2026-11-26 公开复扫 · ai v2.4.46 / china v2.4.43
+    · Excessive Agency · MEDIUM）—— **类别级**重疾路径未消费共享除外词表。
+
+    官方 finding 原文（ai v2.4.46 · L2560-2572）：
+      「The documented shared exclusion vocabulary is not applied to
+        critical-illness checks, allowing explicit exclusions to become
+        affirmative benefit claims.」
+
+    官方 finding 原文（china v2.4.43 · L2479-2491）：
+      「Critical-illness checks omit exclusions that the documented shared
+        vocabulary promises to apply across all coverage paths.」
+
+    官方 explanation 原文（ai）：
+      「Critical-illness checks retain separate exclusion lists rather than
+        consistently deriving them from the shared vocabulary: for example,
+        _CRX_EXCLUSION_MARKERS omits 「不在承保范围」. A product with highlights
+        「120种重疾，含轻症保障」 and another text field stating 「轻症不在承保范围」
+        can therefore pass the record-wide checks and generate 「120种重疾+轻症保障」,
+        reversing explicit noncoverage into a benefit claim. …」
+
+    官方 explanation 原文（china）：
+      「The critical-illness exclusion checks retain separate vocabularies that
+        omit shared exclusions such as 「不在承保范围」 and 「不属于承保范围」;
+        they also do not use the shared exclusion regexes. …」
+
+    官方 remediation 原文（两库同口径）：
+      「Derive medical, mild-illness, and critical-illness-category exclusion
+        recognition from one normalized vocabulary and shared semantic patterns,
+        while preserving subject-specific scope handling. Require validated
+        coverage evidence before emitting affirmative claims, suppress unresolved
+        exclusions or conflicts, and propagate an explicit unverified limitation
+        to the final plan. Add end-to-end regression tests pairing affirmative
+        highlights with exclusions such as 「轻症不在承保范围」 and
+        「重大疾病不属于承保范围」 in other fields, checking all benefits,
+        features, and descriptions.」
+
+    【根因（结构性 · 不是「又漏抄了两个词」）】
+      共享归一化除外词表 `_SHARED_EXCLUSION_VOCAB` 的**范围族**
+      （`_SHARED_EXCLUSION_SCOPE` =「不在承保范围」「不属于承保范围」）**从未**进入
+        ① `_CRX_EXCLUSION_MARKERS`（主体级 / 轻症路径）
+        ② `_CRX_CI_EXCLUSION_MARKERS`（类别级重疾路径）
+      且两条 CRX 路径**都没走**共享正则 `_EXCL_PATTERNS`
+      → 官方场景（highlights「120种重疾，含轻症保障」+ **另一字段**
+        「轻症不在承保范围」）→ `_crx_ci_claim_state` 算出 allowed=True
+        → 产出「120种重疾+轻症保障」—— 把**明确除外**反转成**承保宣称**。
+
+    【修法（结构性 · 一次性）】
+      A. 两条 CRX 路径改为**从共享语义族派生**（单一事实源 · 只引用不另抄）
+         → `_SHARED_EXCLUSION_VOCAB ⊆ 两条路径的标记集`；
+      B. 两条 CRX 路径接入**同一份** `_EXCL_PATTERNS`（模式命中按**等价字面
+         标记**参与判定 → 与字面标记同口径）；
+      C. 各路径**原有收紧口径全部保留**（紧贴主体 / 填充词上限 / 其它保障对象
+         线索 / 条件性语境 / 「不保证 ≠ 不保」特判 / 弱标记紧邻规则）；
+      D. 官方 remediation 其余要求落地：validated evidence 前置 /
+         unverified 口径 / benefits·features·descriptions 三面压制 /
+         显式 limitation 非空 / 端到端回归。
+
+    覆盖：
+      ① F36.1 源码级：两条 CRX 路径必须**引用**共享语义族 + 消费 `_EXCL_PATTERNS`
+      ② F36.2 官方 finding 原文场景（记录级 · 轻症路径）→ 除外命中 + 状态压制
+      ③ F36.3 官方 finding 原文场景（记录级 · 类别级重疾路径）→ 除外命中 + 状态压制
+      ④ F36.4 端到端 · **三面压制**（benefits / features / descriptions）
+      ⑤ F36.5 端到端 · **标准版 + 全面版**方案不得出现肯定宣称
+      ⑥ F36.6 反向回归（不得过度收紧）：同样形状但**无除外** → 必须正常宣称
+      ⑦ F36.7 存疑表述 → ambiguous（**不是** negative）且**仍然压制**
+      ⑧ F36.8 既有口径未被放松（回归基线）
+      ⑨ F36.9 超集不变量（三条 · 双向）
+    """
+    print("\nTest F36: 残余 AD"
+          "（类别级重疾路径共享词表 · 通用模式接入 · 三面压制）")
+    if pd is None:
+        import plan_designer as PD   # ai 版：模块级未 import → 局部导入
+    else:
+        PD = pd
+
+    src = open(os.path.join(SKILL_DIR, "scripts", "plan_designer.py"),
+               "r", encoding="utf-8").read()
+
+    # ==================================================================
+    # ① F36.1 源码级：两条 CRX 路径必须**引用**共享语义族 + 消费 `_EXCL_PATTERNS`
+    # ==================================================================
+    _subj_block = src.split("_CRX_EXCLUSION_MARKERS = (")[1].split("\n)")[0]
+    _ci_block = src.split("_CRX_CI_EXCLUSION_MARKERS = (")[1].split("\n)")[0]
+    check("F36.1 源码级：主体级路径必须**引用**范围级语义族（残余 AD 同源）",
+          "*_EXCL_SCOPE_LITERALS," in _subj_block,
+          f"实际 block={_subj_block[:120]!r}")
+    check("F36.1 源码级：类别级路径必须**引用**范围级语义族（残余 AD 同源）",
+          "*_EXCL_SCOPE_LITERALS," in _ci_block,
+          f"实际 block={_ci_block[:120]!r}")
+    check("F36.1 源码级：主体级路径必须**引用**主体级语义族",
+          "*_SHARED_EXCLUSION_SUBJECT," in _subj_block)
+    check("F36.1 源码级：类别级路径必须**引用**主体级语义族",
+          "*_SHARED_EXCLUSION_SUBJECT," in _ci_block)
+    check("F36.1 源码级：两条 CRX 路径必须**引用**类别级语义族（残余 AB 同源）",
+          ("*_EXCL_CATEGORY_LITERALS," in _subj_block
+           and "*_SHARED_EXCLUSION_CATEGORY," in _ci_block))
+    check("F36.1 源码级：通用模式必须被两条 CRX 路径消费（官方 china explanation 点名）",
+          "_crx_pattern_marker_hits(" in src
+          and "_EXCL_PATTERNS" in src.split("def _crx_pattern_marker_hits(")[1][:800])
+    check("F36.1 源码级：共享语义族**别名**必须存在（两库同口径）",
+          all(_k in src for _k in ("_EXCL_SCOPE_LITERALS = (",
+                                   "_EXCL_CATEGORY_LITERALS = (",
+                                   "_EXCL_SUBJECT_LITERALS = (")))
+    check("F36.1 源码级：存疑对冲词词表必须存在（两库同口径）",
+          "_EXCL_HEDGE_PREFIXES = (" in src and "_EXCL_HEDGE_LOOKBACK =" in src)
+
+    # ==================================================================
+    # ② F36.2 官方 finding 原文场景（记录级 · **主体级 / 轻症**路径）
+    # ==================================================================
+    _MILD_CLAUSES = ("轻症不在承保范围", "不在承保范围轻症", "轻症不属于承保范围")
+    for _cl in _MILD_CLAUSES:
+        _prod = {"name": "官方场景产品",
+                 "highlights": "120种重疾，含轻症保障",
+                 "notes": _cl}
+        check(f"F36.2 记录级轻症除外必须命中「{_cl}」",
+              PD._crx_record_mild_excluded(_prod) is True,
+              f"实际 {PD._crx_record_mild_excluded(_prod)!r}")
+        check(f"F36.2 主体级判定必须命中「{_cl}」",
+              PD._crx_clause_excludes_subject(_cl, "轻症") is True,
+              f"实际 {PD._crx_clause_excludes_subject(_cl, '轻症')!r}")
+        _st = PD._crx_ci_claim_state(_prod)
+        check(f"F36.2 共享状态不得 allowed=True「{_cl}」",
+              _st.get("allowed") is not True,
+              f"实际 {{k: _st.get(k) for k in ('excluded','unverified','allowed')}}")
+        check(f"F36.2 共享状态必须标为 unverified「{_cl}」",
+              _st.get("unverified") is True, f"实际 {_st.get('unverified')!r}")
+        check(f"F36.2 共享状态必须给出**非空**显式 limitation「{_cl}」",
+              isinstance(_st.get("limitation"), dict) and bool(_st.get("limitation")),
+              f"实际 {_st.get('limitation')!r}")
+        check(f"F36.2 必须给出 validated=False（肯定宣称须依赖已验证证据）「{_cl}」",
+              _st.get("validated") is False, f"实际 {_st.get('validated')!r}")
+
+    # ==================================================================
+    # ③ F36.3 官方 finding 原文场景（记录级 · **类别级重疾**路径）
+    # ==================================================================
+    _CI_CLAUSES = ("重大疾病不在承保范围", "不在承保范围重大疾病",
+                   "重大疾病不属于承保范围", "重疾不属于承保范围")
+    for _cl in _CI_CLAUSES:
+        _prod = {"name": "官方场景产品",
+                 "highlights": "120种重疾，含轻症保障",
+                 "notes": _cl}
+        check(f"F36.3 记录级类别级重疾除外必须命中「{_cl}」",
+              PD._crx_record_ci_category_excluded(_prod) is True,
+              f"实际 {PD._crx_record_ci_category_excluded(_prod)!r}")
+        check(f"F36.3 类别级判定必须命中「{_cl}」",
+              PD._crx_clause_excludes_ci_category(_cl) is True,
+              f"实际 {PD._crx_clause_excludes_ci_category(_cl)!r}")
+        _st = PD._crx_ci_claim_state(_prod)
+        check(f"F36.3 共享状态不得 allowed=True「{_cl}」",
+              _st.get("allowed") is not True,
+              f"实际 allowed={_st.get('allowed')!r}")
+        check(f"F36.3 共享状态必须给出**非空**显式 limitation「{_cl}」",
+              isinstance(_st.get("limitation"), dict) and bool(_st.get("limitation")),
+              f"实际 {_st.get('limitation')!r}")
+
+    # ==================================================================
+    # ④ F36.4 端到端 · **三面压制**（benefits / features / descriptions）
+    # ==================================================================
+    for _cl in ("轻症不在承保范围", "重大疾病不属于承保范围"):
+        _prod = {"name": "官方场景产品",
+                 "highlights": "120种重疾，含轻症保障",
+                 "notes": _cl}
+        _kb_std = PD._crx_key_benefits(_prod, 500000, "standard")
+        _kb_pre = PD._crx_key_benefits(_prod, 500000, "premium")
+        check(f"F36.4 benefits 面必须压制（standard）「{_cl}」",
+              _kb_std == "" and "轻症" not in (_kb_std or "")
+              and "120种重疾+轻症保障" not in (_kb_std or ""), f"实际 {_kb_std!r}")
+        check(f"F36.4 benefits 面必须压制（premium）「{_cl}」",
+              _kb_pre == "" and "轻症" not in (_kb_pre or ""), f"实际 {_kb_pre!r}")
+        _feat = PD._crx_feature(_prod)
+        check(f"F36.4 features 面必须压制「{_cl}」",
+              "待核实" in (_feat or "") and "确诊即赔付" not in (_feat or ""),
+              f"实际 {_feat!r}")
+        _desc = PD._build_plan_description(
+            "标准版",
+            [{"type": "重疾险", "product_name": _prod["name"],
+              "coverage": 500000, "annual_premium": 3000}],
+            [_prod])
+        check(f"F36.4 descriptions 面必须压制「{_cl}」",
+              "含重疾保障" not in (_desc or ""), f"实际 {_desc!r}")
+
+    # ==================================================================
+    # ⑤ F36.5 端到端 · **标准版 + 全面版**方案（真实产品池）
+    # ==================================================================
+    with open(os.path.join(SKILL_DIR, "references", "products.json"),
+              encoding="utf-8") as _fh:
+        _PRODUCTS = json.load(_fh)["products"]
+    _NEEDS = {"death": 1000000, "critical_illness": 500000}
+
+    def _mutate_pool(highlights, other=""):
+        """把**所有**重疾险产品改成指定 highlights / 其它字段表述 → 产品池
+
+        ⚠ 必须 mutate **所有** type=重疾险 产品（含 is_active=false）：
+          选品时可能选中**非在售**品 → 只 mutate 在售品 → 断言退化。
+        """
+        _pool = []
+        for _p in _PRODUCTS:
+            _q = dict(_p)
+            if (_q.get("type") or "") == "重疾险":
+                _q["highlights"] = highlights
+                _q["key_benefits"] = [highlights]
+                _q["notes"] = other
+                _q["suitable_for"] = ""
+                _q["weakness"] = []
+                _q["competitive_edge"] = ""
+            _pool.append(_q)
+        return _pool
+
+    def _plan(pool, kind):
+        if kind == "standard":
+            return PD.design_standard_plan(35, "男", 300000, 60000, _NEEDS, pool)
+        return PD.design_premium_plan(35, "男", 300000, 80000, _NEEDS, pool)
+
+    def _claim_text(plan):
+        """方案里**对外宣称面**的文案（不含 limitations —— 限制说明里提到「轻症」
+        属**如实报告**，不是宣称）"""
+        _chunks = [str(plan.get("description") or "")]
+        for _e in plan.get("products", []):
+            _chunks.append(str(_e.get("key_benefits") or ""))
+        for _f in plan.get("features", []):
+            _chunks.append(str(_f))
+        return "\n".join(_chunks)
+
+    def _ci_entry(plan):
+        return next((e for e in plan.get("products", [])
+                     if e.get("type") == "重疾险"), None)
+
+    _AFFIRM_HL = "120种重疾，含轻症保障"
+    for _kind in ("standard", "premium"):
+        for _cl in ("轻症不在承保范围", "重大疾病不属于承保范围"):
+            _pl = _plan(_mutate_pool(_AFFIRM_HL, _cl), _kind)
+            _blob = _claim_text(_pl)
+            check(f"F36.5 {_kind} 版方案不得宣称「120种重疾+轻症保障」（{_cl}）",
+                  "120种重疾+轻症保障" not in _blob, _blob[:300])
+            check(f"F36.5 {_kind} 版方案不得宣称「轻症保障」（{_cl}）",
+                  "轻症保障" not in _blob, _blob[:300])
+            _entry = _ci_entry(_pl)
+            check(f"F36.5 {_kind} 版方案的重疾 key_benefits 必须被压制（{_cl}）",
+                  _entry is not None and not str(_entry.get("key_benefits") or ""),
+                  f"实际 key_benefits={(_entry or {}).get('key_benefits')!r}")
+            _lims = [l for l in (_pl.get("limitations") or [])
+                     if isinstance(l, dict) and l.get("product_type") == "重疾险"]
+            check(f"F36.5 {_kind} 版方案须保留**显式限制说明**（{_cl}）",
+                  len(_lims) >= 1, f"实际 limitations={_pl.get('limitations')!r}")
+
+    # ==================================================================
+    # ⑥ F36.6 反向回归（不得过度收紧）：同样形状但**无除外** → 必须正常宣称
+    # ==================================================================
+    for _kind in ("standard", "premium"):
+        _pl = _plan(_mutate_pool(_AFFIRM_HL, ""), _kind)
+        _blob = _claim_text(_pl)
+        _entry = _ci_entry(_pl)
+        check(f"F36.6 反向回归：{_kind} 版方案**无除外**时必须保留重疾 key_benefits",
+              _entry is not None and bool(str(_entry.get("key_benefits") or "")),
+              f"实际 key_benefits={(_entry or {}).get('key_benefits')!r}")
+        check(f"F36.6 反向回归：{_kind} 版方案**无除外**时不得出现「待核实」",
+              "待核实" not in _blob, _blob[:300])
+    _pl_std = _plan(_mutate_pool(_AFFIRM_HL, ""), "standard")
+    check("F36.6 反向回归：standard 版方案**无除外**时必须保留轻症宣称",
+          "120种重疾+轻症保障" in _claim_text(_pl_std), _claim_text(_pl_std)[:300])
+    _ctl = PD._crx_key_benefits(
+        {"name": "T", "highlights": _AFFIRM_HL, "notes": ""}, 500000, "standard")
+    check("F36.6 反向回归：benefits 面**无除外**时必须保留轻症宣称",
+          "120种重疾+轻症保障" in (_ctl or ""), f"实际 {_ctl!r}")
+    _ctl_state = PD._crx_ci_claim_state(
+        {"name": "T", "highlights": _AFFIRM_HL, "notes": ""})
+    check("F36.6 反向回归：**无除外**时状态必须 allowed=True",
+          _ctl_state.get("allowed") is True, f"实际 {_ctl_state!r}")
+    check("F36.6 反向回归：**无除外**时状态必须 validated=True",
+          _ctl_state.get("validated") is True, f"实际 {_ctl_state!r}")
+
+    # ==================================================================
+    # ⑦ F36.7 存疑表述 → ambiguous（**不是** negative）且**仍然压制**
+    # ==================================================================
+    for _cl in ("轻症可能不在承保范围", "重大疾病可能不在承保范围"):
+        _prod = {"name": "存疑产品",
+                 "highlights": _AFFIRM_HL,
+                 "notes": _cl}
+        _st = PD._crx_ci_claim_state(_prod)
+        check(f"F36.7 存疑表述「{_cl}」不得算「确定除外」（excluded=False）",
+              _st.get("excluded") is False, f"实际 {_st!r}")
+        check(f"F36.7 存疑表述「{_cl}」必须判为 unverified",
+              _st.get("unverified") is True, f"实际 {_st!r}")
+        check(f"F36.7 存疑表述「{_cl}」**仍然压制**肯定宣称（allowed=False）",
+              _st.get("allowed") is False, f"实际 {_st!r}")
+        check(f"F36.7 存疑表述「{_cl}」须产出**非空**显式限制说明",
+              isinstance(_st.get("limitation"), dict) and bool(_st.get("limitation")),
+              f"实际 {_st.get('limitation')!r}")
+        _kb = PD._crx_key_benefits(_prod, 500000, "standard")
+        check(f"F36.7 存疑表述「{_cl}」不得输出轻症宣称",
+              "轻症" not in (_kb or ""), f"实际 {_kb!r}")
+
+    # ==================================================================
+    # ⑧ F36.8 既有口径未被放松（回归基线）
+    # ==================================================================
+    _BASE_TRUE = [
+        ("轻症不承保", "轻症", True),          # 主体级（残余 AA）
+        ("不予承保轻症", "轻症", True),        # 主体级 · 前向
+        ("轻症不予给付", "轻症", True),        # 主体级 · 后向给付措辞
+        ("120种重疾，不含轻症", "轻症", True),  # 主体级 · 类别族
+        ("不含重大疾病保障", None, True),       # 类别级（残余 AB）
+        ("重疾不保但含身故保障", None, True),   # 类别级 · 局部作用域（残余 X）
+        ("重大疾病责任免除", None, True),       # 类别级 · 后向绑定
+    ]
+    for _cl, _subj, _want in _BASE_TRUE:
+        if _subj:
+            _got = PD._crx_clause_excludes_subject(_cl, _subj)
+        else:
+            _got = PD._crx_clause_excludes_ci_category(_cl)
+        check(f"F36.8 回归基线仍须判除外「{_cl}」", _got is _want, f"实际 {_got!r}")
+    _BASE_FALSE = [
+        ("轻症赔付比例25%", "轻症"),
+        ("40种轻症赔20%x6次", "轻症"),
+        ("轻症/中介阶梯式赔付", "轻症"),
+    ]
+    for _cl, _subj in _BASE_FALSE:
+        _got = PD._crx_clause_excludes_subject(_cl, _subj)
+        check(f"F36.8 回归基线不得误伤「{_cl}」", _got is False, f"实际 {_got!r}")
+    check("F36.8 回归基线：「续保不保证」不得被当成类别级重疾除外",
+          PD._crx_clause_excludes_ci_category("续保不保证") is False)
+    check("F36.8 回归基线：「等待期为90天，未满期内轻重疾病不赔付」不得被当成类别级除外",
+          PD._crx_clause_excludes_ci_category("等待期为90天，未满期内轻重疾病不赔付") is False)
+
+    # ==================================================================
+    # ⑨ F36.9 超集不变量（三条 · 双向）
+    # ==================================================================
+    _vocab = set(PD._SHARED_EXCLUSION_VOCAB)
+    check("F36.9 超集不变量：主体级路径 ⊇ 共享归一化除外词表",
+          _vocab <= set(PD._CRX_EXCLUSION_MARKERS),
+          f"漏词：{sorted(_vocab - set(PD._CRX_EXCLUSION_MARKERS))!r}")
+    check("F36.9 超集不变量：类别级路径 ⊇ 共享归一化除外词表",
+          _vocab <= set(PD._CRX_CI_EXCLUSION_MARKERS),
+          f"漏词：{sorted(_vocab - set(PD._CRX_CI_EXCLUSION_MARKERS))!r}")
+    check("F36.9 超集不变量：单一事实源 ⊇ 自由文本侧词表",
+          set(PD._NEG_MARKERS) <= set(PD._EXCL_ALL_LITERALS),
+          f"漏词：{sorted(set(PD._NEG_MARKERS) - set(PD._EXCL_ALL_LITERALS))!r}")
+    return True
+
+
 def main():
     print("=" * 60)
     print("ClawHub 审计整改测试（任务 2 R4/R5/R6/R7 + 任务 3 SQP-3/SDI-3/SDI-4）")
@@ -6852,6 +7192,7 @@ def main():
     test_f33_residual_wxy_shared_vocabulary_and_scope()
     test_f34_residual_zab_shared_exclusion_vocab()
     test_f35_residual_ac_structured_scope_exclusion()
+    test_f36_residual_ad_shared_scope_vocab()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)
