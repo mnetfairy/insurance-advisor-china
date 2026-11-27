@@ -26,6 +26,7 @@ ClawHub 安全审计整改 · 任务 2 测试（R4/R5/R6/R7）
 
 退出码：0 全部通过 / 1 至少一项失败
 """
+import importlib.util
 import json
 import os
 import re
@@ -7134,6 +7135,210 @@ def test_f36_residual_ad_shared_scope_vocab(pd=None):
     return True
 
 
+
+def test_g_af_residual_rootcauses():
+    """G 组 · 残余 AF 5 类根因端到端回归（2026-11-28 公开复扫）
+
+    ⚠ 官方 finding（两库均复现 · ai v2.4.49 / china v2.4.46 · LP1 + SDI-4）：
+      AF-1 LP1   `premium_calculator.py` 出现网络能力 token → 判成 network 能力
+      AF-2 SDI-4 肯定词**跨主体借用**（「含住院津贴并附CAR-T治疗介绍」）
+      AF-3 SDI-4 重疾肯定证据取自**身份字段**（name / type）+ 记录级存疑未调和
+      AF-4 SDI-4 结构化条件**只看一层 key** → 嵌套 `payment.conditions` 逃逸
+      AF-5 SDI-4 保费口径：宣称「权威费率」+ 缺费率编造 `coverage_amount*0.01`
+
+    ⚠ **断言口径铁律**：一律写成**行为不变式**（不是「宣称数 = 0」）。
+    """
+    print("\nTest G: 残余 AF 5 类根因端到端回归")
+
+    import json as _json
+
+    # ⚠ 两库模块导入方式不同：china 在模块级 `import plan_designer`，
+    #   ai 库是 `_load_module()` 动态加载 → 这里统一走 importlib 兜底。
+    def _mod(name, filename):
+        try:
+            return importlib.import_module(name)
+        except Exception:
+            pass
+        _spec = importlib.util.spec_from_file_location(
+            name, os.path.join(SKILL_DIR, "scripts", filename))
+        _m = importlib.util.module_from_spec(_spec)
+        sys.modules[_spec.name] = _m
+        _spec.loader.exec_module(_m)
+        return _m
+
+    _PD = _mod("plan_designer", "plan_designer.py")
+    _PC = _mod("premium_calculator", "premium_calculator.py")
+
+    _NEEDS = {"death": 1000000, "critical_illness": 500000}
+
+    with open(os.path.join(SKILL_DIR, "references", "products.json"),
+              encoding="utf-8") as _fh:
+        _PRODUCTS = _json.load(_fh)["products"]
+
+    # ── 端到端夹具：把指定类型的产品改成指定事实源表述 ──────────────────
+    def _mutate_pool(ptype, text, other=""):
+        """把**所有** `ptype` 产品改成指定 facts（含非在售品，避免断言退化）"""
+        _pool = []
+        for _p in _PRODUCTS:
+            _q = dict(_p)
+            if (_q.get("type") or "") == ptype:
+                _q["highlights"] = text
+                _q["key_benefits"] = [text]
+                _q["notes"] = other
+                _q["suitable_for"] = ""
+                _q["weakness"] = []
+                _q["competitive_edge"] = ""
+            _pool.append(_q)
+        return _pool
+
+    def _plan(pool, kind="standard"):
+        if kind == "standard":
+            return _PD.design_standard_plan(35, "男", 300000, 60000,
+                                            _NEEDS, pool)
+        return _PD.design_premium_plan(35, "男", 300000, 80000,
+                                       _NEEDS, pool)
+
+    def _claim_blob(plan):
+        """方案里**对外宣称面**的文案（不含 limitations —— 限制说明里提到
+        治疗手段 / 重疾属**如实报告**，不是宣称）"""
+        _chunks = [str(plan.get("description") or "")]
+        for _e in plan.get("products", []):
+            _chunks.append(str(_e.get("key_benefits") or ""))
+        for _f in plan.get("features", []):
+            _chunks.append(str(_f))
+        return "\n".join(_chunks)
+
+    def _entry_of(plan, ptype):
+        return next((e for e in plan.get("products", [])
+                     if e.get("type") == ptype), None)
+
+    def _limit_texts(plan):
+        return "\n".join(str(_l) for _l in (plan.get("limitations") or []))
+
+    # ==================================================================
+    # G1 · AF-2 肯定词**跨主体借用** → 端到端不得宣称，且必须报告限制
+    # ==================================================================
+    _pl2 = _plan(_mutate_pool("医疗险", "含住院津贴并附CAR-T治疗介绍"))
+    _blob2 = _claim_blob(_pl2)
+    check("G1 AF-2 端到端：跨主体借用不得产出 CAR-T 肯定宣称（宣称面）",
+          "CAR-T" not in _blob2, _blob2[:300])
+    _med2 = _entry_of(_pl2, "医疗险")
+    check("G1 AF-2 端到端：医疗险 key_benefits 不得出现 CAR-T",
+          _med2 is not None and "CAR-T" not in str(_med2.get("key_benefits") or ""),
+          f"实际 key_benefits={(_med2 or {}).get('key_benefits')!r}")
+    _lim2 = _limit_texts(_pl2)
+    check("G1 AF-2 端到端：被压制的治疗手段必须**如实报告限制**",
+          "CAR-T" in _lim2, _lim2[:300])
+
+    # 反向回归：同一产品**直接授权** CAR-T → 仍须正常宣称（不得过度收紧）
+    _pl2ok = _plan(_mutate_pool("医疗险", "含CAR-T治疗费用报销"))
+    _blob2ok = _claim_blob(_pl2ok)
+    check("G1 AF-2 反向回归：直接授权 CAR-T 的方案仍须正常宣称",
+          "CAR-T" in _blob2ok, _blob2ok[:300])
+
+    # ==================================================================
+    # G2 · AF-3 身份字段唯一证据 → 端到端重疾宣称被压制 + 显式 limitation
+    # ==================================================================
+    for _kind in ("standard", "premium"):
+        _pl3 = _plan(_mutate_pool("重疾险", "重疾保障，确诊即赔付",
+                                  "重疾保障待核实"), _kind)
+        _ci3 = _entry_of(_pl3, "重疾险")
+        check(f"G2 AF-3 {_kind} 端到端：重疾 key_benefits 必须被压制"
+              "（记录级「重疾保障待核实」）",
+              _ci3 is not None and not str(_ci3.get("key_benefits") or ""),
+              f"实际 key_benefits={(_ci3 or {}).get('key_benefits')!r}")
+        _blob3 = _claim_blob(_pl3)
+        check(f"G2 AF-3 {_kind} 端到端：features / description 面"
+              "不得出现「确诊即赔付」肯定卖点",
+              "确诊即赔付" not in _blob3, _blob3[:300])
+        _lim3 = _limit_texts(_pl3)
+        check(f"G2 AF-3 {_kind} 端到端：必须保留**显式 limitation**",
+              "重疾" in _lim3 and "核实" in _lim3, _lim3[:300])
+
+    # 反向回归：承保语义字段的明确肯定证据 → 仍须正常宣称
+    _pl3ok = _plan(_mutate_pool("重疾险", "重疾保障，确诊即赔付"))
+    _ci3ok = _entry_of(_pl3ok, "重疾险")
+    check("G2 AF-3 反向回归：承保语义字段明确肯定证据 → 重疾仍须正常宣称",
+          _ci3ok is not None and str(_ci3ok.get("key_benefits") or ""),
+          f"实际 key_benefits={(_ci3ok or {}).get('key_benefits')!r}")
+
+    # ==================================================================
+    # G3 · AF-4 嵌套结构化条件 → 端到端不得无条件宣称 + 显式 limitation
+    # ==================================================================
+    _pl4 = _plan(_mutate_pool("医疗险", "含CAR-T治疗费用报销"))
+    _pool4 = []
+    for _p in _PRODUCTS:
+        _q = dict(_p)
+        if (_q.get("type") or "") == "医疗险":
+            _q["highlights"] = "含CAR-T治疗费用报销"
+            _q["key_benefits"] = ["含CAR-T治疗费用报销"]
+            _q["notes"] = ""
+            _q["suitable_for"] = ""
+            _q["weakness"] = []
+            _q["competitive_edge"] = ""
+            _q["coverage_items"] = [
+                {"treatment": "CAR-T治疗", "covered": True,
+                 "payment": {"conditions": [{"hospital": ["指定医院"]}]}}]
+        _pool4.append(_q)
+    _pl4 = _plan(_pool4)
+    _blob4 = _claim_blob(_pl4)
+    check("G3 AF-4 端到端：嵌套条件（指定医院）不得产出无条件 CAR-T 宣称",
+          "CAR-T" not in _blob4, _blob4[:300])
+    _lim4 = _limit_texts(_pl4)
+    check("G3 AF-4 端到端：嵌套条件被压制 → 必须**如实报告限制**",
+          "CAR-T" in _lim4, _lim4[:300])
+
+    # ==================================================================
+    # G4 · AF-5 保费口径：缺费率不编造 + 非绑定估算标记
+    # ==================================================================
+    _AF5 = {"id": "G4-norate", "name": "G4 缺费率测试险", "company": "测试公司",
+            "type": "重疾险", "payment_terms": ["年交"], "premium_per_10k": None}
+    _p5 = _PC.calculate_premium(_AF5, 35, "男", 500000, "年交")
+    check("G4 AF-5 端到端：缺费率 → **不得**编造 `coverage_amount * 0.01` 兜底价",
+          not (isinstance(_p5, (int, float))
+               and abs(float(_p5) - 500000 * 0.01) < 1e-6),
+          f"实际 {_p5!r}（1% 兜底 = 5000.0）")
+    _res5 = _PC.calculate_all_premiums(35, "男", 500000)
+    _meta5 = _res5.get("_meta", {})
+    check("G4 AF-5 端到端：`_meta` 必须带**定价专用**的非绑定估算标记",
+          _meta5.get("pricing_basis") == "heuristic_estimate"
+          and _meta5.get("premium_is_estimate") is True,
+          f"pricing_basis={_meta5.get('pricing_basis')!r} "
+          f"premium_is_estimate={_meta5.get('premium_is_estimate')!r}")
+    _d5 = " ".join(_meta5.get("disclaimers", []))
+    check("G4 AF-5 端到端：`_meta.disclaimers` 必须披露**定价限制**"
+          "（非绑定 / 启发式 / 通用费率 / 不构成报价）",
+          ("不构成" in _d5 or "非绑定" in _d5 or "启发式" in _d5),
+          f"disclaimers={_d5[:200]!r}")
+    _nr5 = [k for k, v in _res5.items()
+            if k != "_meta" and isinstance(v, dict)
+            and v.get("premium_unavailable")]
+    _bad5 = [k for k in _nr5
+             if _res5[k].get("annual_premium") is not None
+             or any(v is not None
+                    for v in (_res5[k].get("premiums_by_term") or {}).values())]
+    check("G4 AF-5 端到端：缺费率产品必须标记 `premium_unavailable`"
+          "且**不输出任何数字**",
+          not _bad5, f"缺费率 {len(_nr5)} 款 · 仍出数字 {len(_bad5)} 条：{_bad5[:5]!r}")
+
+    # ==================================================================
+    # G5 · AF-1 LP1：三个已发布脚本不得出现网络能力 token（源码级）
+    # ==================================================================
+    _NET_TOKENS = ("requests", "urllib", "socket", "aiohttp", "httpx", "urlopen")
+    _net_hits = []
+    for _fn in ("needs_analyzer.py", "premium_calculator.py", "plan_designer.py"):
+        _fp = os.path.join(SKILL_DIR, "scripts", _fn)
+        if not os.path.exists(_fp):
+            continue
+        _srcf = open(_fp, encoding="utf-8").read()
+        for _tok in _NET_TOKENS:
+            for _m in re.finditer(r"\b" + re.escape(_tok) + r"\b", _srcf):
+                _net_hits.append("%s:%s@L%d" % (
+                    _fn, _tok, _srcf[:_m.start()].count("\n") + 1))
+    check("G5 AF-1 三个已发布脚本**不得**出现网络能力 token（官方 LP1 落点）",
+          not _net_hits, f"命中 {len(_net_hits)} 处：{_net_hits[:5]!r}")
+
+
 def main():
     print("=" * 60)
     print("ClawHub 审计整改测试（任务 2 R4/R5/R6/R7 + 任务 3 SQP-3/SDI-3/SDI-4）")
@@ -7193,6 +7398,7 @@ def main():
     test_f34_residual_zab_shared_exclusion_vocab()
     test_f35_residual_ac_structured_scope_exclusion()
     test_f36_residual_ad_shared_scope_vocab()
+    test_g_af_residual_rootcauses()
     test_task3_redline_guards()
 
     print("\n" + "=" * 60)

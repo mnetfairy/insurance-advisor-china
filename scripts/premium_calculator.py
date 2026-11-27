@@ -16,7 +16,7 @@
      ① **入参校验**：coverage_year 必须是 **None** 或**正整数**（单位：年）；
         非法值（0 / 负数 / 非整数 / 布尔）→ **显式报错**（`CoverageYearError`）
         → **不再**静默忽略（官方 remediation：reject unsupported duration
-        requests explicitly rather than silently ignoring them）。
+        queries explicitly rather than silently ignoring them）。
      ② **产品筛选**（用产品库**已验证**的 `coverage_period_*` 字段 ·
         语义 = 保障期限 ≥ 客户要求的年限）：
         · `coverage_period_is_lifetime is True` → 满足任意年限；
@@ -28,10 +28,11 @@
           {'parsed','parsed_long'} / 字段缺失 / 单位未知）→ **不得**声称满足
           → **排除**，排除数量在 `_meta.coverage_year_filtered_out` **披露**。
      ③ **保费口径（诚实处理）**：产品库**没有**按保障期限分档的费率表
-        ⇒ **不**自造「期限加权系数」假装是权威费率；**期限筛选后**，
-        每款产品的保费仍用**它自己**的权威费率计算（既有公式**不改**）
-        ⇒ 不同 coverage_year → 不同产品集 → 不同报价；
-        该限制在 `_meta.disclaimers` **显式披露**。
+        ⇒ **不**自造「期限加权系数」假装是保险公司定价；**期限筛选后**，
+        每款产品的保费仍按**它自己**的费率数据 + 启发式系数**估算**
+        （既有公式**不改**）⇒ 不同 coverage_year → 不同产品集 → 不同报价；
+        该限制与「保费为非绑定启发式估算」一并写入 `_meta.disclaimers`
+        **显式披露**。
      ④ **显式拒绝**：给定 coverage_year 后**筛不出任何产品** → **显式报错**
         （不得返回空列表假装成功）。
    ⚠ **本模块不做**「按保障期限加权的定价」（产品库无分档费率）——
@@ -84,13 +85,20 @@ _DISCONTINUED_VALIDITY = ("已停售", "DISCONTINUED")
 #   「Validate coverage_year against a documented schema, filter products using
 #    verified coverage-duration information, and calculate premiums using
 #    authoritative rates for the selected duration. Until duration-aware pricing
-#    is implemented, reject unsupported duration requests explicitly rather than
+#    is implemented, reject unsupported duration queries explicitly rather than
 #    silently ignoring them.」
 #
 # ⇒ 产品库里**没有**按保障期限分档的费率表 → **不得**自造「期限加权系数」
-#   假装是权威费率 → 正确做法：**按已验证期限筛选产品**，每款产品的保费
-#   仍用**它自己**的权威费率（既有公式**不改**）→ 不同 coverage_year
-#   → 不同产品集 → 不同报价。
+#   假装是保险公司定价 → 正确做法：**按已验证期限筛选产品**，每款产品的保费
+#   仍按**它自己**的费率数据 + 启发式系数**估算**（既有公式**不改**）
+#   → 不同 coverage_year → 不同产品集 → 不同报价。
+#
+# ⚠⚠ 官方 SDI-4 残余 AF-5（2026-11-28 公开复扫 · ai AF-S3 / china AF-S3'）
+#   finding 原文：
+#     「Documentation promises authoritative product-specific premiums, but
+#       calculations use generic rates and heuristic multipliers.」
+#   ⇒ 上述官方原文描述的是**目标态**；**当前实现不满足**（产品库无分档费率表）
+#     → 实际输出为**非绑定启发式估算**，已在 `_meta.disclaimers` **显式披露**。
 # ══════════════════════════════════════════════════════════════════════
 
 # **已验证**的期限解析质量取值（其余一律视为「期限无法验证」→ 不得声称满足）
@@ -104,7 +112,7 @@ class CoverageYearError(ValueError):
     """保障期限入参非法 / 按期限筛不出任何产品（**显式拒绝** · 不得静默忽略）。
 
     ⚠ 官方 SDI-4 残余 AE-3 remediation 原文：
-      「… reject unsupported duration requests explicitly rather than silently
+      「… reject unsupported duration queries explicitly rather than silently
         ignoring them.」
     ⇒ 继承 `ValueError` → 既有 `except ValueError` 的调用方仍能捕获。
     """
@@ -368,6 +376,52 @@ def _pool_disclaimers(stats):
     return disclaimers
 
 
+# ⚠ 官方 SDI-4 残余 AF-5（2026-11-28 公开复扫 · ai AF-S3 / china AF-S3'）
+#   remediation 原文：
+#     「… Reject unsupported combinations and missing rates instead of inventing
+#       fallback prices; until authoritative pricing exists, explicitly label
+#       every result as a non-binding heuristic estimate, remove
+#       authoritative-rate claims, and prevent estimates from being presented as
+#       confirmed quotes.」
+# ⇒ 产品库**没有**经核实的费率表 → 本模块所有保费均为**非绑定启发式估算**
+#   （年龄 / 性别 / 缴费期系数 = 启发式乘数；医疗险 / 意外险 = 通用费率）；
+#   缺费率时**不得**编造兜底价（整改前的 `coverage_amount * 0.01` 已移除）。
+_PRICING_BASIS = "heuristic_estimate"
+_RATE_UNAVAILABLE_REASON = "产品库缺少该产品的费率数据，未编造兜底价"
+
+
+def _parse_rate_per_10k(value):
+    """产品的费率数据（premium_per_10k）→ 每万元保额年缴保费 → float | None
+
+    ⚠ **缺 / 不可解析 / 非正数 → None**（= 费率不可用）。
+    ⚠ 整改前的兜底口径（`coverage_amount * 0.01`，官方点名的「arbitrary 1%
+      rate」）**已移除** → 缺费率时**不输出任何数字**。
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value) if value > 0 else None
+    if isinstance(value, str):
+        nums = re.findall(r"[\d.]+", value)
+        if not nums:
+            return None
+        try:
+            f = float(nums[0])
+        except ValueError:
+            return None
+        return f if f > 0 else None
+    return None
+
+
+def _product_rate_available(product):
+    """该产品的费率是否**可用**（医疗险 / 意外险用通用费率 → 恒可用）"""
+    if not isinstance(product, dict):
+        return False
+    if product.get("type") in ("医疗险", "意外险"):
+        return True
+    return _parse_rate_per_10k(product.get("premium_per_10k")) is not None
+
+
 def calculate_premium(product, age, gender, coverage_amount, payment_term=None, coverage_year=None):
     """计算单一产品保费
 
@@ -440,16 +494,16 @@ def calculate_premium(product, age, gender, coverage_amount, payment_term=None, 
         annual_premium = coverage_amount * 0.001
         return max(annual_premium, 100)  # 最低保费100元
 
-    # 重疾险、定期寿险、储蓄险
-    premium_val = product.get("premium_per_10k")
-    if premium_val is not None:
-        # 处理字符串值，如 "约280" 或 "280"
-        if isinstance(premium_val, str):
-            nums = re.findall(r'[\d.]+', premium_val)
-            premium_val = float(nums[0]) if nums else 0
-        base_premium = (coverage_amount / 10000) * float(premium_val)
-    else:
-        base_premium = coverage_amount * 0.01
+    # 重疾险、定期寿险、储蓄险（按产品**自身**的费率数据 + 启发式系数估算）
+    rate = _parse_rate_per_10k(product.get("premium_per_10k"))
+    if rate is None:
+        # ⚠ 官方 SDI-4 残余 AF-5：缺费率 → **不编造兜底价**（不输出任何数字）
+        #   （整改前的 `coverage_amount * 0.01` 已被官方点名为「编造兜底价」）
+        #   → 调用方（`calculate_all_premiums`）据此标记 `premium_unavailable`
+        #     并在 `_meta` 披露；**不**静默给一个看起来像价的数字。
+        return None
+
+    base_premium = (coverage_amount / 10000) * rate
 
     total_premium = base_premium * age_factor * gender_factor * payment_term_factor
 
@@ -469,9 +523,10 @@ def calculate_all_premiums(age, gender, coverage_amount, product_types=None, pay
               排除数量在 `_meta.coverage_year_filtered_out` **披露**）。
             · 给定后**筛不出任何产品** → **显式报错**（`CoverageYearError`）
               → 不得返回空列表假装成功。
-            · ⚠ 保费按各产品**自身**的权威费率计算（产品库**没有**按期限分档
-              的费率表 → **不**自造「期限加权系数」）→ 该限制在
-              `_meta.disclaimers` **显式披露**。
+            · ⚠ 保费按各产品**自身**的费率数据 + 启发式系数**估算**
+              （产品库**没有**按期限分档的费率表 → **不**自造「期限加权系数」）
+              → 结果为**非绑定启发式估算**，该限制在 `_meta.disclaimers`
+              **显式披露**。
         include_discontinued: False=默认不返回已停售/已下架产品；
                               True=显式查询停售产品（含在结果中并标注）。
     """
@@ -481,6 +536,8 @@ def calculate_all_premiums(age, gender, coverage_amount, product_types=None, pay
     pool_disclaimers = _pool_disclaimers(stats)
     # ⚠ 官方 SDI-4 残余 AE-3：coverage_year **真实生效**（产品筛选）
     coverage_filtered_out = 0
+    # ⚠ 官方 SDI-4 残余 AF-5：缺费率的产品计数（**不编造兜底价**）
+    rate_unavailable_count = 0
 
     results = {}
     for product in products:
@@ -504,6 +561,7 @@ def calculate_all_premiums(age, gender, coverage_amount, product_types=None, pay
 
         # 计算保费
         premiums_by_term = {}
+        rate_unavailable = False
         available_terms = product.get("payment_terms", ["年交"])
 
         for term in available_terms:
@@ -512,9 +570,17 @@ def calculate_all_premiums(age, gender, coverage_amount, product_types=None, pay
             else:
                 term_premium = calculate_premium(product, age, gender, coverage_amount, term)
 
+            # ⚠ 官方 SDI-4 残余 AF-5：缺费率 → **不输出任何数字**
+            if term_premium is None:
+                rate_unavailable = True
+                continue
+
             # 标准化缴费期名称
             term_name = term
             premiums_by_term[term_name] = term_premium
+
+        if rate_unavailable:
+            rate_unavailable_count += 1
 
         # 🆕 2026-08-20 quality-aware：获取 disclaimers 和数据质量标记
         hints = _extract_quality_hints(product)
@@ -530,8 +596,14 @@ def calculate_all_premiums(age, gender, coverage_amount, product_types=None, pay
                 "name": product.get("name"),
                 "company": product.get("company"),
                 "type": product.get("type"),
-                "annual_premium": premiums_by_term[payment_term],
+                "annual_premium": premiums_by_term.get(payment_term),
                 "payment_term": payment_term,
+                # ⚠ 官方 SDI-4 残余 AF-5：结果为**非绑定启发式估算**（显式标记）
+                "pricing_basis": _PRICING_BASIS,
+                "premium_is_estimate": True,
+                "premium_unavailable": rate_unavailable,
+                "premium_unavailable_reason": (_RATE_UNAVAILABLE_REASON
+                                               if rate_unavailable else ""),
                 "coverage_amount": coverage_amount,
                 "coverage_period": hints["coverage_period"],  # 🆕 缺失时为"未明确"
                 "waiting_period": product.get("waiting_period"),
@@ -551,6 +623,12 @@ def calculate_all_premiums(age, gender, coverage_amount, product_types=None, pay
                 "company": product.get("company"),
                 "type": product.get("type"),
                 "premiums_by_term": premiums_by_term,
+                # ⚠ 官方 SDI-4 残余 AF-5：结果为**非绑定启发式估算**（显式标记）
+                "pricing_basis": _PRICING_BASIS,
+                "premium_is_estimate": True,
+                "premium_unavailable": rate_unavailable,
+                "premium_unavailable_reason": (_RATE_UNAVAILABLE_REASON
+                                               if rate_unavailable else ""),
                 "coverage_amount": coverage_amount,
                 "coverage_period": hints["coverage_period"],  # 🆕 缺失时为"未明确"
                 "waiting_period": product.get("waiting_period"),
@@ -584,6 +662,18 @@ def calculate_all_premiums(age, gender, coverage_amount, product_types=None, pay
             "ℹ️ 保费按各产品自身费率计算，未按保障期限加权"
             "（产品库无按保障期限分档的费率表）")
 
+    # ⚠ 官方 SDI-4 残余 AF-5：**定价口径诚实化**（非绑定启发式估算）
+    #   ⚠ 披露内容必须覆盖**这一层**定价限制（既有 disclaimers 只覆盖保障期限）。
+    pricing_disclaimers = [
+        "ℹ️ 保费为**非绑定启发式估算**：年龄 / 性别 / 缴费期系数为启发式乘数，"
+        "医疗险 / 意外险使用通用费率；本结果不构成保险公司的承保报价、不具约束力，"
+        "实际保费须以保险公司核保出单为准"
+    ]
+    if rate_unavailable_count:
+        pricing_disclaimers.append(
+            "ℹ️ 有 %d 款产品缺少费率数据，已标记为保费不可用（缺费率不编造兜底价）"
+            % rate_unavailable_count)
+
     # 🆕 I3：全部产品计数口径 + 停售排除说明（不影响单产品保费公式）
     results["_meta"] = {
         "total_products": stats["total_products"],
@@ -596,7 +686,12 @@ def calculate_all_premiums(age, gender, coverage_amount, product_types=None, pay
         # ⚠ 官方 SDI-4 残余 AE-3：coverage_year 的**可观测**效果
         "coverage_year": coverage_year,
         "coverage_year_filtered_out": coverage_filtered_out,
-        "disclaimers": pool_disclaimers + coverage_disclaimers,
+        # ⚠ 官方 SDI-4 残余 AF-5：定价口径（机器可读标记 + 缺费率计数）
+        "pricing_basis": _PRICING_BASIS,
+        "premium_is_estimate": True,
+        "rate_unavailable_count": rate_unavailable_count,
+        "disclaimers": (pool_disclaimers + coverage_disclaimers
+                        + pricing_disclaimers),
     }
 
     return results
@@ -618,11 +713,19 @@ def compare_payment_terms(products_list, age, gender, coverage_amount, include_d
             "type": product.get("type")
         }
 
+        row["pricing_basis"] = _PRICING_BASIS
+        row["premium_is_estimate"] = True
         for term in product.get("payment_terms", []):
             if product.get("type") in ["医疗险", "意外险"]:
                 annual = calculate_premium(product, age, gender, coverage_amount, "年交")
             else:
                 annual = calculate_premium(product, age, gender, coverage_amount, term)
+            if annual is None:
+                # ⚠ 官方 SDI-4 残余 AF-5：缺费率 → 不给数字（如实标记）
+                row["premium_unavailable"] = True
+                row["premium_unavailable_reason"] = _RATE_UNAVAILABLE_REASON
+                row[term] = None
+                continue
             row[term] = annual
 
         comparison.append(row)

@@ -41,6 +41,7 @@
 """
 import json
 import os
+import ast
 import re
 import sys
 
@@ -415,19 +416,78 @@ def main():
             }
         _cnt = {g: len([k for k in _grp if _grp[k] == g])
                 for g in ("ci", "nonci_wd", "nonci_novd")}
-        # ① / ② 与基线**完全一致**（分组逐条比对；不依赖「全部一致」写法）
+        # ① / ② **行为不变式**（2026-11-28 残余 AF-3 口径修订）
+        #
+        # ⚠ 官方 SDI-4 残余 AF-3（ai AF-S2 / china AF-S2'）remediation 原文：
+        #     「Exclude product names, type labels, and unrelated metadata from
+        #       affirmative evidence.」
+        #   ⇒ 重疾肯定证据**只**取自**承保语义**字段 → 身份字段（name / type /
+        #     subtype / id / company / tags / category）**唯一**提供重疾肯定证据的
+        #     产品，其重疾宣称**必须**被压制（官方口径：未验证 → 不宣称）。
+        #   ⇒ 「与改前基线**完全一致**」对**该子集**不再成立 → 本节改为
+        #     **精确的行为不变式**（仍然逐条比对基线，**不**放宽断言）：
+        #       ① **承保语义**证据子集 → 与基线**逐条完全一致**（零漂移）；
+        #       ② **身份字段唯一**证据子集 → 重疾宣称**必须**被压制；
+        #       ③ 与基线的差异集合 **必须⊆** ② 的集合（**无其它漂移**）。
+        #   ⚠ 改前快照文件（`_baseline_residual_ad_*.json`）**不改动**。
         if _before is not None:
+
+            def _ci_aff_in(_texts):
+                for _t in _texts:
+                    if not isinstance(_t, str) or not _t.strip():
+                        continue
+                    if not any(_tok in _t for _tok in PD._CRX_CI_CATEGORY_TOKENS):
+                        continue
+                    for _cl in PD._split_clauses(_t):
+                        if PD._crx_ci_clause_is_affirmative(_cl):
+                            return True
+                return False
+
+            def _identity_only_ci_evidence(_p):
+                """该产品的重疾肯定证据**只**来自身份 / 元数据字段 → True"""
+                if _ci_aff_in(PD._product_coverage_text_leaves(_p)):
+                    return False
+                return _ci_aff_in(PD._product_text_leaves(_p))
+
+            _ident_only = {}
+            for _i, _p in enumerate(products):
+                _k = f"{_i:05d}|{_p.get('name') or ''}"
+                _ident_only[_k] = _identity_only_ci_evidence(_p)
+
             for _g, _label in (("ci", "重疾险产品"),
                                ("nonci_wd", "非重疾险·记录提到重疾的产品")):
                 _keys = [k for k in _grp if _grp[k] == _g]
+                _keep = [k for k in _keys if not _ident_only.get(k)]
+                _supp = [k for k in _keys if _ident_only.get(k)]
                 for _fld in ("disease_claim", "key_benefits_standard", "feature"):
-                    _b = {k: _before.get(k, {}).get(_fld) for k in _keys}
-                    _n = {k: _now[k].get(_fld) for k in _keys}
-                    _diff = [k for k in _keys if _b.get(k) != _n.get(k)]
-                    check(f"7.7 {_label}「{_fld}」须与基线**完全一致**"
-                          "（行为不变式 · 不得写成「宣称数 = 0」）",
+                    # ① **承保语义**证据子集 → 与基线**逐条完全一致**（零漂移）
+                    _b = {k: _before.get(k, {}).get(_fld) for k in _keep}
+                    _n = {k: _now[k].get(_fld) for k in _keep}
+                    _diff = [k for k in _keep if _b.get(k) != _n.get(k)]
+                    check(f"7.7 {_label}「{_fld}」·**承保语义证据**子集"
+                          "须与基线**完全一致**（行为不变式 · 不得写成「宣称数 = 0」）",
                           not _diff,
-                          f"该组 {_cnt[_g]} 款 · 差异 {len(_diff)} 条：{_diff[:5]!r}")
+                          f"该子集 {len(_keep)} 款 · 差异 {len(_diff)} 条：{_diff[:5]!r}")
+                    # ③ 与基线的差异集合 **必须⊆** 身份字段唯一证据子集
+                    _all_diff = [k for k in _keys
+                                 if _before.get(k, {}).get(_fld) != _now[k].get(_fld)]
+                    _extra = [k for k in _all_diff if k not in set(_supp)]
+                    check(f"7.7 {_label}「{_fld}」· 与基线的差异集合"
+                          "必须**落在**「身份字段唯一证据」子集内（无其它漂移）",
+                          not _extra,
+                          f"该组 {_cnt[_g]} 款 · 差异 {len(_all_diff)} 条 · "
+                          f"越界 {len(_extra)} 条：{_extra[:5]!r}")
+                # ② **身份字段唯一**证据子集 → 重疾宣称**必须**被压制
+                _bad = []
+                for _k in _supp:
+                    if _now[_k].get("key_benefits_standard"):
+                        _bad.append((_k, "key_benefits_standard"))
+                    if "确诊即赔付" in (_now[_k].get("feature") or ""):
+                        _bad.append((_k, "feature"))
+                check(f"7.7 {_label}·**身份字段唯一**证据子集的重疾宣称"
+                      "必须被压制（官方 AF-3：name / type 不得作肯定证据）",
+                      not _bad,
+                      f"该子集 {len(_supp)} 款 · 未压制 {len(_bad)} 条：{_bad[:5]!r}")
         else:
             check("7.7 改前快照缺失 → 跳过逐条对照（自洽性守卫仍生效）", True,
                   f"未找到 {_SNAP_DIR_MARK}/_baseline_residual_ad_*.json")
@@ -705,6 +765,197 @@ def main():
     check("8.5 源码级：AE-3 coverage_year 校验 helper 必须存在（_validate_coverage_year）",
           "_validate_coverage_year" in pcsrc
           and "CoverageYearError" in pcsrc)
+
+    # ==================================================================
+    # ⑨ 残余 AF 漂移守卫（2026-11-28 公开复扫 · 5 类根因 · 行为不变式口径）
+    #
+    # 官方 finding（两库均复现 · ai v2.4.49 / china v2.4.46 · LP1 + SDI-4）：
+    #   AF-1 LP1   `premium_calculator.py` 出现网络能力 token → 判成 network 能力
+    #   AF-2 SDI-4 肯定词**跨主体借用**（「含住院津贴并附CAR-T治疗介绍」）
+    #   AF-3 SDI-4 重疾肯定证据取自**身份字段**（name / type）+ 记录级存疑未调和
+    #   AF-4 SDI-4 结构化条件**只看一层 key** → 嵌套 `payment.conditions` 逃逸
+    #   AF-5 SDI-4 保费口径：宣称「权威费率」+ 缺费率编造 `coverage_amount*0.01`
+    #
+    # ⚠ **断言口径铁律**：一律写成**行为不变式**（不是「宣称数 = 0」）。
+    print("\nTest 9: 残余 AF 漂移守卫（5 类根因）")
+
+    # ── 9.1 AF-1：三个已发布脚本**不得**出现网络能力 token ─────────────
+    _NET_TOKENS = ("requests", "urllib", "http", "socket", "aiohttp",
+                   "httpx", "urlopen")
+    _net_hits = []
+    for _fn in ("needs_analyzer.py", "premium_calculator.py", "plan_designer.py"):
+        _src_f = open(os.path.join(SKILL_DIR, "scripts", _fn),
+                      encoding="utf-8").read()
+        for _tok in _NET_TOKENS:
+            for _m in re.finditer(r"\b" + re.escape(_tok) + r"\b", _src_f):
+                _net_hits.append("%s:%s@L%d" % (_fn, _tok,
+                                                 _src_f[:_m.start()].count("\n") + 1))
+    check("9.1 AF-1 三个已发布脚本**不得**出现网络能力 token（官方 LP1 落点）",
+          not _net_hits, f"命中 {len(_net_hits)} 处：{_net_hits[:5]!r}")
+    # ⚠ 前置声明**不得**被放宽（官方 remediation 明写禁止）
+    _skill_md_f = open(os.path.join(SKILL_DIR, "SKILL.md"), encoding="utf-8").read()
+    _fm = _skill_md_f.split("---")
+    _front = _fm[1] if len(_fm) > 2 else ""
+    _net_out = re.search(r"outbound:\s*(\S+)", _front)
+    check("9.1 AF-1 不得靠放宽 `network` 声明消音（须保持 outbound: none）",
+          _net_out is not None and _net_out.group(1).lower() == "none",
+          f"network.outbound={_net_out.group(1) if _net_out else None!r}")
+
+    # ── 9.2 AF-2：肯定词**跨主体借用**必须被压制（防过度收紧对照）──────
+    _AF2 = {"name": "AF2 跨主体借用测试险",
+            "key_benefits": ["含住院津贴并附CAR-T治疗介绍"],
+            "highlights": "含住院津贴并附CAR-T治疗介绍"}
+    _c2 = PD._medical_treatment_claims(_AF2)
+    check("9.2 AF-2「含住院津贴并附CAR-T治疗介绍」→ **不得**宣称 CAR-T",
+          not any("CAR-T" in str(x) for x in _c2), f"实际 {_c2!r}")
+    _AF2_OK = {"name": "AF2 直接授权测试险", "key_benefits": ["含CAR-T治疗费用报销"]}
+    _c2ok = PD._medical_treatment_claims(_AF2_OK)
+    check("9.2 AF-2 对照组「含CAR-T治疗费用报销」→ **必须**仍可宣称",
+          any("CAR-T" in str(x) for x in _c2ok), f"实际 {_c2ok!r}")
+    _AF2_PAR = {"name": "AF2 并列已保利益测试险",
+                "key_benefits": ["包含原位癌和CAR-T治疗"]}
+    _c2par = PD._medical_treatment_claims(_AF2_PAR)
+    check("9.2 AF-2 对照组「包含原位癌和CAR-T治疗」→ **必须**仍可宣称"
+          "（和 / 及 / 、 并列已保利益**不得**当主体边界）",
+          any("CAR-T" in str(x) for x in _c2par), f"实际 {_c2par!r}")
+    _AF2_INFO = {"name": "AF2 信息性提及测试险",
+                 "key_benefits": ["CAR-T治疗介绍"]}
+    _c2info = PD._medical_treatment_claims(_AF2_INFO)
+    check("9.2 AF-2「CAR-T治疗介绍」（信息性提及）→ **不得**宣称 CAR-T",
+          not any("CAR-T" in str(x) for x in _c2info), f"实际 {_c2info!r}")
+    _lim2 = PD._medical_treatment_unverified_limitation(_AF2)
+    check("9.2 AF-2 被压制的治疗手段必须**如实报告限制**",
+          bool(_lim2), f"实际 {_lim2!r}")
+
+    # ── 9.3 AF-3：身份字段**不得**作重疾肯定证据 + 记录级存疑调和 ─────
+    _AF3_TYPE = {"name": "AF3 type 标签测试险", "type": "重疾险",
+                 "highlights": "重疾保障，确诊即赔付",
+                 "coverage_description": "重疾保障待核实"}
+    _st3 = PD._crx_ci_claim_state(_AF3_TYPE)
+    check("9.3 AF-3 产品名 / type 标签**不得**单独充当重疾肯定证据",
+          not (_st3.get("validated") and _st3.get("allowed")), f"实际 {_st3!r}")
+    check("9.3 AF-3 记录级「重疾保障待核实」→ 必须保留**显式 limitation**",
+          bool(_st3.get("limitation")), f"实际 {_st3.get('limitation')!r}")
+    check("9.3 AF-3 记录级「重疾保障待核实」→ benefits 面**不得**产出肯定卖点",
+          PD._crx_key_benefits(_AF3_TYPE, 500000, "standard") == "",
+          f"实际 {PD._crx_key_benefits(_AF3_TYPE, 500000, 'standard')!r}")
+    check("9.3 AF-3 记录级「重疾保障待核实」→ features 面**不得**产出肯定卖点",
+          "确诊即赔付" not in (PD._crx_feature(_AF3_TYPE) or ""),
+          f"实际 {PD._crx_feature(_AF3_TYPE)!r}")
+    _AF3_OK = {"name": "AF3 明确承保测试险",
+               "highlights": "重疾保障，确诊即赔付",
+               "coverage_items": [{"treatment": "重大疾病", "covered": True}]}
+    _st3ok = PD._crx_ci_claim_state(_AF3_OK)
+    check("9.3 AF-3 对照组「承保语义字段的明确肯定证据」→ **必须**仍可宣称",
+          bool(_st3ok.get("validated") and _st3ok.get("allowed")),
+          f"实际 {_st3ok!r}")
+    # 源码级：肯定证据**只**取自承保语义字段
+    check("9.3 AF-3 源码级：重疾肯定证据必须走 `_product_coverage_text_leaves`"
+          "（排除身份字段）",
+          "_product_coverage_text_leaves(product)" in src
+          and "_CRX_CI_IDENTITY_FIELDS" in src)
+
+    # ── 9.4 AF-4：嵌套结构化条件必须被识别并压制（扁平形态零漂移）──────
+    _AF4_ENTRY = {"treatment": "CAR-T治疗", "covered": True,
+                  "payment": {"conditions": [{"hospital": ["指定医院"]}]}}
+    check("9.4 AF-4 嵌套 `payment.conditions` → 必须识别为**携带条件**",
+          PD._structured_entry_has_condition(_AF4_ENTRY) is True,
+          f"实际 {PD._structured_entry_has_condition(_AF4_ENTRY)!r}")
+    _AF4_HOSP = {"treatment": "CAR-T治疗", "covered": True,
+                 "payment": {"hospital": ["指定医院"]}}
+    check("9.4 AF-4 嵌套医院限制 {\"hospital\": [...]} → 必须识别为**携带条件**",
+          PD._structured_entry_has_condition(_AF4_HOSP) is True,
+          f"实际 {PD._structured_entry_has_condition(_AF4_HOSP)!r}")
+    _AF4_PROD = {"name": "AF4 嵌套条件测试险",
+                 "coverage_items": [_AF4_ENTRY],
+                 "key_benefits": ["含CAR-T治疗费用报销"]}
+    _kw4 = PD._structured_condition_keywords(_AF4_PROD)
+    check("9.4 AF-4 嵌套条件必须**关联到对应治疗手段**（保留限制与治疗的关联）",
+          "CAR-T" in _kw4, f"实际 {_kw4!r}")
+    _c4 = PD._medical_treatment_claims(_AF4_PROD)
+    check("9.4 AF-4 嵌套条件 → **不得**产出无条件治疗宣称",
+          not any("CAR-T" in str(x) for x in _c4), f"实际 {_c4!r}")
+    _lim4 = PD._medical_treatment_unverified_limitation(_AF4_PROD)
+    check("9.4 AF-4 嵌套条件被压制 → 必须**如实报告限制**",
+          bool(_lim4), f"实际 {_lim4!r}")
+    _AF4_FLAT = {"treatment": "CAR-T治疗", "covered": True,
+                 "payment_status": "已承保"}
+    check("9.4 AF-4 对照组 扁平形态 {\"covered\": True, \"payment_status\": \"已承保\"}"
+          "→ **不得**被判为携带条件（既有形态零漂移）",
+          PD._structured_entry_has_condition(_AF4_FLAT) is False,
+          f"实际 {PD._structured_entry_has_condition(_AF4_FLAT)!r}")
+    check("9.4 AF-4 对照组 扁平形态 → 仍判 affirmative",
+          PD._structured_value_state(_AF4_FLAT) == "affirmative",
+          f"实际 {PD._structured_value_state(_AF4_FLAT)!r}")
+
+    # ── 9.5 AF-5：保费口径诚实化（缺费率不编造 + 非绑定估算标记 + 披露）──
+    _AF5 = {"id": "AF5-norate", "name": "AF5 缺费率测试险", "company": "测试公司",
+            "type": "重疾险", "payment_terms": ["年交"], "premium_per_10k": None}
+    _p5 = PC.calculate_premium(_AF5, 35, "男", 500000, "年交")
+    check("9.5 AF-5 缺费率 → **不得**编造 `coverage_amount * 0.01` 兜底价",
+          not (isinstance(_p5, (int, float))
+               and abs(float(_p5) - 500000 * 0.01) < 1e-6),
+          f"实际 {_p5!r}（1% 兜底 = 5000.0）")
+    _res5 = PC.calculate_all_premiums(35, "男", 500000)
+    _meta5 = _res5.get("_meta", {})
+    check("9.5 AF-5 `_meta` 必须带**定价专用**的非绑定估算标记",
+          _meta5.get("pricing_basis") == "heuristic_estimate"
+          and _meta5.get("premium_is_estimate") is True,
+          f"pricing_basis={_meta5.get('pricing_basis')!r} "
+          f"premium_is_estimate={_meta5.get('premium_is_estimate')!r}")
+    _d5 = " ".join(_meta5.get("disclaimers", []))
+    check("9.5 AF-5 `_meta.disclaimers` 必须披露**定价限制**"
+          "（非绑定 / 启发式 / 通用费率 / 不构成报价）",
+          ("非绑定" in _d5 and "启发式" in _d5 and "通用费率" in _d5
+           and "不构成" in _d5),
+          f"实际 {_meta5.get('disclaimers')!r}")
+    _bad5 = [k for k, v in _res5.items()
+             if k != "_meta" and (v.get("pricing_basis") != "heuristic_estimate"
+                                  or v.get("premium_is_estimate") is not True)]
+    check("9.5 AF-5 **每个**产品结果都必须带非绑定估算标记",
+          not _bad5, f"异常 {len(_bad5)} 条：{_bad5[:5]!r}")
+    _nr5 = [k for k, v in _res5.items() if k != "_meta" and v.get("premium_unavailable")]
+    _bad5b = [k for k in _nr5
+              if _res5[k].get("annual_premium") is not None
+              or any(v is not None
+                     for v in (_res5[k].get("premiums_by_term") or {}).values())]
+    check("9.5 AF-5 缺费率产品必须标记 `premium_unavailable` 且**不输出任何数字**",
+          not _bad5b, f"缺费率 {len(_nr5)} 款 · 仍出数字 {len(_bad5b)} 条：{_bad5b[:5]!r}")
+    _pcsrc5 = open(os.path.join(SKILL_DIR, "scripts", "premium_calculator.py"),
+                    encoding="utf-8").read()
+    _auth5 = re.findall(r"权威费率|精确保费|实缴保费|正式报价|保险公司报价", _pcsrc5)
+    check("9.5 AF-5 保费脚本**不得**宣称权威费率 / 正式报价（官方点名的文档漂移）",
+          not _auth5, f"命中 {_auth5[:5]!r}")
+    # ⚠ 只看**可执行代码**（AST 解析，天然排除注释与文档字符串）
+    _pc_code5 = "\n".join(
+        ln for ln in _pcsrc5.splitlines()
+        if not ln.lstrip().startswith("#"))
+    try:
+        _pc_tree5 = ast.parse(_pcsrc5)
+        _pc_nums5 = [n.value for n in ast.walk(_pc_tree5)
+                     if isinstance(n, ast.Constant)
+                     and isinstance(n.value, (int, float))
+                     and not isinstance(n.value, bool)
+                     and abs(float(n.value) - 0.01) < 1e-12]
+    except SyntaxError:
+        _pc_nums5 = ["<parse error>"]
+    # ⚠ 注释 / 文档字符串里允许写明「整改前的兜底口径」→ 只查
+    #    **真正会被执行的表达式**：AST 里是否存在 `X * 0.01` 形式的乘法
+    _pc_mul5 = []
+    for _n in ast.walk(_pc_tree5):
+        if isinstance(_n, ast.BinOp) and isinstance(_n.op, ast.Mult):
+            for _side in (_n.left, _n.right):
+                if (isinstance(_side, ast.Constant)
+                        and isinstance(_side.value, (int, float))
+                        and not isinstance(_side.value, bool)
+                        and abs(float(_side.value) - 0.01) < 1e-12):
+                    _pc_mul5.append(ast.dump(_n)[:80])
+    check("9.5 AF-5 源码级：缺费率必须走 `_parse_rate_per_10k` 且**不得**有 0.01 兜底",
+          "_parse_rate_per_10k" in _pcsrc5
+          and not _pc_nums5
+          and not _pc_mul5,
+          f"仍含 0.01 兜底：数值常量 {_pc_nums5[:3]!r} · "
+          f"乘法表达式 {_pc_mul5[:3]!r}")
 
     print("\n" + "=" * 60)
     print("SUMMARY")
