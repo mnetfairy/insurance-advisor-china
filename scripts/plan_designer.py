@@ -612,6 +612,39 @@ _SUBJECT_BOUNDARY_CONNECTORS = (
     "并附", "并含", "同时", "另外", "此外", "以及", "附带", "附赠",
 )
 
+# ⚠⚠ 官方 SDI-4 残余 AG-1（2026-11-28 公开复扫 · ai AG-S1 / china AG-S1'）
+#   finding 原文：
+#     「Medical benefit generation can borrow an affirmative predicate belonging
+#       to another benefit.」
+#   explanation 原文：
+#     「… highlights reading 「住院津贴可报销而CAR-T治疗另议」 can lend 「报销」 to
+#       CAR-T because 「而」 is not a recognized boundary and 「另议」 is not treated
+#       as uncertainty, producing 「含CAR-T治疗」.」
+#   remediation 原文：
+#     「… establish predicate-to-subject relationships and classify unclear
+#       relationships as unverified instead of assuming authorization; report a
+#       corresponding limitation.」
+#
+# ③ **主体切换 / 统摄连接词**（对抗性 / 转折 / 统摄）——
+#    肯定谓词与治疗手段出现位置之间夹着这些词 → 主体已切换（或该谓词指向
+#    **别的**保障）→ **不得**授权本治疗手段。
+#    ⚠ 「和 / 及 / 、」**不在**此列（并列已保利益仍须正常授权 · 官方任务书
+#      §③.B.1 明示）。
+_SUBJECT_SWITCH_CONNECTORS = (
+    "而", "但", "不过", "然而", "却", "反而", "然则", "其中", "其间",
+)
+
+# ④ **未决表述**（另议类）—— 该治疗手段**未经确认** → **不得**授权。
+#    ⚠ 这类词**同时**进入共享存疑词表 `_UNCERTAINTY_MARKERS`（见下）→
+#      元素级存疑闸自然压制（「CAR-T治疗另议」既不跨边界、也不算存疑的根因）。
+_UNRESOLVED_TREATMENT_MARKERS = (
+    "另议", "另计", "另定", "另行", "另附", "另行约定",
+)
+
+# ⑤ **并列已保利益**的连接词（官方任务书 §③.B.1：「和 / 及 / 、」**不**算
+#    主体边界）→ 片段里出现并列连接词时，**不**按「另一个保障主体」处理。
+_ENUMERATION_CONNECTORS = ("和", "及", "、", "或", "与")
+
 # ② **信息性 / 非承保提及**语境（官方点名「treatment introductions,
 #    consultations, and other noncoverage mentions」）——
 #    该次出现只是**介绍 / 咨询 / 科普**材料 → **不得**产出肯定承保宣称。
@@ -648,6 +681,10 @@ _UNCERTAINTY_MARKERS = (
     # 条件性 / 视情况 / 需另行确认
     "视情况", "视实际", "视情形", "视核保", "视保险",
     "详见条款", "具体以", "另行确认", "需另行", "经确认",
+    # ⚠ 官方 SDI-4 残余 AG-1（2026-11-28 公开复扫）：**未决表述**（另议类）
+    #   → 「CAR-T治疗另议」既不跨主体边界、也算不上存疑 → 整改前被当**肯定**
+    #   ⇒ 纳入**共享**存疑词表 → 元素级存疑闸自然压制（**不新造词表**）。
+    "另议", "另计", "另定", "另行", "另附", "另行约定",
 )
 # 「以……为准」通用形态（以核保结果为准 / 以实际理赔为准 / 以合同为准 …）
 _RE_SUBJECT_TO = re.compile(r"以[^。；！？!?;:\n，,]{0,14}为准")
@@ -2399,6 +2436,40 @@ def _occurrence_is_affirmative(blob, occ, occurrences, spans, scope_map=None,
 
     ⚠️ 证据窗口按**字段元素**收敛（官方 SDI-4 残余 D）：空白在元素内透明，
        但不得跨元素借用肯定字样。
+
+    ⚠⚠ 官方 SDI-4 残余 AG-1（2026-11-28 公开复扫）：肯定谓词必须**绑定到
+       真正的主体**（`_affirmative_binds_to_occurrence`）—— 不再默认放行。
+    """
+    _kw, s, e = occ
+    ctx = _occurrence_context(blob, occ, occurrences, owner)
+    el_lo, el_hi = ctx["el_lo"], ctx["el_hi"]
+    # ⚠ 不确定 / 条件性表述 → 该次出现的肯定授权证据**不成立**（官方 SDI-4 残余 K）
+    #    （「CAR-T治疗是否报销待核实」「可能包含CAR-T治疗」「CAR-T报销以核保结果为准」
+    #      → 肯定关键字在场，但这句话**并没有**确认承保 → 按 unverified 压制）
+    if _has_uncertainty(blob, el_lo, el_hi):
+        return False
+    # ⚠ 适用条件 / 限制 → 同样不构成无条件授权（官方 SDI-4 残余 L）
+    if _has_condition(blob, el_lo, el_hi):
+        return False
+    # ⚠ 官方 SDI-4 残余 AF-2 ②：**信息性 / 非承保提及** → 不得产出肯定宣称
+    #   （「CAR-T治疗介绍」「质子重离子治疗咨询」只是材料，不是承保授权）。
+    if _is_informational_mention(ctx["tail"]):
+        return False
+    # ⚠ 官方 SDI-4 残余 AF-2 ① + AG-1：肯定词**绑定到它真正的主体**
+    #   → 肯定词与本次出现之间若存在**别的受益主体边界**
+    #     （官方原句：「含住院津贴**并附**CAR-T治疗介绍」里的「含」属住院津贴）
+    #     → 该肯定词**不授权**本治疗手段。
+    #   → AG-1 追加：主体切换 / 别的保障主体 / 未决表述 / 对比语境
+    #     → 一律**不授权**（关系不明确 → 按 unverified 处理）。
+    return _occurrence_subject_binding_status(
+        blob, occ, occurrences, spans, scope_map, owner,
+        extra_excluded, ctx) == "bound"
+
+
+def _occurrence_context(blob, occ, occurrences, owner):
+    """该次出现的**上下文**（窗口 / 子句 / 元素边界）→ dict
+
+    ⚠ 授权判定与 limitation 通道**共用**同一份上下文计算（避免口径漂移）。
     """
     _kw, s, e = occ
     prev_end = 0
@@ -2409,38 +2480,180 @@ def _occurrence_is_affirmative(blob, occ, occurrences, spans, scope_map=None,
         if o_s >= e and o_s < next_start:
             next_start = o_s
     el_lo, el_hi = _element_bounds(blob, owner, s, e)
-    # ⚠ 不确定 / 条件性表述 → 该次出现的肯定授权证据**不成立**（官方 SDI-4 残余 K）
-    #    （「CAR-T治疗是否报销待核实」「可能包含CAR-T治疗」「CAR-T报销以核保结果为准」
-    #      → 肯定关键字在场，但这句话**并没有**确认承保 → 按 unverified 压制）
-    if _has_uncertainty(blob, el_lo, el_hi):
-        return False
-    # ⚠ 适用条件 / 限制 → 同样不构成无条件授权（官方 SDI-4 残余 L）
-    if _has_condition(blob, el_lo, el_hi):
-        return False
     win_lo = max(prev_end, el_lo)
     win_hi = min(next_start, el_hi)
     head, head_off = _clause_head(blob[win_lo:s])
     tail, tail_off = _clause_tail(blob[e:win_hi])
+    return {
+        "el_lo": el_lo, "el_hi": el_hi,
+        "win_lo": win_lo, "win_hi": win_hi,
+        "head": head, "head_base": win_lo + head_off,
+        "tail": tail, "tail_base": e + tail_off,
+    }
+
+
+def _segment_has_switch_connector(blob, lo, hi):
+    """片段内是否存在**主体切换 / 统摄连接词** → True
+
+    ⚠ 官方 SDI-4 残余 AG-1：「而 / 但 / 不过 / 然而 / 却 / 反而 / 然则 / 其中」
+      等连接词出现 → 主体已切换（或谓词指向**别的**保障）→ **不得**授权。
+    ⚠ 「和 / 及 / 、」**不在**此列（并列已保利益仍须正常授权）。
+    """
+    if not blob or lo >= hi or hi > len(blob):
+        return False
+    seg = blob[lo:hi]
+    for conn in _SUBJECT_SWITCH_CONNECTORS:
+        if conn in seg:
+            return True
+    return False
+
+
+def _segment_has_other_coverage_subject(blob, lo, hi):
+    """片段内是否存在**另一个保障主体名词** → True
+
+    ⚠ 官方 SDI-4 残余 AG-1：肯定谓词属于**别的保障**时**不得**授权本治疗手段。
+    ⇒ 复用**既有共享词表** `_CRX_DISTINCT_OBJECT_CUES`（Tier A · 确凿的独立
+      保障对象：津贴 / 身故 / 伤残 / 年金 / 住院 / 门诊 / 手术 / 药品 …）
+      —— **不新造**「保障主体名词表」（多份词表 = 必然复发）。
+    ⚠ **并列已保利益**（官方任务书 §③.B.1：「和 / 及 / 、」不算主体边界）
+      → 片段含并列连接词时**不**按「另一个保障主体」处理。
+    """
+    if not blob or lo >= hi or hi > len(blob):
+        return False
+    seg = blob[lo:hi]
+    for conn in _ENUMERATION_CONNECTORS:
+        if conn in seg:
+            return False               # 并列已保利益 → 不是「另一个主体」
+    for cue in _CRX_DISTINCT_OBJECT_CUES:
+        if cue in seg:
+            return True
+    return False
+
+
+def _segment_has_unresolved_marker(blob, lo, hi):
+    """片段内是否存在**未决表述**（另议类）→ True
+
+    ⚠ 官方 SDI-4 残余 AG-1：「CAR-T治疗另议」→ 该治疗手段**未经确认**
+      → **不得**授权（且已进共享存疑词表 → 元素级存疑闸同样压制）。
+    """
+    if not blob or lo >= hi or hi > len(blob):
+        return False
+    seg = blob[lo:hi]
+    for m in _UNRESOLVED_TREATMENT_MARKERS:
+        if m in seg:
+            return True
+    return False
+
+
+def _affirmative_binds_to_occurrence(blob, occ, marker, direction, el_lo, el_hi):
+    """该肯定词是否**绑定**到该次治疗手段出现 → bool
+
+    ⚠ 官方 SDI-4 残余 AG-1 remediation 原文：
+      「… establish predicate-to-subject relationships and classify unclear
+        relationships as unverified instead of assuming authorization …」
+
+    口径（head / tail **两侧对称** · 间隔段 = 肯定词 ↔ 治疗手段之间）：
+      ① 间隔段含**主体切换连接词**（而 / 但 / 不过 / 然而 / 却 / 反而 / 其中 …）
+         → 主体已切换 → **不得**授权；
+      ② 间隔段含**另一个保障主体名词**（`_CRX_DISTINCT_OBJECT_CUES`）
+         → 肯定词属于**那个保障** → **不得**授权；
+      ③ 间隔段含**未决表述**（另议类）→ 该治疗**未经确认** → **不得**授权；
+      ④ 既有受益主体边界（`_SUBJECT_BOUNDARY_CONNECTORS`：并附 / 并含 / …）
+         → **不得**授权；
+      ⑤ **对比 / 转折语境**：元素内（到较晚一方为止）出现主体切换连接词
+         → 主体关系**不明确** → **不得**授权；
+      以上均不命中 → **绑定**（默认口径：肯定词与治疗手段**直接相邻**时绑定）。
+
+    ⚠ **未采用的候选口径（已量化后否决）**：把「肯定词的**主语上下文**里出现
+      另一个保障主体名词」也当压制条件（官方语义上更贴题），但在真实语料上会
+      误伤 27 款产品（「癌症医疗费用报销、质子重离子」这类「报销」的宾语本身
+      是「医疗费用」→ 被误判成「谓词属于别的保障」）→ 违反「治疗手段宣称集合
+      0 差异」的零漂移不变量 ⇒ 本轮**只**在**间隔段**内做主体归属检查。
+    """
+    s, e = occ
+    ts, te = marker
+    if direction == "head":
+        seg_lo, seg_hi = te, s           # 间隔段：肯定词 → 治疗手段
+    else:
+        seg_lo, seg_hi = e, ts           # 间隔段：治疗手段 → 肯定词
+    if _segment_has_switch_connector(blob, seg_lo, seg_hi):
+        return False
+    if _segment_has_other_coverage_subject(blob, seg_lo, seg_hi):
+        return False
+    if _segment_has_unresolved_marker(blob, seg_lo, seg_hi):
+        return False
+    if direction == "head":
+        if _has_subject_boundary(blob, te, s):
+            return False
+    else:
+        if _has_subject_boundary(blob, e, ts):
+            return False
+    if _segment_has_switch_connector(blob, el_lo, max(te, e)):
+        return False
+    return True
+
+
+def _occurrence_subject_binding_status(blob, occ, occurrences, spans,
+                                       scope_map=None, owner=None,
+                                       extra_excluded=(), ctx=None):
+    """该次出现的**主体绑定**状态 → "bound" / "unclear" / "none"
+
+    ⚠ 官方 SDI-4 残余 AG-1 remediation 原文：
+      「… classify unclear relationships as unverified instead of assuming
+        authorization; **report a corresponding limitation**.」
+    ⇒ "unclear"（肯定谓词在场、但无法证明它管的就是本治疗手段）
+      → 该治疗手段**不得**被宣称，且方案层必须**如实报告限制**。
+    ⇒ "none"（根本没有有效肯定谓词 / 谓词落在除外作用域内）
+      → 由既有通道（除外 / 条件 / 存疑）处理，**不**重复报告。
+    """
+    if ctx is None:
+        ctx = _occurrence_context(blob, occ, occurrences, owner)
+    _kw, s, e = occ
     excluded = tuple((sc, ec, f) for (sc, ec, f) in (scope_map or {}).get((s, e), ()))
     excluded = excluded + tuple(extra_excluded or ())
     field = None
     if owner is not None and s < len(owner):
         field = owner[s]
-    # ⚠ 官方 SDI-4 残余 AF-2 ②：**信息性 / 非承保提及** → 不得产出肯定宣称
-    #   （「CAR-T治疗介绍」「质子重离子治疗咨询」只是材料，不是承保授权）。
-    if _is_informational_mention(tail):
+    markers = []
+    for (ts, te) in _valid_affirmative_markers(ctx["head"], ctx["head_base"],
+                                                spans, excluded, owner, field):
+        markers.append(((ts, te), "head"))
+    for (ts, te) in _valid_affirmative_markers(ctx["tail"], ctx["tail_base"],
+                                                spans, excluded, owner, field):
+        markers.append(((ts, te), "tail"))
+    if not markers:
+        return "none"
+    for (span, direction) in markers:
+        if _affirmative_binds_to_occurrence(
+                blob, (s, e), span, direction, ctx["el_lo"], ctx["el_hi"]):
+            return "bound"
+    return "unclear"
+
+
+def _treatment_subject_binding_unclear(product, keyword):
+    """该治疗手段是否因**主体关系不明确**被压制 → bool
+
+    ⚠ 官方 SDI-4 残余 AG-1 remediation 原文：
+      「… classify unclear relationships as unverified instead of assuming
+        authorization; **report a corresponding limitation**.」
+    ⇒ 肯定谓词**存在**、但无法证明它管的就是本治疗手段（主体已切换 /
+      谓词属于别的保障 / 该治疗未决）→ 不得宣称 + **必须**如实报告限制。
+    """
+    blob = _medical_fact_text(product)
+    if not blob:
         return False
-    # ⚠ 官方 SDI-4 残余 AF-2 ①：肯定词**绑定到它真正的主体**
-    #   → 肯定词与本次出现之间若存在**别的受益主体边界**
-    #     （官方原句：「含住院津贴**并附**CAR-T治疗介绍」里的「含」属住院津贴）
-    #     → 该肯定词**不授权**本治疗手段。
-    for (ts, te) in _valid_affirmative_markers(head, win_lo + head_off, spans,
-                                                excluded, owner, field):
-        if not _has_subject_boundary(blob, te, s):
-            return True
-    for (ts, te) in _valid_affirmative_markers(tail, e + tail_off, spans,
-                                                excluded, owner, field):
-        if not _has_subject_boundary(blob, e, ts):
+    owner_blob, owner = _medical_fact_owner_map(product)
+    occurrences, spans, bound = _negation_context(blob, owner)
+    if not occurrences:
+        return False
+    scope_map = _negation_scope_map(blob, occurrences, spans, owner)
+    all_scopes = tuple(sc for scopes in scope_map.values() for sc in scopes)
+    for occ in occurrences:
+        if occ[0] != keyword:
+            continue
+        status = _occurrence_subject_binding_status(
+            blob, occ, occurrences, spans, scope_map, owner, all_scopes)
+        if status == "unclear":
             return True
     return False
 
@@ -2679,7 +2892,13 @@ def _medical_treatment_unverified_limitation(product):
     #   → 未获授权 → 不得宣称，且必须**如实报告限制**。
     informational = [kw for kw in _TREATMENT_CLAIMS
                      if kw in text and _treatment_informational_only(product, kw)]
-    if not denied and not conditioned and not informational:
+    # ⚠ 官方 SDI-4 残余 AG-1：肯定谓词与治疗手段的**主体关系不明确**
+    #   （主体已切换 / 谓词属于别的保障 / 该治疗未决）
+    #   → 未获授权 → 不得宣称，且必须**如实报告限制**（不得静默）。
+    subject_unclear = [kw for kw in _TREATMENT_CLAIMS
+                       if kw in text
+                       and _treatment_subject_binding_unclear(product, kw)]
+    if not denied and not conditioned and not informational and not subject_unclear:
         return None
     if denied:
         reason = ("产品结构化保障条目对「%s」的承保决定自相矛盾或无法解释，"
@@ -2690,6 +2909,11 @@ def _medical_treatment_unverified_limitation(product):
                   "（如指定医院、编码准入、需转诊），条件无法完整呈现，"
                   "相关治疗手段不作无条件宣称"
                   % "、".join(conditioned))
+    elif subject_unclear:
+        reason = ("产品条款中「%s」的肯定表述与该治疗手段的**主体关系不明确**"
+                  "（肯定表述可能指向其它保障，或该保障仍处于未决状态），"
+                  "未构成对该治疗手段保障责任的肯定授权，已不作对外宣称"
+                  % "、".join(subject_unclear))
     else:
         reason = ("产品条款中「%s」仅以介绍 / 咨询等非承保语境出现，"
                   "未构成对治疗手段保障责任的肯定授权，已不作对外宣称"
@@ -4446,7 +4670,8 @@ def _crx_key_benefits(product, coverage, style="standard"):
     return f"重疾保障，确诊即赔付{amount}万"
 
 
-def _crx_ci_category_unverified_limitation(product, no_evidence=False):
+def _crx_ci_category_unverified_limitation(product, no_evidence=False,
+                                          structured_conflict=None):
     """类别级重疾除外**存疑**（未决）时的**如实限制说明** → dict | None
 
     ⚠ 官方 SDI-4 残余 AD（2026-11-26 公开复扫）remediation 原文：
@@ -4459,10 +4684,19 @@ def _crx_ci_category_unverified_limitation(product, no_evidence=False):
     ⚠ 官方 SDI-4 残余 AE-2（2026-11-27 公开复扫）新增 `no_evidence=True`：
       记录里**缺少**肯定的重疾承保证据时，同样必须**如实报告限制**
       （**不得**静默留空）→ **复用同一套**限制文案体系（**不新造体系**）。
+
+    ⚠ 官方 SDI-4 残余 AG-2 / AG-3 新增 `structured_conflict=<状态>`：
+      结构化字段里存在与重疾主体相关的**否定 / 矛盾 / 限制**条目时，
+      必须**如实报告限制**（**不得**静默留空）→ 仍**复用同一套**限制文案
+      体系（**不新造体系**），只是把**依据**写准确。
     """
     if not product:
         return None
-    if no_evidence:
+    if structured_conflict:
+        basis = ("产品记录中存在与重疾保障相关的结构化%s"
+                 % _STRUCTURED_CI_CONFLICT_REASON.get(structured_conflict,
+                                                      "存疑条目"))
+    elif no_evidence:
         basis = "产品记录中缺少对重疾保障范围的肯定证据"
     else:
         if not _crx_record_ci_category_state(product)["unresolved"]:
@@ -4719,42 +4953,131 @@ def _crx_ci_clause_is_affirmative(clause):
     return True
 
 
+def _crx_ci_structured_entries(product):
+    """结构化权威字段里**匹配重疾主体**的全部条目 → [(ident, entry, kind), ...]
+
+    ⚠ 官方 SDI-4 残余 AG-2 / AG-3 remediation 原文：
+      「Compute a single critical-illness coverage state that associates **every**
+        structured decision, exclusion, and nested restriction with its coverage
+        subject.」
+    ⇒ 必须遍历 `_STRUCTURED_AUTHORITY_FIELDS` 的**全部**条目（不得只看第一个
+      命中项），并把每个条目与它的**标识**关联起来。
+
+    kind：
+      · "dict"  → dict 形态条目（决定状态走 `_structured_value_state`）
+      · "bare"  → 裸字符串条目（共享 schema `_structured_bare_string_state`
+                  → 匹配即 **ambiguous**）
+    """
+    out = []
+    if not isinstance(product, dict):
+        return out
+    for field in _STRUCTURED_AUTHORITY_FIELDS:
+        value = product.get(field)
+        if isinstance(value, dict):
+            for key, entry in value.items():
+                if not isinstance(key, str) or not key.strip():
+                    continue
+                if not any(tok in key for tok in _CRX_CI_CATEGORY_TOKENS):
+                    continue
+                out.append((key, entry, "dict"))
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                if isinstance(item, str):
+                    # 裸字符串条目 → 标识就是字符串本身（共享 schema）
+                    if not any(tok in item for tok in _CRX_CI_CATEGORY_TOKENS):
+                        continue
+                    out.append((item, item, "bare"))
+                    continue
+                if not isinstance(item, dict):
+                    continue
+                ident = _structured_item_identifier(item)
+                if not isinstance(ident, str) or not ident.strip():
+                    continue
+                if not any(tok in ident for tok in _CRX_CI_CATEGORY_TOKENS):
+                    continue
+                out.append((ident, item, "dict"))
+    return out
+
+
+# 结构化重疾覆盖状态的**调和口径**（两库同源同口径 · 单一事实源）
+#   匹配条目里**任一**为下列状态 → **压制**（不得判 validated / allowed）
+_STRUCTURED_CI_SUPPRESS_STATES = ("negative", "contradictory", "ambiguous",
+                                  "conditioned")
+# 状态 → 如实限制文案里的**依据**表述（**不得**断言「已承保」）
+_STRUCTURED_CI_CONFLICT_REASON = {
+    "negative": "否定条目",
+    "contradictory": "自相矛盾条目",
+    "ambiguous": "无法解读的条目",
+    "conditioned": "带适用条件的条目",
+}
+
+
+def _crx_ci_structured_coverage_state(product):
+    """**结构化重疾覆盖状态**（AG-2 / AG-3 的**单一事实源**）→ str
+
+    ⚠ 官方 SDI-4 残余 AG-2（ai）finding 原文：
+      「The supposedly validated critical-illness state can ignore explicit
+        structured coverage denials and restrictions.」
+    ⚠ 官方 SDI-4 残余 AG-3（china）finding 原文：
+      「The supposedly validated critical-illness state can ignore explicit
+        structured noncoverage and emit affirmative coverage claims.」
+    remediation 原文（两库同文）：
+      「Compute a single critical-illness coverage state that associates every
+        structured decision, exclusion, and nested restriction with its coverage
+        subject. Require **all** matching entries to reconcile before allowing
+        claims; negative, ambiguous, conflicting, or uninterpretable conditional
+        entries must suppress unsupported claims and produce an explicit
+        limitation.」
+      「do not let affirmative text or another affirmative entry override them」
+
+    返回：
+      "none"          → **无匹配条目**（维持既有口径）
+      "affirmative"   → 匹配条目**全部**为肯定决定且**无**限制
+      "negative"      → 存在显式否定条目
+      "contradictory" → 存在自相矛盾条目
+      "ambiguous"     → 存在无法解读的条目
+      "conditioned"   → 存在带适用条件（编码准入 / 指定医院 …）的条目
+
+    ⚠ 判定**复用既有**共享 helper（**不新造判定**）：
+      · 决定状态 → `_structured_value_state`（dict 形态）
+                   / `_structured_bare_string_state`（裸字符串形态）
+      · 限制状态 → `_structured_entry_has_condition`
+    """
+    entries = _crx_ci_structured_entries(product)
+    if not entries:
+        return "none"
+    states = []
+    for _ident, entry, kind in entries:
+        if kind == "bare":
+            state = _structured_bare_string_state(
+                entry, _normalize_treatment_identifier(entry))
+            state = state or "ambiguous"
+        else:
+            state = _structured_value_state(entry)
+        if state == "affirmative" and _structured_entry_has_condition(entry):
+            # ⚠ 官方 AG-2 补充：结构化肯定证据**必须**查
+            #   `_structured_entry_has_condition` → 带编码准入 / 指定医院等
+            #   限制的条目**不得**算「干净肯定证据」。
+            state = "conditioned"
+        states.append(state)
+    # ⚠ 调和规则：**任一**匹配条目非肯定 → 压制（官方明写：文本肯定证据与
+    #   另一个肯定条目**都不得**盖过结构化否定 / 矛盾 / 限制）。
+    for _st in _STRUCTURED_CI_SUPPRESS_STATES:
+        if _st in states:
+            return _st
+    return "affirmative"
+
+
 def _crx_ci_structured_affirmative_evidence(product):
     """结构化权威字段里是否存在**重疾类**的肯定承保证据 → bool
 
     ⚠ 与授权路径**同一状态**（`_structured_value_state`）→ contradictory /
       ambiguous 的条目**不**算肯定证据。
+    ⚠ 官方 SDI-4 残余 AG-2 / AG-3：**带限制**的条目（`_structured_entry_has_condition`）
+      同样**不**算「干净肯定证据」→ 统一走 `_crx_ci_structured_coverage_state`
+      （**单一事实源**）。
     """
-    if not isinstance(product, dict):
-        return False
-    for field in _STRUCTURED_AUTHORITY_FIELDS:
-        value = product.get(field)
-        entries = []
-        if isinstance(value, dict):
-            entries = list(value.items())
-        elif isinstance(value, (list, tuple)):
-            entries = [(None, item) for item in value]
-        for key, entry in entries:
-            ident = key if isinstance(key, str) else None
-            if isinstance(entry, dict):
-                if not ident:
-                    ident = _structured_item_identifier(entry)
-                if not isinstance(ident, str) or not ident.strip():
-                    continue
-                if not any(tok in ident for tok in _CRX_CI_CATEGORY_TOKENS):
-                    continue
-                if _structured_value_state(entry) != "affirmative":
-                    continue
-                return True
-            # 布尔形态：{"重疾": true}
-            if not ident:
-                continue
-            if not any(tok in ident for tok in _CRX_CI_CATEGORY_TOKENS):
-                continue
-            if _structured_decision_state(entry) != "affirmative":
-                continue
-            return True
-    return False
+    return _crx_ci_structured_coverage_state(product) == "affirmative"
 
 
 def _crx_ci_text_affirmative_evidence(product):
@@ -4839,14 +5162,49 @@ def _crx_ci_claim_state(product):
     #   ⇒ 修法：**肯定证据闸**（`_crx_ci_affirmative_evidence`）——
     #     记录级必须存在**肯定的重疾承保证据**才允许产出肯定宣称。
     has_evidence = _crx_ci_affirmative_evidence(product)
+    # ⚠⚠ 官方 SDI-4 残余 AG-2 / AG-3（2026-11-28 公开复扫 · ai AG-S2 /
+    #   china AG-S3' · Excessive Agency · MEDIUM · confidence 0.99）
+    #   finding 原文（ai）：
+    #     「The supposedly validated critical-illness state can ignore explicit
+    #       structured coverage denials and restrictions.」
+    #   finding 原文（china）：
+    #     「The supposedly validated critical-illness state can ignore explicit
+    #       structured noncoverage and emit affirmative coverage claims.」
+    #   remediation 原文（两库同文）：
+    #     「Compute a single critical-illness coverage state that associates
+    #       every structured decision, exclusion, and nested restriction with its
+    #       coverage subject. Require all matching entries to reconcile before
+    #       allowing claims; negative, ambiguous, conflicting, or uninterpretable
+    #       conditional entries must suppress unsupported claims and produce an
+    #       explicit limitation.」
+    #     「do not let affirmative text or another affirmative entry override
+    #       them」
+    #   ⇒ 根因：共享状态**只查肯定**证据 → 结构化**否定 / 矛盾 / 限制**
+    #     从不传播进来 → `coverage_items={"重疾": false}` 被 highlights 的肯定
+    #     文本盖过 → `allowed=true`。
+    #   ⇒ 修法：**结构化重疾覆盖状态**（`_crx_ci_structured_coverage_state` ·
+    #     **单一事实源**）作为 `validated` / `allowed` 的**必要条件**。
+    structured_ci_state = _crx_ci_structured_coverage_state(product)
+    structured_suppress = structured_ci_state in _STRUCTURED_CI_SUPPRESS_STATES
+    if structured_suppress:
+        # ⚠ 官方明写：肯定**文本证据**与另一个**肯定条目**都**不得**盖过结构化
+        #   否定 / 矛盾 / 限制 → 强制 `has_evidence=False` + `unverified=True`。
+        has_evidence = False
+        unverified = True
     if not has_evidence:
         unverified = True
     limitation = _crx_ci_category_limitation(product)
     if limitation is None and unverified:
-        # ⚠ 官方 SDI-4 残余 S-1：共享状态 `unverified` 时**必须**返回非空 limitation
-        #   （轻症**单独**除外时不得返回 None → 方案层不得静默），且须与
-        #   「重疾类别级除外」的限制文案**可区分**。
-        limitation = _crx_mild_unverified_limitation(product, mild)
+        # ⚠ 官方 SDI-4 残余 AG-2 / AG-3：结构化否定 / 矛盾 / 限制 → **必须**
+        #   如实报告限制（**不得**静默留空 · 复用既有限制文案体系）。
+        if structured_suppress:
+            limitation = _crx_ci_category_unverified_limitation(
+                product, structured_conflict=structured_ci_state)
+        if limitation is None:
+            # ⚠ 官方 SDI-4 残余 S-1：共享状态 `unverified` 时**必须**返回非空 limitation
+            #   （轻症**单独**除外时不得返回 None → 方案层不得静默），且须与
+            #   「重疾类别级除外」的限制文案**可区分**。
+            limitation = _crx_mild_unverified_limitation(product, mild)
         if limitation is None:
             # ⚠ 官方 SDI-4 残余 AD：类别级**存疑**未决 → 如实报告限制
             #   （**不得**静默留空）。

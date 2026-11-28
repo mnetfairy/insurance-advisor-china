@@ -31,10 +31,10 @@
       "policy": "优先位为业务决策，保留不变；联系方式展示策略按各 skill 现状（见 SKILL.md 权限声明）。",
       "updated_at": "2026-10-26"
     },
-    "version": "2.4.47",
-    "updated_at": "2026-11-27T16:03:11.131916+00:00",
+    "version": "2.4.48",
+    "updated_at": "2026-11-28T16:02:57.867558+00:00",
     "description": "保险产品库整理版，保留在售及有效产品",
-    "total_products": 2592,
+    "total_products": 2594,
     "active_products": 516,
     "dedup_applied": true,
     "verified_count": 50,
@@ -67,7 +67,7 @@
     "new_2025_products_added": 12,
     "enriched_products": 239,
     "cleanup_round2": "removed 8 additional garbage entries",
-    "daily_updated_at": "2026-11-28",
+    "daily_updated_at": "2026-11-29",
     "total_active": 516,
     "total_inactive": 2049,
     "last_updated": "2026-04-18",
@@ -86,8 +86,8 @@
       "定期寿险": 35,
       "终身寿险": 40
     },
-    "active_count": 552,
-    "lastUpdated": "2026-11-27T16:03:11.053083+00:00",
+    "active_count": 554,
+    "lastUpdated": "2026-11-28T16:02:57.789453+00:00",
     "policy_validity_check_at": "2026-07-12T17:15:47.479462+00:00",
     "policy_validity_check_summary": {
       "targets_total": 105,
@@ -100,8 +100,8 @@
       "needs_review": 0,
       "errors": 0
     },
-    "last_refreshed_at": "2026-11-27T16:12:39.109795+00:00",
-    "refresh_count": 172,
+    "last_refreshed_at": "2026-11-28T16:11:34.028996+00:00",
+    "refresh_count": 173,
     "duplicates": [
       {
         "dup_index": 205,
@@ -187265,6 +187265,26 @@
       "needs_human_review": true,
       "is_active": true,
       "addedAt": "2026-11-27T16:03:10.960581+00:00"
+    },
+    {
+      "name": "i她A款女性特定疾病保险",
+      "type": "医疗险",
+      "company": "平安人寿保险",
+      "source": "discovery_channel",
+      "source_url": "https://zhuanlan.zhihu.com/p/2012843299849929155",
+      "needs_human_review": true,
+      "is_active": true,
+      "addedAt": "2026-11-28T16:02:57.691152+00:00"
+    },
+    {
+      "name": "平安钟爱一生养老年金保险",
+      "type": "年金险",
+      "company": "平安人寿保险",
+      "source": "discovery_channel",
+      "source_url": "https://zhuanlan.zhihu.com/p/21659821669",
+      "needs_human_review": true,
+      "is_active": true,
+      "addedAt": "2026-11-28T16:02:57.691164+00:00"
     }
   ]
 }

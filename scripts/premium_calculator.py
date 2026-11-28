@@ -62,6 +62,50 @@
    行为：默认（include_discontinued=False）已停售/已下架产品不进入推荐与对比列表；
         它们仍计入"全部产品"总数口径，并在 _meta.disclaimers 中说明排除数量。
         在售产品的保费计算公式未做任何改动。
+
+🆕 2026-11-28 缴费期（payment_term）**真实生效**（SDI-4 残余 AG-4）
+   ── 官方 finding 原文（china v2.4.47 · Excessive Agency · MEDIUM）：
+     「A requested payment term is silently ignored when unavailable, despite
+       the comment promising to return only that term.」
+   ── 整改前的**两个**根因（都已被主侧实测复现）：
+     ① **契约**：请求了 payment_term 但产品不支持 → `else` 分支**静默返回全部
+        缴费期**（官方点名 L593–620）→ 下游把「成功返回」当成「满足了客户要求」。
+     ② **字段根因**：`available_terms = product.get("payment_terms", ["年交"])`
+        —— **`payment_terms` 这个 key 在产品库里根本不存在**（2592 款命中 0 款）；
+        真实字段是 **`payment_choices`**（list · 2111 款命中）
+        ⇒ `available_terms` **恒等于 ["年交"]** ⇒ 任何请求的缴费期都「不可用」
+        ⇒ **每一款产品都落进 all-terms fallback**。
+        同源 bug：`compare_payment_terms` 读的是同一个不存在的字段 → 恒空 → 空转。
+   ── 整改后（口径）：
+     ① **入参校验**：payment_term 必须是 **None** 或**非空字符串**；
+        非法值 → **显式报错**（`PaymentTermError`）→ **不得**静默忽略。
+     ② **真实字段**：`payment_choices` 为**权威**缴费期来源；
+        `payment_choices` 缺失时**兼容**既有 `payment_terms` 字段；
+        两者都缺失 → 沿用既有默认 `["年交"]`（**零漂移**；
+        **不得**把「缺失」解释成「支持所有缴费期」）。
+     ③ **筛选**（payment_term 已指定时）：
+        支持 ⇔ `payment_term ∈ 可用缴费期`；
+        · 支持 → **只**返回该缴费期的**单期**结果（`annual_premium` +
+          `payment_term`）→ **不得**再走 all-terms 分支；
+        · 不支持 → **排除该产品**，排除数量在 `_meta.payment_term_filtered_out`
+          **披露**；
+        · **无法验证**（缴费期字段缺失/为空）→ 按「不支持」排除
+          （**无法验证 ≠ 满足**，与 AE-3 轮 `coverage_year` 同口径）。
+     ④ **区分两种「拿不到价」**：
+        · 不支持该缴费期 → **排除该产品**（不进结果）；
+        · 支持该缴费期但**缺费率** → **保留该产品**，沿用既有 AF-5 口径
+          （`premium_unavailable=True` + `premium_unavailable_reason`，
+          **不输出任何数字**、**不编造**兜底价）。
+     ⑤ **显式拒绝**：给定 payment_term 后**筛不出任何产品** → **显式报错**
+        （`PaymentTermError`；**不得**返回空列表假装成功、
+        **不得**回退到全缴费期）。
+     ⑥ **零漂移**：`payment_term=None` → 行为与整改前**完全一致**
+        （返回全部可用缴费期 · 不筛选 · 不报错）；
+        启发式缴费期系数（趸交 0.85 / 3年 0.95 / 5年 1.0 / 10年 1.05 /
+        20年 1.15 / 30年 1.25）与「医疗险 / 意外险一律按年交算」**未改动**；
+        `premium_is_estimate` / `pricing_basis` / `premium_unavailable`
+        字段**未删改**；既有 `CoverageYearError` 路径**未受影响**
+        （`coverage_year` 与 `payment_term` 两条筛选**可叠加**）。
 """
 
 import json
@@ -134,6 +178,107 @@ def _validate_coverage_year(coverage_year):
         raise CoverageYearError(
             "coverage_year 必须是正整数（单位：年），实际收到：%r" % (coverage_year,))
     return coverage_year
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 缴费期（payment_term）· **真实字段**与**显式拒绝**口径
+#
+# ⚠ 官方 SDI-4 残余 AG-4（2026-11-28 公开复扫 · ai AG-S4 / china AG-S4'）：
+#   「A requested payment term is silently ignored when unavailable, despite the
+#    comment promising to return only that term.」
+#   remediation 原文：
+#     「Validate payment_term and, when it is specified, return only products
+#       supporting that term. Explicitly report products excluded for an
+#       unsupported term, distinguish unavailable rate data from unsupported
+#       payment schedules, and return an error if no products can satisfy the
+#       request.」
+#
+# ⇒ ① `payment_terms` **不是**产品库的字段（实测 2592 款命中 0 款）→ 真实字段是
+#     **`payment_choices`**；② 请求的缴费期不支持时**不得**静默回退到全部缴费期。
+# ══════════════════════════════════════════════════════════════════════
+
+# 产品库中**不存在**的字段名（保留注释以说明历史根因，不再用于取值）
+_LEGACY_PAYMENT_TERMS_FIELD = "payment_terms"
+# 产品库中**真实存在**的缴费期字段
+_PAYMENT_CHOICES_FIELD = "payment_choices"
+# 缴费期字段全部缺失时的**既有默认**（零漂移 · 不解释成「支持所有缴费期」）
+_DEFAULT_PAYMENT_TERMS = ("年交",)
+
+
+class PaymentTermError(ValueError):
+    """缴费期入参非法 / 按缴费期筛不出任何产品（**显式拒绝** · 不得静默忽略）。
+
+    ⚠ 官方 SDI-4 残余 AG-4 remediation 原文：
+      「… return an error if no products can satisfy the request.」
+    ⇒ 继承 `ValueError` → 既有 `except ValueError` 的调用方仍能捕获。
+    """
+
+
+def _validate_payment_term(payment_term):
+    """payment_term 入参校验 → 规范化后的值（None 或非空字符串）
+
+    口径：**None**（不按缴费期筛选）或**非空字符串**（如「10年」/「趸交」）。
+    ⚠ 非法值（空串 / 空白串 / 非字符串）→ **显式报错**（不静默忽略）。
+    """
+    if payment_term is None:
+        return None
+    if not isinstance(payment_term, str) or not payment_term.strip():
+        raise PaymentTermError(
+            "payment_term 必须是 None 或非空字符串（缴费期，如「10年」/「趸交」），"
+            "实际收到：%r" % (payment_term,))
+    return payment_term.strip()
+
+
+def _normalize_payment_terms(raw):
+    """缴费期取值列表 → 归一化列表（非空字符串 · 去空白 · 去重 · 保序）
+
+    ⚠ **不得**把 `payment_choices` 的取值改写成「年交」等其它口径
+      （真实语料取值：趸交 / 1年 / 3年 / 5年 / 10年 / 15年 / 20年 / 30年）。
+    """
+    if not isinstance(raw, (list, tuple)):
+        return []
+    out = []
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        term = item.strip()
+        if term and term not in out:
+            out.append(term)
+    return out
+
+
+def _available_payment_terms(product):
+    """产品**可用**的缴费期 → list[str]
+
+    口径（**单一事实源** · 优先级从高到低）：
+      ① `payment_choices`（产品库**真实字段**）→ 归一化后即结果；
+         字段存在但为空 / 格式不对 → **[]**（= 缴费期**无法验证**）。
+      ② `payment_choices` 缺失 → 兼容既有 `payment_terms` 字段（历史记录）。
+      ③ 两者都缺失 → 既有默认 `["年交"]`（**零漂移**；
+         **不得**解释成「支持所有缴费期」）。
+    """
+    if not isinstance(product, dict):
+        return []
+    if _PAYMENT_CHOICES_FIELD in product:
+        return _normalize_payment_terms(product.get(_PAYMENT_CHOICES_FIELD))
+    legacy = _normalize_payment_terms(product.get(_LEGACY_PAYMENT_TERMS_FIELD))
+    if legacy:
+        return legacy
+    return list(_DEFAULT_PAYMENT_TERMS)
+
+
+def _product_supports_payment_term(product, payment_term):
+    """该产品是否**支持**客户要求的缴费期 → bool
+
+    ⚠ 缴费期**无法验证**（字段缺失且无默认 / 字段为空）→ **不得**声称满足
+      → **False**（与 AE-3 轮 `coverage_year` 同口径：无法验证 ≠ 满足）。
+    """
+    if payment_term is None:
+        return True
+    terms = _available_payment_terms(product)
+    if not terms:
+        return False
+    return payment_term in terms
 
 
 def _verified_coverage_duration(product, age=None):
@@ -529,13 +674,27 @@ def calculate_all_premiums(age, gender, coverage_amount, product_types=None, pay
               **显式披露**。
         include_discontinued: False=默认不返回已停售/已下架产品；
                               True=显式查询停售产品（含在结果中并标注）。
+        payment_term: 客户要求的**缴费期**（如「10年」/「趸交」· None = 不按缴费期筛选）。
+            · 必须是 **None** 或**非空字符串** → 非法值**显式报错**
+              （`PaymentTermError`）→ **不得**静默忽略。
+            · 给定后**按产品库真实字段 `payment_choices` 筛选**产品
+              （支持该缴费期者保留；不支持 / 缴费期**无法验证**者排除，
+              排除数量在 `_meta.payment_term_filtered_out` **披露**）。
+            · 支持该缴费期的产品**只**返回该缴费期的**单期**结果
+              （`annual_premium` + `payment_term`）→ **不得**走全部缴费期分支。
+            · 给定后**筛不出任何产品** → **显式报错**（`PaymentTermError`）
+              → 不得返回空列表假装成功、不得回退到全部缴费期。
     """
     coverage_year = _validate_coverage_year(coverage_year)
+    # ⚠ 官方 SDI-4 残余 AG-4：payment_term **真实生效**（校验 + 筛选 + 单期返回）
+    payment_term = _validate_payment_term(payment_term)
     products = load_products(include_discontinued=include_discontinued)
     stats = load_product_stats(include_discontinued=include_discontinued)
     pool_disclaimers = _pool_disclaimers(stats)
     # ⚠ 官方 SDI-4 残余 AE-3：coverage_year **真实生效**（产品筛选）
     coverage_filtered_out = 0
+    # ⚠ 官方 SDI-4 残余 AG-4：payment_term **真实生效**（产品筛选）
+    payment_term_filtered_out = 0
     # ⚠ 官方 SDI-4 残余 AF-5：缺费率的产品计数（**不编造兜底价**）
     rate_unavailable_count = 0
 
@@ -559,10 +718,22 @@ def calculate_all_premiums(age, gender, coverage_amount, product_types=None, pay
             coverage_filtered_out += 1
             continue
 
+        # ⚠ 官方 SDI-4 残余 AG-4：payment_term **真实生效**（产品筛选）
+        #   （不支持 / 缴费期无法验证 → **不得**声称满足 → 排除）
+        if payment_term is not None and not _product_supports_payment_term(
+                product, payment_term):
+            payment_term_filtered_out += 1
+            continue
+
         # 计算保费
         premiums_by_term = {}
         rate_unavailable = False
-        available_terms = product.get("payment_terms", ["年交"])
+        if payment_term is not None:
+            # ⚠ AG-4：指定缴费期 → **只算该期**（不得走 all-terms 分支）
+            available_terms = [payment_term]
+        else:
+            # 未指定缴费期 → 沿用既有「全部可用缴费期」口径（**零漂移**）
+            available_terms = list(_DEFAULT_PAYMENT_TERMS)
 
         for term in available_terms:
             if product.get("type") in ["医疗险", "意外险"]:
@@ -591,7 +762,10 @@ def calculate_all_premiums(age, gender, coverage_amount, product_types=None, pay
             )
 
         # 如果指定了缴费期，只返回该缴费期
-        if payment_term and payment_term in premiums_by_term:
+        # ⚠ 官方 SDI-4 残余 AG-4：请求的缴费期**不支持**的产品已在上面被排除
+        #   ⇒ 走到这里的**一定**是「支持该缴费期」的产品 → **单期**结果
+        #   （缺费率时 annual_premium = None，**不编造**兜底价）
+        if payment_term is not None:
             results[product.get("id")] = {
                 "name": product.get("name"),
                 "company": product.get("company"),
@@ -651,6 +825,14 @@ def calculate_all_premiums(age, gender, coverage_amount, product_types=None, pay
             "（产品池 %d 款，其中 %d 款因保障期限无法验证或不足被排除）"
             % (coverage_year, stats["eligible_products"], coverage_filtered_out))
 
+    # ⚠ 官方 SDI-4 残余 AG-4：给定 payment_term 却**筛不出任何产品**
+    #   → **显式报错**（不得返回空列表假装成功 · 不得回退到全部缴费期）
+    if payment_term is not None and returned_count == 0:
+        raise PaymentTermError(
+            "按缴费期 %s 筛选后没有任何产品满足条件"
+            "（产品池 %d 款，其中 %d 款因不支持该缴费期或缴费期无法验证被排除）"
+            % (payment_term, stats["eligible_products"], payment_term_filtered_out))
+
     # ⚠ 官方 SDI-4 残余 AE-3：**如实披露**保障期限口径与保费口径
     coverage_disclaimers = []
     if coverage_year is not None:
@@ -661,6 +843,17 @@ def calculate_all_premiums(age, gender, coverage_amount, product_types=None, pay
         coverage_disclaimers.append(
             "ℹ️ 保费按各产品自身费率计算，未按保障期限加权"
             "（产品库无按保障期限分档的费率表）")
+
+    # ⚠ 官方 SDI-4 残余 AG-4：**如实披露**缴费期筛选口径
+    payment_term_disclaimers = []
+    if payment_term is not None:
+        payment_term_disclaimers.append(
+            "ℹ️ 缴费期筛选依据产品库 `payment_choices` 字段（要求支持 %s）；"
+            "已排除 %d 款不支持该缴费期或缴费期无法验证的产品"
+            % (payment_term, payment_term_filtered_out))
+        payment_term_disclaimers.append(
+            "ℹ️ 仅返回支持 %s 的产品的该缴费期报价（未回退为全部缴费期）"
+            % payment_term)
 
     # ⚠ 官方 SDI-4 残余 AF-5：**定价口径诚实化**（非绑定启发式估算）
     #   ⚠ 披露内容必须覆盖**这一层**定价限制（既有 disclaimers 只覆盖保障期限）。
@@ -686,11 +879,15 @@ def calculate_all_premiums(age, gender, coverage_amount, product_types=None, pay
         # ⚠ 官方 SDI-4 残余 AE-3：coverage_year 的**可观测**效果
         "coverage_year": coverage_year,
         "coverage_year_filtered_out": coverage_filtered_out,
+        # ⚠ 官方 SDI-4 残余 AG-4：payment_term 的**可观测**效果
+        "payment_term": payment_term,
+        "payment_term_filtered_out": payment_term_filtered_out,
         # ⚠ 官方 SDI-4 残余 AF-5：定价口径（机器可读标记 + 缺费率计数）
         "pricing_basis": _PRICING_BASIS,
         "premium_is_estimate": True,
         "rate_unavailable_count": rate_unavailable_count,
         "disclaimers": (pool_disclaimers + coverage_disclaimers
+                        + payment_term_disclaimers
                         + pricing_disclaimers),
     }
 
@@ -698,7 +895,12 @@ def calculate_all_premiums(age, gender, coverage_amount, product_types=None, pay
 
 
 def compare_payment_terms(products_list, age, gender, coverage_amount, include_discontinued=False):
-    """对比不同缴费期的保费"""
+    """对比不同缴费期的保费
+
+    ⚠ 官方 SDI-4 残余 AG-4：整改前读的是产品库里**不存在**的 `payment_terms`
+      → 恒空 → 本函数**空转**（永远不产出任何缴费期报价）
+      ⇒ 改读**真实字段** `payment_choices`（同 `_available_payment_terms` 口径）。
+    """
     products = load_products(include_discontinued=include_discontinued)
     comparison = []
 
@@ -715,7 +917,8 @@ def compare_payment_terms(products_list, age, gender, coverage_amount, include_d
 
         row["pricing_basis"] = _PRICING_BASIS
         row["premium_is_estimate"] = True
-        for term in product.get("payment_terms", []):
+        # ⚠ 官方 SDI-4 残余 AG-4：真实缴费期字段（`payment_choices`）
+        for term in _available_payment_terms(product):
             if product.get("type") in ["医疗险", "意外险"]:
                 annual = calculate_premium(product, age, gender, coverage_amount, "年交")
             else:
